@@ -1,0 +1,545 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  STUDENT
+  VENDOR
+}
+
+enum AmbassadorLevel {
+  BRONZE
+  SILVER
+  GOLD
+}
+
+enum AppealStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum MenuItemType {
+  FIXED
+  CUSTOMIZABLE
+}
+
+enum OrderStatus {
+  PENDING
+  ACCEPTED
+  IN_PREPARATION
+  READY
+  RECEIVED
+  AUTO_RECEIVED
+  REFUSED
+  CANCELLED_VENDOR
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCESS
+  FAILED
+}
+
+enum TransactionType {
+  DEPOSIT
+  ESCROW_LOCK
+  ESCROW_RELEASE
+  PAYMENT
+  REFUND
+  WITHDRAWAL
+  COMMISSION
+  AMBASSADOR_COMMISSION
+  DEBT_RECOVERY
+}
+
+enum EscrowStatus {
+  LOCKED
+  RELEASED
+  COMPLETED
+}
+
+enum WithdrawalStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+}
+
+enum PaymentOperator {
+  FLOOZ
+  MIXX
+}
+
+enum DevicePlatform {
+  ANDROID
+  IOS
+  WEB
+}
+
+model Campus {
+  id          String    @id @default(uuid())
+  name        String
+  city        String
+  institution String
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  users   User[]
+  vendors VendorCampus[]
+
+  @@index([name])
+  @@index([city])
+}
+
+model User {
+  id              String    @id @default(uuid())
+  phone           String?   @unique
+  email           String?   @unique
+  password        String?
+  firstName       String?
+  lastName        String?
+  role            UserRole  @default(STUDENT)
+  campusId        String?
+  walletBalance   Int       @default(0)
+  escrowBalance   Int       @default(0)
+  isSuspended     Boolean   @default(false)
+  suspensionUntil DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  campus               Campus?              @relation(fields: [campusId], references: [id])
+  orders               Order[]              @relation("StudentOrders")
+  transactions         Transaction[]        @relation("TransactionUser")
+  reviews              Review[]
+  vendor               Vendor?
+  ambassador           Ambassador?
+  notifications        Notification[]
+  devices              Device[]
+  refreshTokens        RefreshToken[]
+  auditLogs            AuditLog[]
+  escrows              Escrow[]
+  payments             Payment[]
+  abuseLogs            AbuseLog[]
+  affiliate            AmbassadorAffiliate?
+  changedOrderStatuses OrderStatusHistory[]
+
+  @@index([phone])
+  @@index([email])
+  @@index([role])
+  @@index([campusId])
+  @@index([isSuspended])
+}
+
+model Vendor {
+  id          String    @id @default(uuid())
+  userId      String    @unique
+  canteenName String
+  logoUrl     String?
+  description String?
+  balanceFcfa Decimal   @default(0) @db.Decimal(10, 2)
+  debtFcfa    Decimal   @default(0) @db.Decimal(10, 2)
+  isActive    Boolean   @default(true)
+  isOpen      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  user        User           @relation(fields: [userId], references: [id])
+  campuses    VendorCampus[]
+  menuItems   MenuItem[]
+  orders      Order[]
+  withdrawals Withdrawal[]
+  debts       Debt[]
+  reviews     Review[]
+
+  @@index([canteenName])
+  @@index([isOpen])
+  @@index([isActive])
+}
+
+model VendorCampus {
+  vendorId String
+  campusId String
+  vendor   Vendor @relation(fields: [vendorId], references: [id])
+  campus   Campus @relation(fields: [campusId], references: [id])
+
+  @@id([vendorId, campusId])
+}
+
+model MenuItem {
+  id              String       @id @default(uuid())
+  vendorId        String
+  name            String
+  description     String?
+  type            MenuItemType @default(FIXED)
+  priceTickets    Int
+  imageUrl        String?
+  isAvailable     Boolean      @default(true)
+  preparationTime Int?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+
+  vendor     Vendor            @relation(fields: [vendorId], references: [id])
+  components MenuComponent[]
+  packaging  PackagingOption[]
+  orderItems OrderItem[]
+}
+
+model MenuComponent {
+  id               String    @id @default(uuid())
+  itemId           String
+  name             String
+  unitPriceTickets Int       @default(0)
+  minQty           Int       @default(0)
+  maxQty           Int       @default(1)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  menuItem            MenuItem             @relation(fields: [itemId], references: [id])
+  orderItemComponents OrderItemComponent[]
+}
+
+model PackagingOption {
+  id        String    @id @default(uuid())
+  itemId    String
+  name      String
+  extraCost Int       @default(0)
+  required  Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  menuItem MenuItem @relation(fields: [itemId], references: [id])
+  orders   Order[]
+}
+
+model Order {
+  id                String      @id @default(uuid())
+  studentId         String
+  vendorId          String
+  status            OrderStatus @default(PENDING)
+  totalTickets      Int
+  escrowAmount      Decimal     @db.Decimal(10, 2)
+  packagingOptionId String?
+  reason            String?
+  readyAt           DateTime?
+  confirmedAt       DateTime?
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+  deletedAt         DateTime?
+
+  student             User                 @relation("StudentOrders", fields: [studentId], references: [id])
+  vendor              Vendor               @relation(fields: [vendorId], references: [id])
+  packagingOption     PackagingOption?     @relation(fields: [packagingOptionId], references: [id])
+  items               OrderItem[]
+  escrows             Escrow[]
+  review              Review?
+  statusHistory       OrderStatusHistory[]
+  relatedTransactions Transaction[]        @relation("TransactionOrder")
+
+  @@index([studentId])
+  @@index([vendorId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([status, createdAt])
+  @@index([vendorId, status])
+  @@index([studentId, status])
+}
+
+model OrderStatusHistory {
+  id          String      @id @default(uuid())
+  orderId     String
+  oldStatus   OrderStatus
+  newStatus   OrderStatus
+  changedById String?
+  createdAt   DateTime    @default(now())
+
+  order     Order @relation(fields: [orderId], references: [id])
+  changedBy User? @relation(fields: [changedById], references: [id])
+
+  @@index([orderId])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  itemId    String
+  quantity  Int
+  unitPrice Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order      Order                @relation(fields: [orderId], references: [id])
+  menuItem   MenuItem             @relation(fields: [itemId], references: [id])
+  components OrderItemComponent[]
+}
+
+model OrderItemComponent {
+  id          String   @id @default(uuid())
+  orderItemId String
+  componentId String
+  quantity    Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  orderItem     OrderItem     @relation(fields: [orderItemId], references: [id])
+  menuComponent MenuComponent @relation(fields: [componentId], references: [id])
+}
+
+model Payment {
+  id                String          @id @default(uuid())
+  userId            String
+  operator          PaymentOperator
+  amountFcfa        Decimal         @db.Decimal(10, 2)
+  ticketsReceived   Int
+  fedapayReference  String?         @unique
+  externalReference String?
+  status            PaymentStatus   @default(PENDING)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+  deletedAt         DateTime?
+
+  user                  User                   @relation(fields: [userId], references: [id])
+  ambassadorCommissions AmbassadorCommission[]
+  relatedTransactions   Transaction[]          @relation("TransactionPayment")
+}
+
+model Transaction {
+  id               String          @id @default(uuid())
+  userId           String
+  type             TransactionType
+  amount           Decimal         @db.Decimal(10, 2)
+  reference        String          @unique
+  description      String?
+  relatedOrderId   String?
+  relatedPaymentId String?
+  createdAt        DateTime        @default(now())
+
+  user           User     @relation("TransactionUser", fields: [userId], references: [id])
+  relatedOrder   Order?   @relation("TransactionOrder", fields: [relatedOrderId], references: [id])
+  relatedPayment Payment? @relation("TransactionPayment", fields: [relatedPaymentId], references: [id])
+
+  @@index([userId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+model Escrow {
+  id        String       @id @default(uuid())
+  orderId   String
+  studentId String
+  amount    Decimal      @db.Decimal(10, 2)
+  status    EscrowStatus @default(LOCKED)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  deletedAt DateTime?
+
+  order   Order @relation(fields: [orderId], references: [id])
+  student User  @relation(fields: [studentId], references: [id])
+
+  @@index([orderId])
+  @@index([studentId])
+}
+
+model Withdrawal {
+  id          String           @id @default(uuid())
+  vendorId    String
+  amount      Decimal          @db.Decimal(10, 2)
+  platformFee Decimal          @db.Decimal(10, 2)
+  operatorFee Decimal          @db.Decimal(10, 2)
+  status      WithdrawalStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  deletedAt   DateTime?
+
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+}
+
+model Debt {
+  id              String    @id @default(uuid())
+  vendorId        String
+  amount          Decimal   @db.Decimal(10, 2)
+  remainingAmount Decimal   @db.Decimal(10, 2)
+  reason          String?
+  isRecovered     Boolean   @default(false)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  vendor Vendor @relation(fields: [vendorId], references: [id])
+}
+
+model Review {
+  id        String    @id @default(uuid())
+  orderId   String    @unique
+  studentId String
+  vendorId  String
+  rating    Int       @db.SmallInt
+  comment   String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  order   Order  @relation(fields: [orderId], references: [id])
+  student User   @relation(fields: [studentId], references: [id])
+  vendor  Vendor @relation(fields: [vendorId], references: [id])
+}
+
+model AbuseLog {
+  id          String    @id @default(uuid())
+  studentId   String
+  count       Int       @default(0)
+  windowStart DateTime  @default(now())
+  warningSent Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  student User @relation(fields: [studentId], references: [id])
+
+  @@index([studentId])
+}
+
+model Ambassador {
+  id        String          @id @default(uuid())
+  userId    String          @unique
+  level     AmbassadorLevel @default(BRONZE)
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  deletedAt DateTime?
+
+  user        User                   @relation(fields: [userId], references: [id])
+  affiliates  AmbassadorAffiliate[]
+  commissions AmbassadorCommission[]
+  appeals     AmbassadorAppeal[]
+}
+
+model AmbassadorAffiliate {
+  id           String    @id @default(uuid())
+  ambassadorId String
+  studentId    String    @unique
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
+
+  ambassador Ambassador @relation(fields: [ambassadorId], references: [id])
+  student    User       @relation(fields: [studentId], references: [id])
+}
+
+model AmbassadorCommission {
+  id           String    @id @default(uuid())
+  ambassadorId String
+  paymentId    String
+  amount       Decimal   @db.Decimal(10, 2)
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
+
+  ambassador Ambassador @relation(fields: [ambassadorId], references: [id])
+  payment    Payment    @relation(fields: [paymentId], references: [id])
+}
+
+model AmbassadorAppeal {
+  id           String       @id @default(uuid())
+  ambassadorId String
+  reason       String
+  status       AppealStatus @default(PENDING)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  deletedAt    DateTime?
+
+  ambassador Ambassador @relation(fields: [ambassadorId], references: [id])
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  title     String
+  message   String
+  type      NotificationType @default(INFO)
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  deletedAt DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+}
+
+model Device {
+  id          String         @id @default(uuid())
+  userId      String
+  deviceToken String         @unique
+  platform    DevicePlatform
+  lastUsedAt  DateTime       @default(now())
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+  deletedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model RefreshToken {
+  id          String    @id @default(uuid())
+  userId      String
+  token       String    @unique
+  hashedToken String?
+  expiresAt   DateTime
+  revoked     Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+model AuditLog {
+  id        String    @id @default(uuid())
+  adminId   String
+  action    String
+  entity    String
+  entityId  String
+  metadata  Json?
+  createdAt DateTime  @default(now())
+  deletedAt DateTime?
+
+  admin User @relation(fields: [adminId], references: [id])
+}
+
+model OtpCode {
+  id        String    @id @default(uuid())
+  phone     String
+  code      String
+  attempts  Int       @default(0)
+  expiresAt DateTime
+  used      Boolean   @default(false)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  @@index([phone])
+  @@index([expiresAt])
+}

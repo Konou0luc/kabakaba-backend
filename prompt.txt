@@ -1,0 +1,426 @@
+Tu es un Architecte Logiciel Senior spécialisé en NestJS, PostgreSQL, Prisma et systèmes transactionnels.
+
+Je développe le backend d'une plateforme appelée Nésso, une application de commande et paiement pour cantines universitaires.
+
+L'objectif est de générer une API professionnelle, scalable, maintenable et prête pour la production.
+
+STACK TECHNIQUE
+
+Utiliser uniquement :
+
+NestJS
+PostgreSQL
+Prisma ORM
+JWT Authentication
+Swagger
+Class Validator
+Class Transformer
+Railway Deployment
+Neon PostgreSQL
+
+Ne pas utiliser Docker.
+
+ARCHITECTURE
+
+Créer une architecture modulaire :
+
+src/
+
+common/
+config/
+database/
+
+auth/
+users/
+campuses/
+vendors/
+catalog/
+orders/
+wallet/
+payments/
+transactions/
+reviews/
+abuse/
+ambassadors/
+notifications/
+admin/
+supervision/
+
+Chaque module doit contenir :
+
+controllers/
+services/
+dto/
+entities/
+guards/
+interfaces/
+ROLES
+
+Créer un enum :
+
+SUPER_ADMIN
+ADMIN
+STUDENT
+VENDOR
+AMBASSADOR
+AUTHENTIFICATION
+
+Étudiant :
+
+Connexion OTP téléphone
+JWT Access Token
+Refresh Token
+
+Vendeur :
+
+Email + Mot de passe
+JWT Access Token
+Refresh Token
+
+Admin :
+
+Email + Mot de passe
+JWT Access Token
+
+Prévoir RBAC.
+
+ENTITES PRINCIPALES
+
+Toutes les entités doivent hériter de :
+
+BaseEntity
+
+avec :
+
+id
+createdAt
+updatedAt
+deletedAt
+USER
+id
+phone
+email
+password
+firstName
+lastName
+role
+campusId
+walletBalance
+escrowBalance
+isSuspended
+suspensionUntil
+createdAt
+updatedAt
+deletedAt
+
+Relations :
+
+Campus
+Orders
+Transactions
+Reviews
+Vendor
+Ambassador
+CAMPUS
+id
+name
+city
+institution
+isActive
+VENDOR
+id
+userId
+canteenName
+balanceFcfa
+debtFcfa
+isActive
+isOpen
+
+Relation Many-To-Many avec Campus.
+
+Créer :
+
+VendorCampus
+MENU ITEM
+id
+vendorId
+name
+description
+type
+priceTickets
+imageUrl
+isAvailable
+
+type :
+
+FIXED
+CUSTOMIZABLE
+MENU COMPONENT
+id
+itemId
+name
+unitPriceTickets
+minQty
+maxQty
+PACKAGING OPTION
+id
+itemId
+name
+extraCost
+required
+
+Exemples :
+
+Sur place
+Sachet
+Take Away
+ORDER STATUS
+PENDING
+ACCEPTED
+IN_PREPARATION
+READY
+RECEIVED
+AUTO_RECEIVED
+REFUSED
+CANCELLED_VENDOR
+REFUNDED
+ORDER
+id
+studentId
+vendorId
+status
+totalTickets
+escrowAmount
+packagingOptionId
+reason
+readyAt
+confirmedAt
+createdAt
+ORDER ITEM
+id
+orderId
+itemId
+quantity
+unitPrice
+ORDER ITEM COMPONENT
+
+Permet de sauvegarder les composants choisis lors des commandes personnalisées.
+
+id
+orderItemId
+componentId
+quantity
+PAYMENT
+
+Recharge portefeuille étudiant.
+
+id
+userId
+operator
+amountFcfa
+ticketsReceived
+fedapayReference
+status
+createdAt
+
+Operator :
+
+FLOOZ
+MIXX
+
+Status :
+
+PENDING
+SUCCESS
+FAILED
+TRANSACTION
+
+Créer un véritable ledger financier.
+
+Types :
+
+DEPOSIT
+ESCROW_LOCK
+ESCROW_RELEASE
+PAYMENT
+REFUND
+WITHDRAWAL
+COMMISSION
+AMBASSADOR_COMMISSION
+DEBT_RECOVERY
+
+Table :
+
+id
+userId
+type
+amount
+reference
+description
+createdAt
+ESCROW
+
+Historique du séquestre.
+
+id
+orderId
+studentId
+amount
+status
+createdAt
+
+Status :
+
+LOCKED
+RELEASED
+COMPLETED
+WITHDRAWAL
+id
+vendorId
+amount
+platformFee
+operatorFee
+status
+createdAt
+DEBT
+id
+vendorId
+amount
+remainingAmount
+reason
+isRecovered
+createdAt
+REVIEW
+id
+orderId
+studentId
+vendorId
+rating
+comment
+createdAt
+ABUSE LOG
+
+Gestion des étudiants abusifs.
+
+id
+studentId
+count
+windowStart
+warningSent
+createdAt
+AMBASSADOR
+
+Créer :
+
+Ambassador
+AmbassadorAffiliate
+AmbassadorCommission
+AmbassadorAppeal
+
+Règles :
+
+Bronze : 0.5%
+
+Argent : 0.8%
+
+Or : 1.2%
+
+Calcul automatique sur 30 jours glissants.
+
+NOTIFICATION
+
+Créer une table :
+
+id
+userId
+title
+message
+type
+isRead
+createdAt
+DEVICE
+
+Pour les notifications push Firebase.
+
+id
+userId
+deviceToken
+platform
+lastUsedAt
+REFRESH TOKEN
+id
+userId
+token
+expiresAt
+revoked
+AUDIT LOG
+
+Tracer toutes les actions administratives.
+
+id
+adminId
+action
+entity
+entityId
+metadata
+createdAt
+SECURITE
+
+Implémenter :
+
+JWT Guard
+Role Guard
+Validation DTO
+Global Exception Filter
+Rate Limiting
+Password Hashing avec bcrypt
+PRISMA
+
+Générer :
+
+schema.prisma complet
+relations
+indexes
+contraintes
+enums
+
+Utiliser UUID partout.
+
+Créer les index nécessaires pour :
+
+recherches commandes
+recherches transactions
+recherches campus
+recherches vendeurs
+statistiques supervision
+SWAGGER
+
+Documenter automatiquement :
+
+/auth
+/users
+/campuses
+/vendors
+/catalog
+/orders
+/payments
+/transactions
+/reviews
+/ambassadors
+/admin
+/supervision
+IMPORTANT
+
+Ne génère pas encore toute la logique métier.
+
+Je veux d'abord :
+
+Architecture complète
+Prisma Schema complet
+DTO principaux
+Modules NestJS
+Contrôleurs vides
+Services vides
+Swagger prêt
+
+La logique métier sera implémentée ensuite module par module.
