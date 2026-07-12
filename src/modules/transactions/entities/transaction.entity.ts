@@ -6,6 +6,12 @@ export class TransactionEntity extends BaseEntity {
   @ApiProperty({ example: 'user-uuid' })
   userId: string;
 
+  @ApiProperty({ example: 'user-uuid-sender', required: false, description: 'Identifiant de l\'utilisateur expéditeur (pour les transferts)' })
+  senderId?: string;
+
+  @ApiProperty({ example: 'user-uuid-receiver', required: false, description: 'Identifiant de l\'utilisateur destinataire (pour les transferts)' })
+  receiverId?: string;
+
   @ApiProperty({ enum: TransactionType })
   type: TransactionType;
 

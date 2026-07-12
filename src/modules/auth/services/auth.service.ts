@@ -8,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { UsersService } from '../../users/services/users.service';
+import { SmsService } from '../../sms/services/sms.service';
 import { SendOtpDto } from '../dto/send-otp.dto';
 import { VerifyOtpDto } from '../dto/verify-otp.dto';
 import { LoginEmailDto } from '../dto/login-email.dto';
@@ -21,6 +22,7 @@ export class AuthService {
     private readonly usersService: UsersService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly smsService: SmsService,
   ) {}
 
   async sendOtp(sendOtpDto: SendOtpDto) {
@@ -60,7 +62,14 @@ export class AuthService {
       });
     }
 
-    console.log(`OTP for ${phone}: ${code}`);
+    try {
+      await this.smsService.sendSms(
+        phone,
+        `Votre code de vérification Kabakaba est: ${code}`,
+      );
+    } catch (error) {
+      console.error(`Erreur lors de l'envoi du SMS OTP: ${error.message}`);
+    }
 
     return {
       message: 'Code OTP envoyé avec succès',

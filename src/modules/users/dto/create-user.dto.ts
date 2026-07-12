@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsOptional, IsPhoneNumber, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsOptional, IsPhoneNumber, IsString, MinLength, IsBoolean } from 'class-validator';
 import { UserRole } from '@prisma/client';
 
 export class CreateUserDto {
@@ -27,6 +27,11 @@ export class CreateUserDto {
   @IsString()
   lastName: string;
 
+  @ApiProperty({ example: 'https://example.com/avatar.jpg', required: false, description: 'URL de l\'avatar' })
+  @IsOptional()
+  @IsString()
+  avatarUrl?: string;
+
   @ApiProperty({ enum: UserRole, default: UserRole.STUDENT, description: 'Rôle de l\'utilisateur' })
   @IsEnum(UserRole)
   role: UserRole;
@@ -35,4 +40,19 @@ export class CreateUserDto {
   @IsOptional()
   @IsString()
   campusId?: string;
+
+  @ApiProperty({ default: true, description: 'Recevoir des notifications pour les commandes' })
+  @IsOptional()
+  @IsBoolean()
+  notifyOrders?: boolean;
+
+  @ApiProperty({ default: true, description: 'Recevoir des notifications pour le programme ambassadeur' })
+  @IsOptional()
+  @IsBoolean()
+  notifyAmbassador?: boolean;
+
+  @ApiProperty({ default: false, description: 'Recevoir des notifications pour les promotions' })
+  @IsOptional()
+  @IsBoolean()
+  notifyPromotions?: boolean;
 }

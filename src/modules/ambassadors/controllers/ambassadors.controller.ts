@@ -25,6 +25,7 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { GetCurrentUserId } from '../../../common/decorators/get-current-user.decorator';
 
 @ApiTags('Ambassadors')
 @Controller('ambassadors')
@@ -60,6 +61,16 @@ export class AmbassadorsController {
       paginationDto.page,
       paginationDto.limit,
     );
+  }
+
+  @Get('me')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Récupérer le profil ambassadeur de l\'utilisateur actuel' })
+  @ApiResponse({ status: 200, description: 'Retourne l\'ambassadeur.', type: AmbassadorEntity })
+  @ApiResponse({ status: 404, description: 'Ambassadeur introuvable.' })
+  getMe(@GetCurrentUserId() userId: string) {
+    return this.ambassadorsService.findByUserId(userId);
   }
 
   @Get(':id')

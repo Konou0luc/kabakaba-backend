@@ -48,6 +48,16 @@ export class AmbassadorsService {
     return ambassador;
   }
 
+  async findByUserId(userId: string) {
+    const ambassador = await this.prisma.ambassador.findUnique({
+      where: { userId, deletedAt: null },
+    });
+
+    if (!ambassador) throw new NotFoundException(`Ambassadeur pour l'utilisateur ${userId} introuvable`);
+
+    return ambassador;
+  }
+
   async update(id: string, updateAmbassadorDto: UpdateAmbassadorDto) {
     await this.findOne(id);
     return this.prisma.ambassador.update({

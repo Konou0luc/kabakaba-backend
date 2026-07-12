@@ -20,17 +20,72 @@ import {
 import { PaymentsService } from '../services/payments.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
+import { CreatePaymentIntentDto } from '../dto/create-payment-intent.dto';
+import { InitiatePaymentDto } from '../dto/initiate-payment.dto';
 import { PaymentEntity } from '../entities/payment.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { GetCurrentUserId } from '../../../common/decorators/get-current-user.decorator';
 
 @ApiTags('Payments')
 @Controller('payments')
 export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
+
+  @Post('intent')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STUDENT)
+  @ApiOperation({
+    summary: 'Créer une intention de paiement (Étudiant seulement)',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Intention de paiement créée avec succès.',
+  })
+  createPaymentIntent(
+    @Body() createPaymentIntentDto: CreatePaymentIntentDto,
+    @GetCurrentUserId() userId: string,
+  ) {
+    return this.paymentsService.createPaymentIntent(
+      createPaymentIntentDto.amount,
+      createPaymentIntentDto.ticketsReceived,
+      createPaymentIntentDto.operator,
+      userId,
+    );
+  }
+
+  @Post(':id/initiate')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STUDENT)
+  @ApiOperation({
+    summary: 'Initier un paiement Mobile Money (Étudiant seulement)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Paiement initié avec succès.',
+  })
+  initiatePayment(
+    @Param('id') paymentId: string,
+    @Body() initiatePaymentDto: InitiatePaymentDto,
+  ) {
+    return this.paymentsService.initiatePayment(
+      paymentId,
+      initiatePaymentDto.phoneNumber,
+    );
+  }
+
+  @Post('webhook')
+  @ApiOperation({
+    summary: 'Webhook pour les notifications de statut de paiement FedaPay',
+  })
+  handleWebhook(@Body() webhookData: any) {
+    return this.paymentsService.handleWebhook(webhookData);
+  }
 
   @Post()
   @ApiBearerAuth()

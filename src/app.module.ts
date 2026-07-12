@@ -18,6 +18,7 @@ import { AmbassadorsModule } from './modules/ambassadors/ambassadors.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SupervisionModule } from './modules/supervision/supervision.module';
+import { SmsModule } from './modules/sms/sms.module';
 
 @Module({
   imports: [
@@ -41,6 +42,7 @@ import { SupervisionModule } from './modules/supervision/supervision.module';
     NotificationsModule,
     AdminModule,
     SupervisionModule,
+    SmsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

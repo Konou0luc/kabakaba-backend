@@ -1,11 +1,112 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
+import { FedapayService } from './fedapay.service';
+import { UsersService } from '../../users/services/users.service';
+import { PaymentStatus } from '@prisma/client';
 
 @Injectable()
 export class PaymentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(PaymentsService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fedapayService: FedapayService,
+    private readonly usersService: UsersService,
+  ) {}
+
+  async createPaymentIntent(
+    amount: number,
+    ticketsReceived: number,
+    operator: string,
+    userId: string,
+  ) {
+    const user = await this.usersService.findOne(userId);
+    if (!user) throw new NotFoundException('Utilisateur introuvable');
+
+    const fedapayTransaction = await this.fedapayService.createTransaction(
+      amount,
+      'XOF',
+      'Rechargement de portefeuille Kabakaba',
+      {
+        name: `${user.firstName} ${user.lastName}`,
+        email: user.email || undefined,
+        phone: user.phone || undefined,
+      },
+      { userId, ticketsReceived },
+    );
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        userId,
+        operator: operator as any,
+        amountFcfa: amount,
+        ticketsReceived,
+        fedapayReference: fedapayTransaction.transaction.id || '',
+        status: PaymentStatus.PENDING,
+      },
+    });
+
+    return { payment, fedapayTransaction };
+  }
+
+  async initiatePayment(paymentId: string, phoneNumber: string) {
+    const payment = await this.findOne(paymentId);
+    if (payment.status !== PaymentStatus.PENDING) {
+      throw new BadRequestException('Paiement déjà initié ou traité');
+    }
+
+    const fedapayPayment = await this.fedapayService.initiateMobileMoneyPayment(
+      payment.fedapayReference || '',
+      phoneNumber,
+      payment.operator,
+    );
+
+    return fedapayPayment;
+  }
+
+  async handleWebhook(webhookData: any) {
+    this.logger.log('Webhook FedaPay reçu:', webhookData);
+    const event = webhookData.event;
+    const transactionId = event?.transaction?.id;
+
+    if (!transactionId) {
+      throw new BadRequestException('Données de webhook invalides');
+    }
+
+    const payment = await this.prisma.payment.findFirst({
+      where: { fedapayReference: transactionId },
+    });
+
+    if (!payment) {
+      throw new NotFoundException('Paiement introuvable pour cette transaction');
+    }
+
+    let newStatus: PaymentStatus;
+    switch (event.type) {
+      case 'transaction.succeeded':
+        newStatus = PaymentStatus.SUCCESS;
+        await this.prisma.user.update({
+          where: { id: payment.userId },
+          data: { walletBalance: { increment: payment.ticketsReceived } },
+        });
+        break;
+      case 'transaction.failed':
+      case 'transaction.cancelled':
+        newStatus = PaymentStatus.FAILED;
+        break;
+      default:
+        return { message: 'Événement non traité' };
+    }
+
+    await this.prisma.payment.update({
+      where: { id: payment.id },
+      data: { status: newStatus },
+    });
+
+    return { message: 'Webhook traité avec succès' };
+  }
 
   async create(createPaymentDto: CreatePaymentDto, userId: string) {
     return this.prisma.payment.create({
@@ -68,4 +169,5 @@ export class PaymentsService {
       data: { deletedAt: new Date() },
     });
   }
+
 }

@@ -22,6 +22,16 @@ export class CreateTransactionDto {
   @IsString()
   description?: string;
 
+  @ApiProperty({ example: 'user-uuid-sender', required: false, description: 'Identifiant de l\'utilisateur expéditeur (pour les transferts)' })
+  @IsOptional()
+  @IsString()
+  senderId?: string;
+
+  @ApiProperty({ example: 'user-uuid-receiver', required: false, description: 'Identifiant de l\'utilisateur destinataire (pour les transferts)' })
+  @IsOptional()
+  @IsString()
+  receiverId?: string;
+
   @ApiProperty({ example: 'order-uuid', required: false, description: 'Identifiant de la commande associée' })
   @IsOptional()
   @IsString()

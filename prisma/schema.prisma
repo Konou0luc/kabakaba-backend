@@ -61,6 +61,7 @@ enum TransactionType {
   COMMISSION
   AMBASSADOR_COMMISSION
   DEBT_RECOVERY
+  TRANSFER
 }
 
 enum EscrowStatus {
@@ -111,25 +112,31 @@ model Campus {
 }
 
 model User {
-  id              String    @id @default(uuid())
-  phone           String?   @unique
-  email           String?   @unique
-  password        String?
-  firstName       String?
-  lastName        String?
-  role            UserRole  @default(STUDENT)
-  campusId        String?
-  walletBalance   Int       @default(0)
-  escrowBalance   Int       @default(0)
-  isSuspended     Boolean   @default(false)
-  suspensionUntil DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
+  id               String    @id @default(uuid())
+  phone            String?   @unique
+  email            String?   @unique
+  password         String?
+  firstName        String?
+  lastName         String?
+  avatarUrl        String?
+  role             UserRole  @default(STUDENT)
+  campusId         String?
+  walletBalance    Int       @default(0)
+  escrowBalance    Int       @default(0)
+  isSuspended      Boolean   @default(false)
+  suspensionUntil  DateTime?
+  notifyOrders     Boolean   @default(true)
+  notifyAmbassador Boolean   @default(true)
+  notifyPromotions Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
   campus               Campus?              @relation(fields: [campusId], references: [id])
   orders               Order[]              @relation("StudentOrders")
   transactions         Transaction[]        @relation("TransactionUser")
+  sentTransfers        Transaction[]        @relation("TransferSender")
+  receivedTransfers    Transaction[]        @relation("TransferReceiver")
   reviews              Review[]
   vendor               Vendor?
   ambassador           Ambassador?
@@ -330,6 +337,8 @@ model Payment {
 model Transaction {
   id               String          @id @default(uuid())
   userId           String
+  senderId         String?
+  receiverId       String?
   type             TransactionType
   amount           Decimal         @db.Decimal(10, 2)
   reference        String          @unique
@@ -339,10 +348,14 @@ model Transaction {
   createdAt        DateTime        @default(now())
 
   user           User     @relation("TransactionUser", fields: [userId], references: [id])
+  sender         User?    @relation("TransferSender", fields: [senderId], references: [id])
+  receiver       User?    @relation("TransferReceiver", fields: [receiverId], references: [id])
   relatedOrder   Order?   @relation("TransactionOrder", fields: [relatedOrderId], references: [id])
   relatedPayment Payment? @relation("TransactionPayment", fields: [relatedPaymentId], references: [id])
 
   @@index([userId])
+  @@index([senderId])
+  @@index([receiverId])
   @@index([type])
   @@index([createdAt])
 }
@@ -426,6 +439,7 @@ model AbuseLog {
 model Ambassador {
   id        String          @id @default(uuid())
   userId    String          @unique
+  promoCode String          @unique
   level     AmbassadorLevel @default(BRONZE)
   createdAt DateTime        @default(now())
   updatedAt DateTime        @updatedAt

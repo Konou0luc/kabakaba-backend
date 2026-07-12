@@ -8,6 +8,11 @@ export class CreateAmbassadorDto {
   @IsString()
   userId: string;
 
+  @ApiProperty({ example: 'KABA-LUC-24', description: 'Code promo unique de l\'ambassadeur' })
+  @IsNotEmpty()
+  @IsString()
+  promoCode: string;
+
   @ApiProperty({ enum: AmbassadorLevel, required: false, description: 'Niveau de l\'ambassadeur (BRONZE, SILVER, GOLD)' })
   @IsOptional()
   @IsEnum(AmbassadorLevel)

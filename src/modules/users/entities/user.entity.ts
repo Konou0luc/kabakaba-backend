@@ -15,6 +15,9 @@ export class UserEntity extends BaseEntity {
   @ApiProperty({ example: 'Dupont', description: 'Nom de famille' })
   lastName: string;
 
+  @ApiProperty({ example: 'https://example.com/avatar.jpg', required: false, description: 'URL de l\'avatar' })
+  avatarUrl?: string;
+
   @ApiProperty({ enum: UserRole, description: 'Rôle de l\'utilisateur' })
   role: UserRole;
 
@@ -32,4 +35,13 @@ export class UserEntity extends BaseEntity {
 
   @ApiProperty({ required: false, description: 'Date de fin de la suspension' })
   suspensionUntil?: Date;
+
+  @ApiProperty({ default: true, description: 'Recevoir des notifications pour les commandes' })
+  notifyOrders: boolean;
+
+  @ApiProperty({ default: true, description: 'Recevoir des notifications pour le programme ambassadeur' })
+  notifyAmbassador: boolean;
+
+  @ApiProperty({ default: false, description: 'Recevoir des notifications pour les promotions' })
+  notifyPromotions: boolean;
 }
