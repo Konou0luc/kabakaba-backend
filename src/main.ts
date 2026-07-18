@@ -31,6 +31,10 @@ export async function createNestApp() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
+  if (process.env.VERCEL || process.env.NEST_SERVERLESS === 'true') {
+    await app.init();
+  }
+
   return app;
 }
 
@@ -42,4 +46,6 @@ async function bootstrap() {
   console.log(`Swagger documentation available at: http://localhost:${port}/docs`);
 }
 
-bootstrap();
+if (require.main === module) {
+  bootstrap();
+}
