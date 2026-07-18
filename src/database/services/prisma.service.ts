@@ -24,12 +24,19 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
   }
 
   async onModuleInit() {
-    if (!process.env.DATABASE_URL) {
+    const isServerless = Boolean(process.env.VERCEL || process.env.NEST_SERVERLESS === 'true');
+
+    if (!process.env.DATABASE_URL || isServerless) {
       return;
     }
 
     try {
-      await this.$connect();
+      await Promise.race([
+        this.$connect(),
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Prisma connection timed out')), 3000);
+        }),
+      ]);
     } catch (error) {
       console.error('Prisma connection failed during startup:', error);
     }
