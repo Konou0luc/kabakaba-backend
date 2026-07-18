@@ -4,16 +4,13 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
-async function bootstrap() {
+export async function createNestApp() {
   const app = await NestFactory.create(AppModule);
 
-  // Global exception filter
   app.useGlobalFilters(new AllExceptionsFilter());
 
-  // Global prefix
   app.setGlobalPrefix('api/v1');
 
-  // Validation pipe
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -25,7 +22,6 @@ async function bootstrap() {
     }),
   );
 
-  // Swagger configuration
   const config = new DocumentBuilder()
     .setTitle('Kabakaba API')
     .setDescription('The Kabakaba platform API documentation')
@@ -35,9 +31,15 @@ async function bootstrap() {
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
 
+  return app;
+}
+
+async function bootstrap() {
+  const app = await createNestApp();
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
   console.log(`Application is running on: http://localhost:${port}/api/v1`);
   console.log(`Swagger documentation available at: http://localhost:${port}/docs`);
 }
+
 bootstrap();
