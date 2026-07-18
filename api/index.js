@@ -1,4 +1,5 @@
-const { createNestApp } = require('../dist/main');
+require('ts-node/register');
+const { createNestApp } = require('../src/main');
 
 let cachedApp = null;
 
