@@ -106,7 +106,16 @@ export async function createNestApp() {
   const swaggerJsonPath = '/api/v1/docs-json';
 
   app.use('/docs', (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (req.method === 'GET' && req.path === '/') {
+    if (req.method === 'GET' && (req.path === '/' || req.path === '')) {
+      res.type('html').send(buildSwaggerHtml(swaggerJsonPath));
+      return;
+    }
+
+    next();
+  });
+
+  app.use('/docs/', (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.method === 'GET' && (req.path === '/' || req.path === '')) {
       res.type('html').send(buildSwaggerHtml(swaggerJsonPath));
       return;
     }
