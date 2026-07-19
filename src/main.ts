@@ -27,6 +27,33 @@ export function resolveSwaggerAssetPath(requestPath: string, swaggerUiDir: strin
   return path.join(swaggerUiDir, normalizedPath);
 }
 
+function buildSwaggerHtml(swaggerUrl: string) {
+  return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Swagger UI</title>
+    <link rel="stylesheet" href="/docs/swagger-ui.css" />
+  </head>
+  <body>
+    <div id="swagger-ui"></div>
+    <script src="/docs/swagger-ui-bundle.js"></script>
+    <script src="/docs/swagger-ui-standalone-preset.js"></script>
+    <script>
+      window.onload = function () {
+        window.ui = SwaggerUIBundle({
+          url: '${swaggerUrl}',
+          dom_id: '#swagger-ui',
+          deepLinking: true,
+          presets: [SwaggerUIBundle.presets.apis, SwaggerUIBundle.SwaggerUIStandalonePreset],
+          layout: 'BaseLayout',
+        });
+      };
+    </script>
+  </body>
+</html>`;
+}
+
 export async function createNestApp() {
   const app = await NestFactory.create(AppModule);
 
@@ -76,7 +103,20 @@ export async function createNestApp() {
     .addBearerAuth()
     .build();
   const document = SwaggerModule.createDocument(app, config);
-  SwaggerModule.setup('docs', app, document);
+  const swaggerJsonPath = '/api/v1/docs-json';
+
+  app.use('/docs', (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (req.method === 'GET' && req.path === '/') {
+      res.type('html').send(buildSwaggerHtml(swaggerJsonPath));
+      return;
+    }
+
+    next();
+  });
+
+  app.use('/api/v1/docs-json', (req: express.Request, res: express.Response) => {
+    res.json(document);
+  });
 
   if (process.env.VERCEL || process.env.NEST_SERVERLESS === 'true') {
     await app.init();
