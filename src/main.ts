@@ -7,6 +7,16 @@ import * as path from 'path';
 import { getAbsoluteFSPath } from 'swagger-ui-dist';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
+export function resolveSwaggerAssetPath(requestPath: string, swaggerUiDir: string) {
+  const normalizedPath = requestPath.replace(/^\/docs\/?/, '').replace(/^\//, '');
+
+  if (!normalizedPath || !normalizedPath.includes('.')) {
+    return null;
+  }
+
+  return path.join(swaggerUiDir, normalizedPath);
+}
+
 export async function createNestApp() {
   const app = await NestFactory.create(AppModule);
 
@@ -27,13 +37,13 @@ export async function createNestApp() {
 
   const swaggerUiDir = getAbsoluteFSPath();
   const swaggerAssetPath = (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    const assetPath = req.path.replace(/^\//, '');
-    if (!assetPath || !assetPath.includes('.')) {
+    const filePath = resolveSwaggerAssetPath(req.path, swaggerUiDir);
+
+    if (!filePath) {
       next();
       return;
     }
 
-    const filePath = path.join(swaggerUiDir, assetPath);
     res.sendFile(filePath, (err) => {
       if (err) {
         next(err);

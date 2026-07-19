@@ -26,6 +26,8 @@ jest.mock('@nestjs/swagger', () => ({
   },
 }));
 
+import { resolveSwaggerAssetPath } from './main';
+
 describe('main bootstrap', () => {
   it('should not start listening when imported as a module', async () => {
     const listen = jest.fn().mockResolvedValue(undefined);
@@ -48,5 +50,11 @@ describe('main bootstrap', () => {
     const mainModule = await require('./main');
     expect(mainModule).toBeDefined();
     expect(listen).not.toHaveBeenCalled();
+  });
+
+  it('maps docs asset requests to the Swagger UI directory', () => {
+    expect(resolveSwaggerAssetPath('/docs/swagger-ui.css', '/tmp/swagger-ui')).toBe('/tmp/swagger-ui/swagger-ui.css');
+    expect(resolveSwaggerAssetPath('/docs/swagger-ui-bundle.js', '/tmp/swagger-ui')).toBe('/tmp/swagger-ui/swagger-ui-bundle.js');
+    expect(resolveSwaggerAssetPath('/docs/', '/tmp/swagger-ui')).toBeNull();
   });
 });
