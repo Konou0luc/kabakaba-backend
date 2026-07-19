@@ -106,25 +106,18 @@ export async function createNestApp() {
   const document = SwaggerModule.createDocument(app, config);
   const swaggerJsonPath = '/api/v1/docs-json';
 
-  app.use('/docs', (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (req.method === 'GET' && (req.path === '/' || req.path === '')) {
-      res.type('html').send(buildSwaggerHtml(swaggerJsonPath));
-      return;
-    }
+  const httpAdapter = app.getHttpAdapter();
+  const expressInstance = httpAdapter.getInstance() as express.Express;
 
-    next();
+  expressInstance.get('/docs', (_req, res) => {
+    res.type('html').send(buildSwaggerHtml(swaggerJsonPath));
   });
 
-  app.use('/docs/', (req: express.Request, res: express.Response, next: express.NextFunction) => {
-    if (req.method === 'GET' && (req.path === '/' || req.path === '')) {
-      res.type('html').send(buildSwaggerHtml(swaggerJsonPath));
-      return;
-    }
-
-    next();
+  expressInstance.get('/docs/', (_req, res) => {
+    res.type('html').send(buildSwaggerHtml(swaggerJsonPath));
   });
 
-  app.use('/api/v1/docs-json', (req: express.Request, res: express.Response) => {
+  expressInstance.get('/api/v1/docs-json', (_req, res) => {
     res.json(document);
   });
 
