@@ -24,6 +24,8 @@ export async function createNestApp() {
     }),
   );
 
+  app.use('/docs', express.static(getAbsoluteFSPath(), { fallthrough: true }));
+
   const config = new DocumentBuilder()
     .setTitle('Kabakaba API')
     .setDescription('The Kabakaba platform API documentation')
@@ -32,7 +34,6 @@ export async function createNestApp() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
-  app.use('/docs', express.static(getAbsoluteFSPath()));
 
   if (process.env.VERCEL || process.env.NEST_SERVERLESS === 'true') {
     await app.init();
