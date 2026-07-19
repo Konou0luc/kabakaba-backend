@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as express from 'express';
+import * as path from 'path';
 import { getAbsoluteFSPath } from 'swagger-ui-dist';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
@@ -24,7 +25,24 @@ export async function createNestApp() {
     }),
   );
 
-  app.use('/docs', express.static(getAbsoluteFSPath(), { fallthrough: true }));
+  const swaggerUiDir = getAbsoluteFSPath();
+  const swaggerAssetPath = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    const assetPath = req.path.replace(/^\//, '');
+    if (!assetPath || !assetPath.includes('.')) {
+      next();
+      return;
+    }
+
+    const filePath = path.join(swaggerUiDir, assetPath);
+    res.sendFile(filePath, (err) => {
+      if (err) {
+        next(err);
+      }
+    });
+  };
+
+  app.use('/docs', express.static(swaggerUiDir, { fallthrough: true }));
+  app.use('/docs', swaggerAssetPath);
 
   const config = new DocumentBuilder()
     .setTitle('Kabakaba API')
