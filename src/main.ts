@@ -33,12 +33,13 @@ function buildSwaggerHtml(swaggerUrl: string) {
   <head>
     <meta charset="UTF-8" />
     <title>Swagger UI</title>
-    <link rel="stylesheet" href="/docs/swagger-ui.css" />
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Crect width='100' height='100' rx='16' fill='%230f172a'/%3E%3Cpath d='M30 25h40v10H40v10h24v10H40v10h30v10H30z' fill='%23ffffff'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.6/swagger-ui.css" />
   </head>
   <body>
     <div id="swagger-ui"></div>
-    <script src="/docs/swagger-ui-bundle.js"></script>
-    <script src="/docs/swagger-ui-standalone-preset.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.6/swagger-ui-bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.32.6/swagger-ui-standalone-preset.js"></script>
     <script>
       window.onload = function () {
         window.ui = SwaggerUIBundle({
