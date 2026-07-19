@@ -3,6 +3,7 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as express from 'express';
+import * as fs from 'fs';
 import * as path from 'path';
 import { getAbsoluteFSPath } from 'swagger-ui-dist';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
@@ -12,6 +13,15 @@ export function resolveSwaggerAssetPath(requestPath: string, swaggerUiDir: strin
 
   if (!normalizedPath || !normalizedPath.includes('.')) {
     return null;
+  }
+
+  const candidates = normalizedPath === 'swagger-ui.css' ? ['swagger-ui.css', 'index.css'] : [normalizedPath];
+
+  for (const candidate of candidates) {
+    const candidatePath = path.join(swaggerUiDir, candidate);
+    if (fs.existsSync(candidatePath)) {
+      return candidatePath;
+    }
   }
 
   return path.join(swaggerUiDir, normalizedPath);
@@ -41,6 +51,11 @@ export async function createNestApp() {
 
     if (!filePath) {
       next();
+      return;
+    }
+
+    if (!fs.existsSync(filePath)) {
+      res.status(404).send('Not Found');
       return;
     }
 
