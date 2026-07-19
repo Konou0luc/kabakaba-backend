@@ -2,6 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import * as express from 'express';
+import { getAbsoluteFSPath } from 'swagger-ui-dist';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
 export async function createNestApp() {
@@ -30,6 +32,7 @@ export async function createNestApp() {
     .build();
   const document = SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('docs', app, document);
+  app.use('/docs', express.static(getAbsoluteFSPath()));
 
   if (process.env.VERCEL || process.env.NEST_SERVERLESS === 'true') {
     await app.init();
