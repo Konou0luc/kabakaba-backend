@@ -58,6 +58,15 @@ function buildSwaggerHtml(swaggerUrl: string) {
 export async function createNestApp() {
   const app = await NestFactory.create(AppModule);
 
+  app.enableCors({
+    origin: [
+      'http://localhost:5173',
+     // 'https://<ton-domaine-frontend-de-prod>', // remplace par la vraie URL une fois le frontend déployé
+    ],
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  });
+
   app.useGlobalFilters(new AllExceptionsFilter());
 
   app.setGlobalPrefix('api/v1');
