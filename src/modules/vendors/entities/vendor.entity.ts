@@ -11,6 +11,9 @@ export class VendorEntity extends BaseEntity {
   @ApiProperty({ example: 'https://logo.com/vendeur.jpg', required: false })
   logoUrl?: string;
 
+  @ApiProperty({ example: 'https://logo.com/banniere.jpg', required: false, description: 'Bannière affichée sur la fiche cantine' })
+  bannerUrl?: string;
+
   @ApiProperty({ example: 'Restaurant universitaire spécialisé dans la cuisine traditionnelle', required: false })
   description?: string;
 

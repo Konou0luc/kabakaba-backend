@@ -1,0 +1,18 @@
+DATABASE_URL="postgresql://kababd:Kabakaba123!@localhost:5432/kabakaba"
+DATABASE_URL_PROD="postgresql://neondb_owner:npg_Zm0cvTWoPdX7@ep-green-block-ass8kj56-pooler.c-4.eu-central-1.aws.neon.tech/neondb?sslmode=require&channel_binding=require"
+JWT_ACCESS_SECRET="y0B3FJ8m9ROsfXVEr3FU+Osq64OE6SJ7Y6HdC0StWfPijdAUuWzwuzAbECRieVNkortYMdUfuSY32Jv4JGEiBw=="
+JWT_REFRESH_SECRET="/h6wPyfE+VnLwQclvxW1UR5S/KPSWX0S2p8LC78kOi/o8Iqj6dAw1dGDVmcapxlSucFIEnC9Y3J/Al/mfOkxuw=="
+APP_URL="http://localhost:3000"
+
+# AfriqSMS Configuration
+AFRIQSMS_CLIENT_ID=""
+AFRIQSMS_API_KEY=""
+AFRIQSMS_API_SECRET=""
+AFRIQSMS_SENDER_ID="Kabakaba"
+AFRIQSMS_BASE_URL="https://api.afriksms.com"
+
+# FedaPay Configuration
+FEDAPAY_SECRET_KEY=""
+FEDAPAY_PUBLIC_KEY=""
+FEDAPAY_ENVIRONMENT="sandbox" # ou "live"
+FEDAPAY_BASE_URL="https://api.fedapay.com"

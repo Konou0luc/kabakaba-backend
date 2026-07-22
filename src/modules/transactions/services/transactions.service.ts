@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { TransactionType, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateTransactionDto } from '../dto/create-transaction.dto';
 import { UpdateTransactionDto } from '../dto/update-transaction.dto';
@@ -16,10 +17,18 @@ export class TransactionsService {
     });
   }
 
-  async findAll(page: number = 1, limit: number = 10, userId?: string) {
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+    userId?: string,
+    type?: TransactionType,
+    status?: TransactionStatus,
+  ) {
     const skip = (page - 1) * limit;
     const where = {
       ...(userId ? { userId } : {}),
+      ...(type ? { type } : {}),
+      ...(status ? { status } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.transaction.count({ where }),

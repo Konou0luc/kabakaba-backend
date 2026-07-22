@@ -20,7 +20,7 @@ import { AmbassadorsService } from '../services/ambassadors.service';
 import { CreateAmbassadorDto } from '../dto/create-ambassador.dto';
 import { UpdateAmbassadorDto } from '../dto/update-ambassador.dto';
 import { AmbassadorEntity } from '../entities/ambassador.entity';
-import { PaginationDto } from '../../../common/dto/pagination.dto';
+import { FindAmbassadorsQueryDto } from '../dto/find-ambassadors-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
@@ -50,17 +50,14 @@ export class AmbassadorsController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Récupérer tous les ambassadeurs actifs (Admin seulement)' })
-  @ApiQuery({ type: PaginationDto })
+  @ApiOperation({ summary: 'Récupérer tous les ambassadeurs (Admin seulement)' })
+  @ApiQuery({ type: FindAmbassadorsQueryDto })
   @ApiResponse({
     status: 200,
-    description: 'Retourne tous les ambassadeurs actifs avec pagination.',
+    description: 'Retourne tous les ambassadeurs avec pagination.',
   })
-  findAll(@Query() paginationDto: PaginationDto) {
-    return this.ambassadorsService.findAll(
-      paginationDto.page,
-      paginationDto.limit,
-    );
+  findAll(@Query() query: FindAmbassadorsQueryDto) {
+    return this.ambassadorsService.findAll(query.page, query.limit, query.status, query.level);
   }
 
   @Get('me')

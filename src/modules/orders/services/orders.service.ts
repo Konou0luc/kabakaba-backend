@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { OrderStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
@@ -21,12 +22,14 @@ export class OrdersService {
     limit: number = 10,
     studentId?: string,
     vendorId?: string,
+    status?: OrderStatus,
   ) {
     const skip = (page - 1) * limit;
     const where = {
       deletedAt: null,
       ...(studentId ? { studentId } : {}),
       ...(vendorId ? { vendorId } : {}),
+      ...(status ? { status } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.order.count({ where }),

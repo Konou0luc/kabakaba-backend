@@ -132,6 +132,29 @@ export class AuthService {
     };
   }
 
+  /**
+   * Flux "mot de passe temporaire → mot de passe personnel" : requis pour
+   * tout compte créé par un admin avec User.mustChangePassword=true (ex :
+   * vendeur créé via POST /vendors). Vérifie l'ancien mot de passe avant
+   * d'accepter le nouveau, comme n'importe quel changement de mot de passe.
+   */
+  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException();
+    if (!user.password) throw new UnauthorizedException('Ce compte ne peut pas changer de mot de passe');
+
+    const isCurrentValid = await bcrypt.compare(currentPassword, user.password);
+    if (!isCurrentValid) throw new UnauthorizedException('Mot de passe actuel incorrect');
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { password: hashedPassword, mustChangePassword: false },
+    });
+
+    return { success: true };
+  }
+
   async refreshTokens(refreshToken: string) {
     try {
       const decoded = this.jwtService.verify(refreshToken, {

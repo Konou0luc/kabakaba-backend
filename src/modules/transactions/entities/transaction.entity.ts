@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { BaseEntity } from '../../../common/entities/base.entity';
-import { TransactionType } from '@prisma/client';
+import { TransactionType, TransactionStatus } from '@prisma/client';
 
 export class TransactionEntity extends BaseEntity {
   @ApiProperty({ example: 'user-uuid' })
@@ -14,6 +14,9 @@ export class TransactionEntity extends BaseEntity {
 
   @ApiProperty({ enum: TransactionType })
   type: TransactionType;
+
+  @ApiProperty({ enum: TransactionStatus, default: TransactionStatus.COMPLETED, description: 'État d\'exécution de la transaction' })
+  status: TransactionStatus;
 
   @ApiProperty({ example: 1000.00, description: 'Montant de la transaction' })
   amount: number;

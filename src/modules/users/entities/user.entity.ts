@@ -36,6 +36,12 @@ export class UserEntity extends BaseEntity {
   @ApiProperty({ required: false, description: 'Date de fin de la suspension' })
   suspensionUntil?: Date;
 
+  @ApiProperty({ required: false, description: 'Motif de la suspension' })
+  suspensionReason?: string;
+
+  @ApiProperty({ default: false, description: 'Indique si l\'utilisateur doit changer son mot de passe à la prochaine connexion (compte créé avec un mot de passe temporaire)' })
+  mustChangePassword: boolean;
+
   @ApiProperty({ default: true, description: 'Recevoir des notifications pour les commandes' })
   notifyOrders: boolean;
 

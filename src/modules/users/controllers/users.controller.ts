@@ -20,7 +20,7 @@ import { UsersService } from '../services/users.service';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { UserEntity } from '../entities/user.entity';
-import { PaginationDto } from '../../../common/dto/pagination.dto';
+import { FindUsersQueryDto } from '../dto/find-users-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
@@ -49,13 +49,19 @@ export class UsersController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @ApiOperation({ summary: 'Récupérer tous les utilisateurs (admin/super admin seulement)' })
-  @ApiQuery({ type: PaginationDto })
+  @ApiQuery({ type: FindUsersQueryDto })
   @ApiResponse({
     status: 200,
     description: 'Retourne tous les utilisateurs avec pagination.',
   })
-  findAll(@Query() paginationDto: PaginationDto) {
-    return this.usersService.findAll(paginationDto.page, paginationDto.limit);
+  findAll(@Query() query: FindUsersQueryDto) {
+    return this.usersService.findAll(
+      query.page,
+      query.limit,
+      query.role,
+      query.campusId,
+      query.isSuspended,
+    );
   }
 
   @Get('me')

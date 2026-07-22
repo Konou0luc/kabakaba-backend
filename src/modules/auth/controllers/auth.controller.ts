@@ -5,6 +5,7 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,6 +17,7 @@ import { AuthService } from '../services/auth.service';
 import { SendOtpDto } from '../dto/send-otp.dto';
 import { VerifyOtpDto } from '../dto/verify-otp.dto';
 import { LoginEmailDto } from '../dto/login-email.dto';
+import { ChangePasswordDto } from '../dto/change-password.dto';
 import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
@@ -70,5 +72,23 @@ export class AuthController {
   @ApiResponse({ status: 200, description: 'Déconnexion réussie.' })
   logout(@GetCurrentUserId() userId: string) {
     return this.authService.logout(userId);
+  }
+
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({
+    summary:
+      'Changer son mot de passe (requis après une première connexion avec un mot de passe temporaire)',
+  })
+  @ApiResponse({ status: 200, description: 'Mot de passe changé avec succès.' })
+  @ApiResponse({ status: 401, description: 'Mot de passe actuel incorrect.' })
+  changePassword(@Request() req, @Body() changePasswordDto: ChangePasswordDto) {
+    return this.authService.changePassword(
+      req.user.id,
+      changePasswordDto.currentPassword,
+      changePasswordDto.newPassword,
+    );
   }
 }

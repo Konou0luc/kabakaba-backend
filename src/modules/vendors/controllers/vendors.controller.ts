@@ -36,7 +36,7 @@ export class VendorsController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Create a new vendor (Admin only)' })
+  @ApiOperation({ summary: 'Créer une cantine : crée le compte vendeur (User) et le profil (Vendor) en une seule opération (Admin only)' })
   @ApiResponse({
     status: 201,
     description: 'The vendor has been successfully created.',

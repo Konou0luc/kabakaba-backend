@@ -22,11 +22,23 @@ export class UsersService {
     });
   }
 
-  async findAll(page: number = 1, limit: number = 10) {
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+    role?: UserRole,
+    campusId?: string,
+    isSuspended?: boolean,
+  ) {
     const skip = (page - 1) * limit;
+    const where = {
+      ...(role ? { role } : {}),
+      ...(campusId ? { campusId } : {}),
+      ...(isSuspended !== undefined ? { isSuspended } : {}),
+    };
     const [total, data] = await this.prisma.$transaction([
-      this.prisma.user.count(),
+      this.prisma.user.count({ where }),
       this.prisma.user.findMany({
+        where,
         skip,
         take: limit,
       }),

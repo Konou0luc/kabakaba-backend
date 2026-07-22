@@ -20,7 +20,7 @@ import { TransactionsService } from '../services/transactions.service';
 import { CreateTransactionDto } from '../dto/create-transaction.dto';
 import { UpdateTransactionDto } from '../dto/update-transaction.dto';
 import { TransactionEntity } from '../entities/transaction.entity';
-import { PaginationDto } from '../../../common/dto/pagination.dto';
+import { FindTransactionsQueryDto } from '../dto/find-transactions-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { UserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
@@ -50,20 +50,22 @@ export class TransactionsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
   @ApiOperation({ summary: 'Récupérer toutes les transactions' })
-  @ApiQuery({ type: PaginationDto })
+  @ApiQuery({ type: FindTransactionsQueryDto })
   @ApiResponse({
     status: 200,
     description: 'Retourne toutes les transactions avec pagination.',
   })
-  findAll(@Query() paginationDto: PaginationDto, @Request() req) {
-    let userId: string | undefined;
-    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPER_ADMIN) {
-      userId = req.user.id;
-    }
+  findAll(@Query() query: FindTransactionsQueryDto, @Request() req) {
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    // Un utilisateur non-admin reste toujours scopé à ses propres transactions ;
+    // le filtre userId de la query n'est pris en compte que pour les admins.
+    const userId = isAdmin ? query.userId : req.user.id;
     return this.transactionsService.findAll(
-      paginationDto.page,
-      paginationDto.limit,
+      query.page,
+      query.limit,
       userId,
+      query.type,
+      query.status,
     );
   }
 

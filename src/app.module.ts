@@ -19,6 +19,9 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { AdminModule } from './modules/admin/admin.module';
 import { SupervisionModule } from './modules/supervision/supervision.module';
 import { SmsModule } from './modules/sms/sms.module';
+import { DisputesModule } from './modules/disputes/disputes.module';
+import { PartnerApplicationsModule } from './modules/partner-applications/partner-applications.module';
+import { WebAuthModule } from './modules/web-auth/web-auth.module';
 
 @Module({
   imports: [
@@ -43,6 +46,9 @@ import { SmsModule } from './modules/sms/sms.module';
     AdminModule,
     SupervisionModule,
     SmsModule,
+    DisputesModule,
+    PartnerApplicationsModule,
+    WebAuthModule,
   ],
   controllers: [AppController],
   providers: [AppService],

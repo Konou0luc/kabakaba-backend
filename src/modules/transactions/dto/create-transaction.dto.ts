@@ -1,12 +1,17 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsEnum, IsString, IsOptional } from 'class-validator';
-import { TransactionType } from '@prisma/client';
+import { TransactionType, TransactionStatus } from '@prisma/client';
 
 export class CreateTransactionDto {
   @ApiProperty({ enum: TransactionType })
   @IsNotEmpty()
   @IsEnum(TransactionType)
   type: TransactionType;
+
+  @ApiProperty({ enum: TransactionStatus, required: false, default: TransactionStatus.COMPLETED, description: 'État d\'exécution (COMPLETED par défaut : la plupart des transactions internes sont instantanées)' })
+  @IsOptional()
+  @IsEnum(TransactionStatus)
+  status?: TransactionStatus;
 
   @ApiProperty({ example: 1000.00, description: 'Montant de la transaction' })
   @IsNotEmpty()
