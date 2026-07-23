@@ -19,9 +19,12 @@ import { CreateAuditLogDto } from '../dto/create-audit-log.dto';
 import { AuditLogEntity } from '../entities/audit-log.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 
 @ApiTags('Admin & Supervision')
 @Controller('admin')
@@ -30,9 +33,10 @@ export class AdminController {
 
   @Get('stats')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
-  @ApiOperation({ summary: 'Obtenir les statistiques du tableau de bord de supervision (Admin seulement)' })
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Obtenir les statistiques du tableau de bord de supervision (Admin/dashboard web)' })
   @ApiResponse({
     status: 200,
     description: 'Retourne les statistiques de supervision',

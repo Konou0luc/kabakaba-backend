@@ -1,14 +1,17 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { UserRole } from '@prisma/client';
+import { UserRole, WebUserRole } from '@prisma/client';
 import { PartnerApplicationsService } from '../services/partner-applications.service';
 import { CreatePartnerApplicationDto } from '../dto/create-partner-application.dto';
 import { UpdatePartnerApplicationDto } from '../dto/update-partner-application.dto';
 import { FindPartnerApplicationsQueryDto } from '../dto/find-partner-applications-query.dto';
 import { PartnerApplicationEntity } from '../entities/partner-application.entity';
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { Public } from '../../../common/decorators/public.decorator';
 
 @ApiTags('Partner Applications')
@@ -30,9 +33,10 @@ export class PartnerApplicationsController {
 
   @Get()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Récupérer toutes les candidatures partenaires (Admin seulement)' })
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Récupérer toutes les candidatures partenaires (Admin/dashboard web)' })
   @ApiQuery({ type: FindPartnerApplicationsQueryDto })
   @ApiResponse({ status: 200, description: 'Retourne les candidatures avec pagination.' })
   findAll(@Query() query: FindPartnerApplicationsQueryDto) {
@@ -41,9 +45,10 @@ export class PartnerApplicationsController {
 
   @Get(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Récupérer une candidature partenaire (Admin seulement)' })
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Récupérer une candidature partenaire (Admin/dashboard web)' })
   @ApiResponse({ status: 200, description: 'Retourne la candidature.', type: PartnerApplicationEntity })
   @ApiResponse({ status: 404, description: 'Candidature introuvable.' })
   findOne(@Param('id') id: string) {
@@ -52,8 +57,9 @@ export class PartnerApplicationsController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Traiter une candidature partenaire : statut (Admin seulement)' })
   @ApiResponse({
     status: 200,

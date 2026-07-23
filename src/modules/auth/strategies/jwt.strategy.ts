@@ -22,6 +22,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       where: { id: payload.sub },
     });
 
-    return user;
+    if (!user) return null;
+
+    // Marqueur de provenance : permet à CombinedRolesGuard de savoir
+    // quel jeu de rôles vérifier (UserRole vs WebUserRole).
+    return { ...user, __authKind: 'mobile' as const };
   }
 }

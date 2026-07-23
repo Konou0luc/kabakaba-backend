@@ -34,6 +34,8 @@ export class WebJwtStrategy extends PassportStrategy(Strategy, 'web-jwt') {
     }
 
     const { password, twoFaSecret, twoFaBackupCode, ...safeWebUser } = webUser;
-    return safeWebUser;
+
+    // Même marqueur de provenance côté web.
+    return { ...safeWebUser, __authKind: 'web' as const };
   }
 }

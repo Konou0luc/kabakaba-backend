@@ -22,9 +22,12 @@ import { UpdateAbuseDto } from '../dto/update-abuse.dto';
 import { AbuseEntity } from '../entities/abuse.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 
 @ApiTags('Abuse')
 @Controller('abuse')
@@ -47,9 +50,10 @@ export class AbuseController {
 
   @Get()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Récupérer tous les journaux d\'abus actifs (Admin seulement)' })
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Récupérer tous les journaux d\'abus actifs (Admin/dashboard web)' })
   @ApiQuery({ type: PaginationDto })
   @ApiResponse({
     status: 200,
@@ -64,9 +68,10 @@ export class AbuseController {
 
   @Get(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Récupérer un journal d\'abus actif (Admin seulement)' })
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Récupérer un journal d\'abus actif (Admin/dashboard web)' })
   @ApiResponse({ status: 200, description: 'Retourne le journal d\'abus.', type: AbuseEntity })
   @ApiResponse({ status: 404, description: 'Journal d\'abus introuvable.' })
   findOne(@Param('id') id: string) {

@@ -22,9 +22,12 @@ import { UpdateAmbassadorDto } from '../dto/update-ambassador.dto';
 import { AmbassadorEntity } from '../entities/ambassador.entity';
 import { FindAmbassadorsQueryDto } from '../dto/find-ambassadors-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { GetCurrentUserId } from '../../../common/decorators/get-current-user.decorator';
 
 @ApiTags('Ambassadors')
@@ -48,9 +51,10 @@ export class AmbassadorsController {
 
   @Get()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Récupérer tous les ambassadeurs (Admin seulement)' })
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Récupérer tous les ambassadeurs (Admin/dashboard web)' })
   @ApiQuery({ type: FindAmbassadorsQueryDto })
   @ApiResponse({
     status: 200,
@@ -72,9 +76,10 @@ export class AmbassadorsController {
 
   @Get(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Récupérer un ambassadeur actif (Admin seulement)' })
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Récupérer un ambassadeur actif (Admin/dashboard web)' })
   @ApiResponse({ status: 200, description: 'Retourne l\'ambassadeur.', type: AmbassadorEntity })
   @ApiResponse({ status: 404, description: 'Ambassadeur introuvable.' })
   findOne(@Param('id') id: string) {
@@ -83,9 +88,10 @@ export class AmbassadorsController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Mettre à jour un ambassadeur (Admin seulement)' })
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Mettre à jour un ambassadeur (Admin/dashboard web Admin)' })
   @ApiResponse({
     status: 200,
     description: 'L\'ambassadeur a été mis à jour avec succès.',

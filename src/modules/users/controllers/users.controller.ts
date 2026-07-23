@@ -22,9 +22,12 @@ import { UpdateUserDto } from '../dto/update-user.dto';
 import { UserEntity } from '../entities/user.entity';
 import { FindUsersQueryDto } from '../dto/find-users-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { GetCurrentUserId } from '../../../common/decorators/get-current-user.decorator';
 
 @ApiTags('Users')
@@ -46,9 +49,10 @@ export class UsersController {
 
   @Get()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Récupérer tous les utilisateurs (admin/super admin seulement)' })
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Récupérer tous les utilisateurs (admin/super admin/dashboard web)' })
   @ApiQuery({ type: FindUsersQueryDto })
   @ApiResponse({
     status: 200,
@@ -85,8 +89,10 @@ export class UsersController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Mettre à jour un utilisateur' })
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Mettre à jour un utilisateur (y compris suspension par le dashboard)' })
   @ApiResponse({
     status: 200,
     description: 'L\'utilisateur a été mis à jour avec succès.',
