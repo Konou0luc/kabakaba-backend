@@ -3,10 +3,19 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { Pool } from 'pg';
 
+function resolveConnectionString(): string | undefined {
+  // En production (Vercel), la chaîne de connexion est rangée sous
+  // DATABASE_URL_PROD ; en local/dev, sous DATABASE_URL.
+  if (process.env.VERCEL) {
+    return process.env.DATABASE_URL_PROD || process.env.DATABASE_URL;
+  }
+  return process.env.DATABASE_URL || process.env.DATABASE_URL_PROD;
+}
+
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
   constructor() {
-    const connectionString = process.env.DATABASE_URL;
+    const connectionString = resolveConnectionString();
 
     if (!connectionString) {
       super();
@@ -25,8 +34,9 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
 
   async onModuleInit() {
     const isServerless = Boolean(process.env.VERCEL || process.env.NEST_SERVERLESS === 'true');
+    const connectionString = resolveConnectionString();
 
-    if (!process.env.DATABASE_URL || isServerless) {
+    if (!connectionString || isServerless) {
       return;
     }
 
