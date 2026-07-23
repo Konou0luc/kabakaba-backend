@@ -4,10 +4,19 @@ import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '@prisma/client';
+import { SuspensionsService } from './suspensions.service';
+
+interface Actor {
+  id: string;
+  kind: 'mobile' | 'web';
+}
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly suspensionsService: SuspensionsService,
+  ) {}
 
   async create(createUserDto: CreateUserDto) {
     const hashedPassword = createUserDto.password
@@ -77,16 +86,38 @@ export class UsersService {
     });
   }
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
-    await this.findOne(id);
+  async update(id: string, updateUserDto: UpdateUserDto, actor?: Actor) {
+    const current = await this.findOne(id);
     const hashedPassword = updateUserDto.password
       ? await bcrypt.hash(updateUserDto.password, 10)
       : undefined;
 
+    const isSuspending = updateUserDto.isSuspended === true && !current.isSuspended;
+    const isLifting = updateUserDto.isSuspended === false && current.isSuspended;
+
+    if (isSuspending) {
+      await this.suspensionsService.suspend({
+        studentId: id,
+        reason: updateUserDto.suspensionReason ?? 'Suspension manuelle',
+        trigger: 'MANUAL',
+        suspendedUntil: updateUserDto.suspensionUntil ? new Date(updateUserDto.suspensionUntil) : undefined,
+        actor,
+      });
+    }
+
+    if (isLifting) {
+      await this.suspensionsService.lift(id, actor);
+    }
+
+    // Les champs de suspension sont déjà gérés par SuspensionsService ci-dessus ;
+    // on les retire pour ne pas les écraser une seconde fois avec des valeurs
+    // potentiellement différentes (ex: isBanned mis à jour par suspend()).
+    const { isSuspended, suspensionUntil, suspensionReason, ...rest } = updateUserDto;
+
     return this.prisma.user.update({
       where: { id },
       data: {
-        ...updateUserDto,
+        ...rest,
         password: hashedPassword,
       },
     });

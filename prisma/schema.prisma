@@ -94,6 +94,18 @@ enum DevicePlatform {
   WEB
 }
 
+// ─── AJOUTS — Historique des suspensions & bannissement ──────────────
+enum SuspensionTrigger {
+  MANUAL
+  AUTOMATIC
+}
+
+enum SuspensionStatus {
+  ACTIVE
+  LIFTED
+  EXPIRED
+}
+
 model Campus {
   id          String    @id @default(uuid())
   name        String
@@ -125,8 +137,12 @@ model User {
   walletBalance    Int       @default(0)
   escrowBalance    Int       @default(0)
   isSuspended      Boolean   @default(false)
+  suspendedAt      DateTime?
   suspensionUntil  DateTime?
   suspensionReason String?
+  isBanned         Boolean   @default(false)
+  bannedAt         DateTime?
+  banReason        String?
   mustChangePassword Boolean @default(false)
   notifyOrders     Boolean   @default(true)
   notifyAmbassador Boolean   @default(true)
@@ -153,6 +169,7 @@ model User {
   affiliate            AmbassadorAffiliate?
   changedOrderStatuses OrderStatusHistory[]
   disputesAsStudent    Dispute[]            @relation("DisputeStudent")
+  suspensionEvents     SuspensionEvent[]
 
   @@index([phone])
   @@index([email])
@@ -447,9 +464,41 @@ model AbuseLog {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  student User @relation(fields: [studentId], references: [id])
+  student          User              @relation(fields: [studentId], references: [id])
+  suspensionEvents SuspensionEvent[]
 
   @@index([studentId])
+}
+
+// ─── AJOUT — Historique des suspensions ───────────────────────────────
+/// Un simple booléen isSuspended sur User ne suffit pas : il est écrasé à
+/// chaque changement et ne garde aucune trace une fois la suspension levée.
+/// Ce modèle conserve l'historique complet (nombre de suspensions, motifs,
+/// origine manuelle/automatique) nécessaire au calcul du bannissement
+/// définitif (5 suspensions sur une fenêtre glissante de 30 jours).
+model SuspensionEvent {
+  id                   String            @id @default(uuid())
+  studentId            String
+  student              User              @relation(fields: [studentId], references: [id])
+  trigger              SuspensionTrigger
+  ruleCode             String?
+  reason               String
+  detectionMetadata    Json?
+  relatedAbuseLogId    String?
+  relatedAbuseLog      AbuseLog?         @relation(fields: [relatedAbuseLogId], references: [id])
+  status               SuspensionStatus  @default(ACTIVE)
+  suspendedAt          DateTime          @default(now())
+  suspendedUntil       DateTime?
+  liftedAt             DateTime?
+  suspendedByUserId    String?
+  suspendedByWebUserId String?
+  liftedByUserId       String?
+  liftedByWebUserId    String?
+  createdAt            DateTime          @default(now())
+
+  @@index([studentId])
+  @@index([suspendedAt])
+  @@index([status])
 }
 
 enum AmbassadorStatus {

@@ -7,6 +7,7 @@ import {
   Param,
   Delete,
   Query,
+  Request,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -98,8 +99,8 @@ export class UsersController {
     description: 'L\'utilisateur a été mis à jour avec succès.',
     type: UserEntity,
   })
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(id, updateUserDto);
+  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto, @Request() req) {
+    return this.usersService.update(id, updateUserDto, { id: req.user.id, kind: req.user.__authKind });
   }
 
   @Delete(':id')
