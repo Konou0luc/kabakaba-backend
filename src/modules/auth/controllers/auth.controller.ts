@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Request,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiOperation,
@@ -31,6 +32,7 @@ export class AuthController {
   @Public()
   @Post('send-otp')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Envoyer un code OTP au numéro de téléphone' })
   @ApiResponse({ status: 200, description: 'Code OTP envoyé avec succès.' })
   sendOtp(@Body() sendOtpDto: SendOtpDto) {
@@ -40,7 +42,8 @@ export class AuthController {
   @Public()
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Vérifier le code OTP et se connecter/s\'inscrire' })
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: "Vérifier le code OTP et se connecter/s'inscrire" })
   @ApiResponse({ status: 200, description: 'Code OTP vérifié, tokens renvoyés.' })
   verifyOtp(@Body() verifyOtpDto: VerifyOtpDto) {
     return this.authService.verifyOtp(verifyOtpDto);
@@ -49,6 +52,7 @@ export class AuthController {
   @Public()
   @Post('login-email')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Se connecter avec email et mot de passe (admin/vendeur)' })
   @ApiResponse({ status: 200, description: 'Connexion réussie, tokens renvoyés.' })
   loginEmail(@Body() loginEmailDto: LoginEmailDto) {
@@ -58,8 +62,8 @@ export class AuthController {
   @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Renouveler le token d\'accès' })
-  @ApiResponse({ status: 200, description: 'Token d\'accès renouvelé.' })
+  @ApiOperation({ summary: "Renouveler le token d'accès" })
+  @ApiResponse({ status: 200, description: "Token d'accès renouvelé." })
   refreshTokens(@Body() refreshTokenDto: RefreshTokenDto) {
     return this.authService.refreshTokens(refreshTokenDto.refreshToken);
   }
@@ -68,7 +72,7 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Déconnecter l\'utilisateur' })
+  @ApiOperation({ summary: "Déconnecter l'utilisateur" })
   @ApiResponse({ status: 200, description: 'Déconnexion réussie.' })
   logout(@GetCurrentUserId() userId: string) {
     return this.authService.logout(userId);
@@ -79,8 +83,7 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
-    summary:
-      'Changer son mot de passe (requis après une première connexion avec un mot de passe temporaire)',
+    summary: 'Changer son mot de passe (requis après une première connexion avec un mot de passe temporaire)',
   })
   @ApiResponse({ status: 200, description: 'Mot de passe changé avec succès.' })
   @ApiResponse({ status: 401, description: 'Mot de passe actuel incorrect.' })

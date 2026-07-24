@@ -112,4 +112,31 @@ export class SuspensionsService {
   countLast30Days() {
     return this.prisma.suspensionEvent.count({ where: { suspendedAt: { gte: windowStart(30) } } });
   }
+
+  async findAll(page = 1, limit = 20, status?: SuspensionStatus, trigger?: SuspensionTrigger, studentId?: string) {
+    const skip = (page - 1) * limit;
+    const where = {
+      ...(status ? { status } : {}),
+      ...(trigger ? { trigger } : {}),
+      ...(studentId ? { studentId } : {}),
+    };
+
+    const [total, data] = await this.prisma.$transaction([
+      this.prisma.suspensionEvent.count({ where }),
+      this.prisma.suspensionEvent.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { suspendedAt: 'desc' },
+        include: {
+          student: { select: { id: true, firstName: true, lastName: true, email: true, isBanned: true } },
+        },
+      }),
+    ]);
+
+    return {
+      data,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    };
+  }
 }

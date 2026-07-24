@@ -10,10 +10,17 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     configService: ConfigService,
     private readonly prisma: PrismaService,
   ) {
+    const secret = configService.get<string>('JWT_ACCESS_SECRET');
+    if (!secret) {
+      // Ne JAMAIS démarrer avec un secret par défaut connu de tous —
+      // mieux vaut un crash au démarrage qu'une faille silencieuse.
+      throw new Error('JWT_ACCESS_SECRET manquant — démarrage refusé pour des raisons de sécurité');
+    }
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: configService.get('JWT_ACCESS_SECRET') || 'fallback-secret',
+      secretOrKey: secret,
     });
   }
 
@@ -22,10 +29,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       where: { id: payload.sub },
     });
 
-    if (!user) return null;
+    if (!user || user.deletedAt) return null;
 
-    // Marqueur de provenance : permet à CombinedRolesGuard de savoir
-    // quel jeu de rôles vérifier (UserRole vs WebUserRole).
     return { ...user, __authKind: 'mobile' as const };
   }
 }

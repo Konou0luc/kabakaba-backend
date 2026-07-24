@@ -5,6 +5,7 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as express from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
+import helmet from 'helmet';
 import { getAbsoluteFSPath } from 'swagger-ui-dist';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
 
@@ -16,15 +17,24 @@ export function resolveSwaggerAssetPath(requestPath: string, swaggerUiDir: strin
   }
 
   const candidates = normalizedPath === 'swagger-ui.css' ? ['swagger-ui.css', 'index.css'] : [normalizedPath];
+  const root = path.resolve(swaggerUiDir);
 
   for (const candidate of candidates) {
-    const candidatePath = path.join(swaggerUiDir, candidate);
-    if (fs.existsSync(candidatePath)) {
-      return candidatePath;
+    const resolved = path.resolve(root, candidate);
+
+    // Empêche toute évasion du dossier swagger-ui-dist via des séquences
+    // "../" dans le chemin demandé (traversée de répertoire).
+    if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+      continue;
+    }
+
+    if (fs.existsSync(resolved)) {
+      return resolved;
     }
   }
 
-  return path.join(swaggerUiDir, normalizedPath);
+  // Ne jamais renvoyer un chemin non vérifié en repli.
+  return null;
 }
 
 function buildSwaggerHtml(swaggerUrl: string) {
@@ -58,10 +68,12 @@ function buildSwaggerHtml(swaggerUrl: string) {
 export async function createNestApp() {
   const app = await NestFactory.create(AppModule);
 
+  app.use(helmet());
+
   app.enableCors({
     origin: [
       'http://localhost:5173',
-     // 'https://<ton-domaine-frontend-de-prod>', // remplace par la vraie URL une fois le frontend déployé
+      'https://<ton-domaine-frontend-de-prod>',
     ],
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
@@ -87,11 +99,6 @@ export async function createNestApp() {
     const filePath = resolveSwaggerAssetPath(req.path, swaggerUiDir);
 
     if (!filePath) {
-      next();
-      return;
-    }
-
-    if (!fs.existsSync(filePath)) {
       res.status(404).send('Not Found');
       return;
     }

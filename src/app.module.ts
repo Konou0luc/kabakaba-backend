@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
+import { APP_GUARD } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { DatabaseModule } from './database/database.module';
@@ -29,6 +31,10 @@ import { WebAuthModule } from './modules/web-auth/web-auth.module';
       isGlobal: true,
       envFilePath: '.env',
     }),
+    // Limite globale par défaut : 60 requêtes/minute/IP. Les endpoints
+    // sensibles (login, 2FA, OTP) ont une limite plus stricte via @Throttle
+    // directement sur leurs contrôleurs.
+    ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 60 }]),
     DatabaseModule,
     AuthModule,
     UsersModule,
@@ -51,6 +57,9 @@ import { WebAuthModule } from './modules/web-auth/web-auth.module';
     WebAuthModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+  ],
 })
 export class AppModule {}

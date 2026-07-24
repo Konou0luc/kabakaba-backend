@@ -1,7 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsOptional, IsPhoneNumber, IsString, MinLength, IsBoolean } from 'class-validator';
-import { UserRole } from '@prisma/client';
+import { IsEmail, IsOptional, IsPhoneNumber, IsString, MinLength, IsBoolean } from 'class-validator';
 
+/**
+ * DTO de l'auto-inscription PUBLIQUE (POST /users). Le champ `role`
+ * n'existe volontairement pas ici : il est toujours forcé à STUDENT côté
+ * service, jamais pris depuis le client. Pour créer un compte ADMIN/VENDOR,
+ * voir CreateStaffUserDto (endpoint gardé POST /users/staff).
+ */
 export class CreateUserDto {
   @ApiProperty({ example: '+22890000000', required: false, description: 'Numéro de téléphone' })
   @IsOptional()
@@ -27,14 +32,10 @@ export class CreateUserDto {
   @IsString()
   lastName: string;
 
-  @ApiProperty({ example: 'https://example.com/avatar.jpg', required: false, description: 'URL de l\'avatar' })
+  @ApiProperty({ example: 'https://example.com/avatar.jpg', required: false, description: "URL de l'avatar" })
   @IsOptional()
   @IsString()
   avatarUrl?: string;
-
-  @ApiProperty({ enum: UserRole, default: UserRole.STUDENT, description: 'Rôle de l\'utilisateur' })
-  @IsEnum(UserRole)
-  role: UserRole;
 
   @ApiProperty({ example: 'uuid-campus', required: false, description: 'Identifiant du campus' })
   @IsOptional()
