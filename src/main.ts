@@ -22,8 +22,6 @@ export function resolveSwaggerAssetPath(requestPath: string, swaggerUiDir: strin
   for (const candidate of candidates) {
     const resolved = path.resolve(root, candidate);
 
-    // Empêche toute évasion du dossier swagger-ui-dist via des séquences
-    // "../" dans le chemin demandé (traversée de répertoire).
     if (resolved !== root && !resolved.startsWith(root + path.sep)) {
       continue;
     }
@@ -33,7 +31,6 @@ export function resolveSwaggerAssetPath(requestPath: string, swaggerUiDir: strin
     }
   }
 
-  // Ne jamais renvoyer un chemin non vérifié en repli.
   return null;
 }
 
@@ -73,7 +70,7 @@ export async function createNestApp() {
   app.enableCors({
     origin: [
       'http://localhost:5173',
-      'https://<ton-domaine-frontend-de-prod>',
+      'https://kabakaba-frontend.vercel.app',
     ],
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
     allowedHeaders: ['Content-Type', 'Authorization'],
