@@ -32,4 +32,12 @@ export class AnalyticsController {
   getTopCanteens(@Query() query: AnalyticsQueryDto) {
     return this.analyticsService.getTopCanteens(query.days, query.limit);
   }
+
+  @Get('revenue')
+  @ApiOperation({ summary: 'Décomposition des revenus (surplus recharges, frais non couverts, commissions)' })
+  @ApiQuery({ type: AnalyticsQueryDto })
+  @ApiResponse({ status: 200, description: 'Revenus décomposés, par campus et tendance 7 jours.' })
+  getRevenueBreakdown(@Query() query: AnalyticsQueryDto) {
+    return this.analyticsService.getRevenueBreakdown(query.days);
+  }
 }
