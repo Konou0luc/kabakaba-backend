@@ -40,4 +40,12 @@ export class AnalyticsController {
   getRevenueBreakdown(@Query() query: AnalyticsQueryDto) {
     return this.analyticsService.getRevenueBreakdown(query.days);
   }
+
+  @Get('vendors')
+  @ApiOperation({ summary: "Performance vendeurs : acceptation, refus, annulation, temps de réaction" })
+  @ApiQuery({ type: AnalyticsQueryDto })
+  @ApiResponse({ status: 200, description: 'Statistiques de performance par vendeur.' })
+  getVendorPerformance(@Query() query: AnalyticsQueryDto) {
+    return this.analyticsService.getVendorPerformance(query.days);
+  }
 }

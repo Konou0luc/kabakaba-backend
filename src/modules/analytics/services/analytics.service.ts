@@ -3,12 +3,13 @@ import { PrismaService } from '../../../database/services/prisma.service';
 
 const COMPLETED_STATUSES = ['RECEIVED', 'AUTO_RECEIVED'];
 const DECIDED_STATUSES = ['RECEIVED', 'AUTO_RECEIVED', 'REFUSED', 'CANCELLED_VENDOR'];
+const ACCEPTED_LINEAGE_STATUSES = ['ACCEPTED', 'IN_PREPARATION', 'READY', 'RECEIVED', 'AUTO_RECEIVED', 'REFUNDED'];
+const DECISION_STATUSES = ['ACCEPTED', 'IN_PREPARATION', 'READY', 'RECEIVED', 'AUTO_RECEIVED', 'REFUNDED', 'REFUSED', 'CANCELLED_VENDOR'];
 
-// Taux FedaPay par opérateur — voir doc métier 5.1 (surplus recharge étudiant).
-const FEE_RATE_BY_OPERATOR: Record<string, number> = {
-  FLOOZ: 0.025,
-  MIXX: 0.035,
-};
+const FEE_RATE_BY_OPERATOR: Record<string, number> = { FLOOZ: 0.025, MIXX: 0.035 };
+
+const ALERT_THRESHOLD_SECONDS = 5 * 60;
+const WATCH_THRESHOLD_SECONDS = 3 * 60;
 
 function daysAgo(n: number) {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000);
@@ -18,7 +19,6 @@ function dayKey(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
-// Règle métier 5.3 : paliers de frais de retrait non couverts.
 function uncoveredWithdrawalFee(amount: number, platformFee: number, operatorFee: number) {
   if (amount < 10000) return platformFee + operatorFee;
   if (amount < 30000) return operatorFee;
@@ -30,45 +30,31 @@ export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getCampusComparison(days = 30) {
-    // ... méthode existante inchangée, voir tour précédent ...
+    // ... méthode inchangée, voir tours précédents ...
     const since = daysAgo(days);
     const prevSince = daysAgo(days * 2);
     const sevenDaysAgo = daysAgo(7);
 
     const [campuses, students, ordersWindow, ordersPrevWindow, orders7d, vendorCampusLinks] = await Promise.all([
       this.prisma.campus.findMany({ orderBy: { name: 'asc' } }),
-      this.prisma.user.findMany({
-        where: { role: 'STUDENT', campusId: { not: null } },
-        select: { id: true, campusId: true },
-      }),
+      this.prisma.user.findMany({ where: { role: 'STUDENT', campusId: { not: null } }, select: { id: true, campusId: true } }),
       this.prisma.order.findMany({
         where: { createdAt: { gte: since } },
         select: { status: true, escrowAmount: true, studentId: true, student: { select: { campusId: true } } },
       }),
-      this.prisma.order.findMany({
-        where: { createdAt: { gte: prevSince, lt: since } },
-        select: { status: true, escrowAmount: true },
-      }),
-      this.prisma.order.findMany({
-        where: { createdAt: { gte: sevenDaysAgo } },
-        select: { createdAt: true, student: { select: { campusId: true } } },
-      }),
+      this.prisma.order.findMany({ where: { createdAt: { gte: prevSince, lt: since } }, select: { status: true, escrowAmount: true } }),
+      this.prisma.order.findMany({ where: { createdAt: { gte: sevenDaysAgo } }, select: { createdAt: true, student: { select: { campusId: true } } } }),
       this.prisma.vendorCampus.findMany({ select: { campusId: true } }),
     ]);
 
     const cantinesByCampus = new Map<string, number>();
-    for (const link of vendorCampusLinks) {
-      cantinesByCampus.set(link.campusId, (cantinesByCampus.get(link.campusId) ?? 0) + 1);
-    }
+    for (const link of vendorCampusLinks) cantinesByCampus.set(link.campusId, (cantinesByCampus.get(link.campusId) ?? 0) + 1);
 
     const enrolledByCampus = new Map<string, number>();
-    for (const s of students) {
-      if (s.campusId) enrolledByCampus.set(s.campusId, (enrolledByCampus.get(s.campusId) ?? 0) + 1);
-    }
+    for (const s of students) if (s.campusId) enrolledByCampus.set(s.campusId, (enrolledByCampus.get(s.campusId) ?? 0) + 1);
 
     const activeStudentIdsByCampus = new Map<string, Set<string>>();
     const statsByCampus = new Map<string, { orders: number; completed: number; revenue: number }>();
-
     for (const o of ordersWindow) {
       const campusId = o.student?.campusId;
       if (!campusId) continue;
@@ -133,16 +119,13 @@ export class AnalyticsService {
       campuses: campusRows,
       dailyVolume: {
         labels: dayKeys,
-        series: {
-          'Tous les campus': dailyTotal,
-          ...Object.fromEntries(campuses.map((c) => [c.name, dailyByCampus.get(c.id) ?? new Array(7).fill(0)])),
-        },
+        series: { 'Tous les campus': dailyTotal, ...Object.fromEntries(campuses.map((c) => [c.name, dailyByCampus.get(c.id) ?? new Array(7).fill(0)])) },
       },
     };
   }
 
   async getTopCanteens(days = 30, limit = 10) {
-    // ... méthode existante inchangée, voir tour précédent ...
+    // ... méthode inchangée, voir tours précédents ...
     const since = daysAgo(days);
     const [orders, vendors, reviews, vendorCampusLinks, campuses] = await Promise.all([
       this.prisma.order.findMany({ where: { createdAt: { gte: since } }, select: { vendorId: true, status: true } }),
@@ -197,44 +180,26 @@ export class AnalyticsService {
       .slice(0, limit);
   }
 
-  // ─── Nouveau : Volume & revenus ───────────────────────────────────
   async getRevenueBreakdown(days = 30) {
+    // ... méthode inchangée, voir tour précédent ...
     const since = daysAgo(days);
-
     const [payments, withdrawals, commissions, campuses, vendorCampusLinks] = await Promise.all([
       this.prisma.payment.findMany({
         where: { status: 'SUCCESS', createdAt: { gte: since } },
-        select: {
-          operator: true,
-          amountFcfa: true,
-          ticketsReceived: true,
-          createdAt: true,
-          user: { select: { campusId: true } },
-        },
+        select: { operator: true, amountFcfa: true, ticketsReceived: true, createdAt: true, user: { select: { campusId: true } } },
       }),
       this.prisma.withdrawal.findMany({
         where: { status: 'COMPLETED', createdAt: { gte: since } },
-        select: {
-          vendorId: true,
-          amount: true,
-          platformFee: true,
-          operatorFee: true,
-          createdAt: true,
-        },
+        select: { vendorId: true, amount: true, platformFee: true, operatorFee: true, createdAt: true },
       }),
       this.prisma.ambassadorCommission.findMany({
         where: { deletedAt: null, createdAt: { gte: since } },
-        select: {
-          amount: true,
-          createdAt: true,
-          payment: { select: { user: { select: { campusId: true } } } },
-        },
+        select: { amount: true, createdAt: true, payment: { select: { user: { select: { campusId: true } } } } },
       }),
       this.prisma.campus.findMany({ select: { id: true, name: true } }),
       this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
     ]);
 
-    const campusNameById = new Map(campuses.map((c) => [c.id, c.name]));
     const campusIdsByVendor = new Map<string, string[]>();
     for (const link of vendorCampusLinks) {
       if (!campusIdsByVendor.has(link.vendorId)) campusIdsByVendor.set(link.vendorId, []);
@@ -248,10 +213,7 @@ export class AnalyticsService {
       return byCampus.get(id)!;
     };
 
-    let totalSurplus = 0;
-    let totalUncoveredFees = 0;
-    let totalCommissions = 0;
-    let totalGross = 0;
+    let totalSurplus = 0, totalUncoveredFees = 0, totalCommissions = 0, totalGross = 0;
 
     for (const p of payments) {
       const rate = FEE_RATE_BY_OPERATOR[p.operator] ?? 0;
@@ -270,10 +232,7 @@ export class AnalyticsService {
     for (const w of withdrawals) {
       const fee = uncoveredWithdrawalFee(Number(w.amount), Number(w.platformFee), Number(w.operatorFee));
       totalUncoveredFees += fee;
-      const campusIds = campusIdsByVendor.get(w.vendorId) ?? [];
-      for (const campusId of campusIds) {
-        ensure(campusId).uncoveredFees += fee;
-      }
+      for (const campusId of campusIdsByVendor.get(w.vendorId) ?? []) ensure(campusId).uncoveredFees += fee;
     }
 
     for (const c of commissions) {
@@ -284,21 +243,12 @@ export class AnalyticsService {
 
     const perCampus = campuses.map((c) => {
       const agg = byCampus.get(c.id) ?? { surplus: 0, uncoveredFees: 0, commissions: 0, rechargesGross: 0 };
-      return {
-        id: c.id,
-        name: c.name,
-        rechargesGross: agg.rechargesGross,
-        surplus: agg.surplus,
-        commissions: agg.commissions,
-        net: agg.surplus + agg.uncoveredFees - agg.commissions,
-      };
+      return { id: c.id, name: c.name, rechargesGross: agg.rechargesGross, surplus: agg.surplus, commissions: agg.commissions, net: agg.surplus + agg.uncoveredFees - agg.commissions };
     });
 
-    // Évolution 7 jours du revenu net (mêmes 3 composantes, par jour)
     const dayKeys: string[] = [];
     for (let i = 6; i >= 0; i--) dayKeys.push(dayKey(daysAgo(i)));
     const dailyNet = new Array(7).fill(0);
-
     for (const p of payments) {
       const idx = dayKeys.indexOf(dayKey(p.createdAt));
       if (idx === -1) continue;
@@ -317,15 +267,103 @@ export class AnalyticsService {
     }
 
     return {
-      summary: {
-        surplus: totalSurplus,
-        uncoveredFees: totalUncoveredFees,
-        commissions: totalCommissions,
-        net: totalSurplus + totalUncoveredFees - totalCommissions,
-        rechargesGross: totalGross,
-      },
+      summary: { surplus: totalSurplus, uncoveredFees: totalUncoveredFees, commissions: totalCommissions, net: totalSurplus + totalUncoveredFees - totalCommissions, rechargesGross: totalGross },
       perCampus,
       dailyNet: { labels: dayKeys, values: dailyNet },
+    };
+  }
+
+  // ─── Nouveau : Performance vendeurs ───────────────────────────────
+  async getVendorPerformance(days = 30) {
+    const since = daysAgo(days);
+
+    const [orders, acceptanceEvents, vendors, vendorCampusLinks, campuses] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { createdAt: { gte: since } },
+        select: { vendorId: true, status: true },
+      }),
+      this.prisma.orderStatusHistory.findMany({
+        where: { newStatus: 'ACCEPTED', order: { createdAt: { gte: since } } },
+        select: { createdAt: true, order: { select: { vendorId: true, createdAt: true } } },
+      }),
+      this.prisma.vendor.findMany({ select: { id: true, canteenName: true } }),
+      this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
+      this.prisma.campus.findMany({ select: { id: true, name: true } }),
+    ]);
+
+    const campusNameById = new Map(campuses.map((c) => [c.id, c.name]));
+    const campusNamesByVendor = new Map<string, string[]>();
+    for (const link of vendorCampusLinks) {
+      if (!campusNamesByVendor.has(link.vendorId)) campusNamesByVendor.set(link.vendorId, []);
+      const name = campusNameById.get(link.campusId);
+      if (name) campusNamesByVendor.get(link.vendorId)!.push(name);
+    }
+
+    type Stats = { orders: number; decided: number; accepted: number; refused: number; cancelled: number };
+    const statsByVendor = new Map<string, Stats>();
+    for (const o of orders) {
+      const entry = statsByVendor.get(o.vendorId) ?? { orders: 0, decided: 0, accepted: 0, refused: 0, cancelled: 0 };
+      entry.orders += 1;
+      if (DECISION_STATUSES.includes(o.status)) {
+        entry.decided += 1;
+        if (ACCEPTED_LINEAGE_STATUSES.includes(o.status)) entry.accepted += 1;
+        if (o.status === 'REFUSED') entry.refused += 1;
+        if (o.status === 'CANCELLED_VENDOR') entry.cancelled += 1;
+      }
+      statsByVendor.set(o.vendorId, entry);
+    }
+
+    const acceptanceTimesByVendor = new Map<string, number[]>();
+    let allAcceptanceTimes: number[] = [];
+    for (const e of acceptanceEvents) {
+      const vendorId = e.order.vendorId;
+      const seconds = (e.createdAt.getTime() - e.order.createdAt.getTime()) / 1000;
+      if (!acceptanceTimesByVendor.has(vendorId)) acceptanceTimesByVendor.set(vendorId, []);
+      acceptanceTimesByVendor.get(vendorId)!.push(seconds);
+      allAcceptanceTimes.push(seconds);
+    }
+
+    const avg = (arr: number[]) => (arr.length > 0 ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
+
+    const rows = vendors
+      .map((v) => {
+        const stats = statsByVendor.get(v.id) ?? { orders: 0, decided: 0, accepted: 0, refused: 0, cancelled: 0 };
+        const avgSeconds = avg(acceptanceTimesByVendor.get(v.id) ?? []);
+        let status: 'green' | 'orange' | 'red' = 'green';
+        if (avgSeconds !== null) {
+          if (avgSeconds > ALERT_THRESHOLD_SECONDS) status = 'red';
+          else if (avgSeconds > WATCH_THRESHOLD_SECONDS) status = 'orange';
+        }
+        return {
+          id: v.id,
+          name: v.canteenName,
+          campusName: campusNamesByVendor.get(v.id)?.join(', ') ?? '—',
+          orders: stats.orders,
+          acceptanceRate: stats.decided > 0 ? Math.round((stats.accepted / stats.decided) * 100) : 0,
+          refusalRate: stats.decided > 0 ? Math.round((stats.refused / stats.decided) * 100) : 0,
+          cancellationRate: stats.decided > 0 ? Math.round((stats.cancelled / stats.decided) * 100) : 0,
+          avgAcceptanceSeconds: avgSeconds,
+          status,
+        };
+      })
+      .filter((v) => v.orders > 0)
+      .sort((a, b) => (a.avgAcceptanceSeconds ?? 0) - (b.avgAcceptanceSeconds ?? 0));
+
+    const totalDecided = rows.reduce((s, v) => s + (statsByVendor.get(v.id)?.decided ?? 0), 0);
+    const totalAccepted = rows.reduce((s, v) => s + (statsByVendor.get(v.id)?.accepted ?? 0), 0);
+    const overallAcceptance = totalDecided > 0 ? Math.round((totalAccepted / totalDecided) * 100) : 0;
+    const overallAvgSeconds = avg(allAcceptanceTimes);
+
+    return {
+      summary: {
+        activeVendors: rows.length,
+        totalVendors: vendors.length,
+        avgAcceptanceRate: overallAcceptance,
+        avgAcceptanceSeconds: overallAvgSeconds,
+        watchCount: rows.filter((v) => v.status === 'orange').length,
+        alertCount: rows.filter((v) => v.status === 'red').length,
+      },
+      vendors: rows,
     };
   }
 }
