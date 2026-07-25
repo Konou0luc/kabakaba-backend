@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserRole, WebUserRole } from '@prisma/client';
 import { AnalyticsService } from '../services/analytics.service';
@@ -71,5 +71,22 @@ export class AnalyticsController {
   @ApiResponse({ status: 200, description: 'Statistiques agrégées sur les avis.' })
   getReviewsQuality(@Query() query: AnalyticsQueryDto) {
     return this.analyticsService.getReviewsQuality(query.days);
+  }
+
+  @Get('ambassadors')
+  @ApiOperation({ summary: 'Classement des ambassadeurs actifs, répartition par niveau' })
+  @ApiQuery({ type: AnalyticsQueryDto })
+  @ApiResponse({ status: 200, description: 'Classement et synthèse du programme ambassadeur.' })
+  getAmbassadorRanking(@Query() query: AnalyticsQueryDto) {
+    return this.analyticsService.getAmbassadorRanking(query.days);
+  }
+
+  @Get('ambassadors/:id')
+  @ApiOperation({ summary: "Fiche complète d'un ambassadeur : identité, affiliés, commissions" })
+  @ApiQuery({ type: AnalyticsQueryDto })
+  @ApiResponse({ status: 200, description: 'Détail complet.' })
+  @ApiResponse({ status: 404, description: 'Ambassadeur introuvable.' })
+  getAmbassadorDetail(@Param('id') id: string, @Query() query: AnalyticsQueryDto) {
+    return this.analyticsService.getAmbassadorDetail(id, query.days);
   }
 }

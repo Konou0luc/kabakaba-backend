@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 
 const COMPLETED_STATUSES = ['RECEIVED', 'AUTO_RECEIVED'];
@@ -19,6 +19,12 @@ export const RATING_LABELS: Record<number, string> = {
   3: "Ce n'est pas mal",
   4: 'Satisfait',
   5: 'Excellent',
+};
+
+const COMMISSION_RATE_BY_LEVEL: Record<string, number> = {
+  BRONZE: 0.005,
+  SILVER: 0.008,
+  GOLD: 0.012,
 };
 
 function daysAgo(n: number) {
@@ -524,7 +530,6 @@ export class AnalyticsService {
     };
   }
 
-  // ─── Nouveau : Qualité & avis (Notes & alertes + Commentaires) ────
   async getReviewsQuality(days = 30) {
     const since = daysAgo(days);
     const sevenDaysAgo = daysAgo(7);
@@ -605,6 +610,158 @@ export class AnalyticsService {
       })),
       perVendor,
       dailyTrend: { labels: dayKeys, avgRating: dailyAvg, count: dailyCount },
+    };
+  }
+
+  // ─── Nouveau : Supervision ambassadeurs ───────────────────────────
+  async getAmbassadorRanking(days = 30) {
+    const since = daysAgo(days);
+
+    const [ambassadors, affiliateCounts, commissionsWindow] = await Promise.all([
+      this.prisma.ambassador.findMany({
+        where: { deletedAt: null, status: 'ACTIVE' },
+        select: {
+          id: true,
+          level: true,
+          volume30d: true,
+          promoCode: true,
+          user: { select: { firstName: true, lastName: true, campus: { select: { name: true } } } },
+        },
+      }),
+      this.prisma.ambassadorAffiliate.groupBy({
+        by: ['ambassadorId'],
+        where: { deletedAt: null },
+        _count: { _all: true },
+      }),
+      this.prisma.ambassadorCommission.findMany({
+        where: { deletedAt: null, createdAt: { gte: since } },
+        select: { ambassadorId: true, amount: true },
+      }),
+    ]);
+
+    const affiliateCountByAmbassador = new Map(affiliateCounts.map((a) => [a.ambassadorId, a._count._all]));
+    const commissionByAmbassador = new Map<string, number>();
+    for (const c of commissionsWindow) {
+      commissionByAmbassador.set(c.ambassadorId, (commissionByAmbassador.get(c.ambassadorId) ?? 0) + Number(c.amount));
+    }
+
+    const rows = ambassadors
+      .map((a) => ({
+        id: a.id,
+        name: `${a.user?.firstName ?? ''} ${a.user?.lastName ?? ''}`.trim() || '—',
+        campusName: a.user?.campus?.name ?? '—',
+        level: a.level,
+        affiliates: affiliateCountByAmbassador.get(a.id) ?? 0,
+        volume: Number(a.volume30d),
+        commission: commissionByAmbassador.get(a.id) ?? 0,
+      }))
+      .sort((a, b) => b.volume - a.volume)
+      .map((row, i) => ({ rank: i + 1, ...row }));
+
+    const levelCounts = { GOLD: 0, SILVER: 0, BRONZE: 0 };
+    for (const a of ambassadors) levelCounts[a.level] = (levelCounts[a.level] ?? 0) + 1;
+
+    const campusSet = new Set(ambassadors.map((a) => a.user?.campus?.name).filter(Boolean));
+
+    return {
+      summary: {
+        activeAmbassadors: ambassadors.length,
+        campusCount: campusSet.size,
+        totalVolume: rows.reduce((s, r) => s + r.volume, 0),
+        totalCommission: rows.reduce((s, r) => s + r.commission, 0),
+        levelCounts,
+      },
+      ranking: rows,
+    };
+  }
+
+  async getAmbassadorDetail(id: string, days = 30) {
+    const since = daysAgo(days);
+
+    const ambassador = await this.prisma.ambassador.findUnique({
+      where: { id, deletedAt: null },
+      include: {
+        user: { include: { campus: { select: { name: true } } } },
+      },
+    });
+
+    if (!ambassador) throw new NotFoundException(`Ambassadeur ${id} introuvable`);
+
+    const [affiliates, commissions, affiliateCount] = await Promise.all([
+      this.prisma.ambassadorAffiliate.findMany({
+        where: { ambassadorId: id, deletedAt: null },
+        include: { student: { select: { firstName: true, lastName: true, campus: { select: { name: true } } } } },
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.ambassadorCommission.findMany({
+        where: { ambassadorId: id, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+        take: 50,
+        include: { payment: { select: { amountFcfa: true, createdAt: true } } },
+      }),
+      this.prisma.ambassadorAffiliate.count({ where: { ambassadorId: id, deletedAt: null } }),
+    ]);
+
+    const studentIds = affiliates.map((a) => a.studentId);
+    const rechargesByStudent = await this.prisma.payment.groupBy({
+      by: ['userId'],
+      where: { userId: { in: studentIds }, status: 'SUCCESS' },
+      _sum: { amountFcfa: true },
+    });
+    const rechargeSumByStudent = new Map(rechargesByStudent.map((r) => [r.userId, Number(r._sum.amountFcfa ?? 0)]));
+
+    const commissionsInWindow = commissions.filter((c) => c.createdAt >= since);
+    const commissionThisMonth = commissionsInWindow.reduce((s, c) => s + Number(c.amount), 0);
+
+    const levelThresholds = { BRONZE: 0, SILVER: 50000, GOLD: 150000 };
+    const nextLevel = ambassador.level === 'BRONZE' ? 'SILVER' : ambassador.level === 'SILVER' ? 'GOLD' : null;
+
+    return {
+      identity: {
+        id: ambassador.id,
+        firstName: ambassador.user?.firstName,
+        lastName: ambassador.user?.lastName,
+        phone: ambassador.user?.phone,
+        email: ambassador.user?.email,
+        avatarUrl: ambassador.user?.avatarUrl,
+        campusName: ambassador.user?.campus?.name ?? '—',
+        institution: ambassador.institution,
+        faculty: ambassador.faculty,
+        schoolCardUrl: ambassador.schoolCardUrl,
+        promoCode: ambassador.promoCode,
+        level: ambassador.level,
+        status: ambassador.status,
+        suspendedAt: ambassador.suspendedAt,
+        decisionReason: ambassador.decisionReason,
+        createdAt: ambassador.createdAt,
+      },
+      stats: {
+        volume30d: Number(ambassador.volume30d),
+        commissionRate: COMMISSION_RATE_BY_LEVEL[ambassador.level] ?? 0,
+        commissionThisMonth,
+        totalAffiliates: affiliateCount,
+        activeAffiliates: affiliates.filter((a) => rechargeSumByStudent.get(a.studentId)).length,
+        lastReferralAt: ambassador.lastReferralAt,
+        levelThreshold: nextLevel ? levelThresholds[nextLevel] : null,
+        nextLevel,
+      },
+      affiliates: affiliates.map((a) => ({
+        id: a.id,
+        studentId: a.studentId,
+        name: `${a.student?.firstName ?? ''} ${a.student?.lastName ?? ''}`.trim() || '—',
+        campusName: a.student?.campus?.name ?? '—',
+        since: a.createdAt,
+        totalRecharge: rechargeSumByStudent.get(a.studentId) ?? 0,
+        active: (rechargeSumByStudent.get(a.studentId) ?? 0) > 0,
+      })),
+      commissions: commissions.map((c) => ({
+        id: c.id,
+        date: c.createdAt,
+        rechargeAmount: c.payment ? Number(c.payment.amountFcfa) : null,
+        levelApplied: c.levelApplied,
+        commissionRate: c.commissionRate ? Number(c.commissionRate) : null,
+        amount: Number(c.amount),
+      })),
     };
   }
 }
