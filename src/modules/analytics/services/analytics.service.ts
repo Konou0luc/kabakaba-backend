@@ -30,7 +30,6 @@ export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async getCampusComparison(days = 30) {
-    // ... méthode inchangée, voir tours précédents ...
     const since = daysAgo(days);
     const prevSince = daysAgo(days * 2);
     const sevenDaysAgo = daysAgo(7);
@@ -125,7 +124,6 @@ export class AnalyticsService {
   }
 
   async getTopCanteens(days = 30, limit = 10) {
-    // ... méthode inchangée, voir tours précédents ...
     const since = daysAgo(days);
     const [orders, vendors, reviews, vendorCampusLinks, campuses] = await Promise.all([
       this.prisma.order.findMany({ where: { createdAt: { gte: since } }, select: { vendorId: true, status: true } }),
@@ -181,7 +179,6 @@ export class AnalyticsService {
   }
 
   async getRevenueBreakdown(days = 30) {
-    // ... méthode inchangée, voir tour précédent ...
     const since = daysAgo(days);
     const [payments, withdrawals, commissions, campuses, vendorCampusLinks] = await Promise.all([
       this.prisma.payment.findMany({
@@ -273,15 +270,10 @@ export class AnalyticsService {
     };
   }
 
-  // ─── Nouveau : Performance vendeurs ───────────────────────────────
   async getVendorPerformance(days = 30) {
     const since = daysAgo(days);
-
     const [orders, acceptanceEvents, vendors, vendorCampusLinks, campuses] = await Promise.all([
-      this.prisma.order.findMany({
-        where: { createdAt: { gte: since } },
-        select: { vendorId: true, status: true },
-      }),
+      this.prisma.order.findMany({ where: { createdAt: { gte: since } }, select: { vendorId: true, status: true } }),
       this.prisma.orderStatusHistory.findMany({
         where: { newStatus: 'ACCEPTED', order: { createdAt: { gte: since } } },
         select: { createdAt: true, order: { select: { vendorId: true, createdAt: true } } },
@@ -362,6 +354,161 @@ export class AnalyticsService {
         avgAcceptanceSeconds: overallAvgSeconds,
         watchCount: rows.filter((v) => v.status === 'orange').length,
         alertCount: rows.filter((v) => v.status === 'red').length,
+      },
+      vendors: rows,
+    };
+  }
+
+  async getStudentBehavior(days = 30) {
+    const since = daysAgo(days);
+    const prevSince = daysAgo(days * 2);
+    const sevenDaysAgo = daysAgo(7);
+
+    const [allStudents, ordersWindow, paymentsWindow, newStudents7d, campuses] = await Promise.all([
+      this.prisma.user.findMany({ where: { role: 'STUDENT' }, select: { id: true, campusId: true } }),
+      this.prisma.order.findMany({
+        where: { createdAt: { gte: prevSince } },
+        select: { createdAt: true, studentId: true, student: { select: { campusId: true } } },
+      }),
+      this.prisma.payment.findMany({
+        where: { status: 'SUCCESS', createdAt: { gte: since } },
+        select: { amountFcfa: true, userId: true, user: { select: { campusId: true } } },
+      }),
+      this.prisma.user.findMany({
+        where: { role: 'STUDENT', createdAt: { gte: sevenDaysAgo } },
+        select: { createdAt: true },
+      }),
+      this.prisma.campus.findMany({ select: { id: true, name: true } }),
+    ]);
+
+    const enrolledByCampus = new Map<string, number>();
+    for (const s of allStudents) if (s.campusId) enrolledByCampus.set(s.campusId, (enrolledByCampus.get(s.campusId) ?? 0) + 1);
+
+    const activeIdsCurrent = new Set<string>();
+    const activeIdsPrevious = new Set<string>();
+    const activeIdsByCampus = new Map<string, Set<string>>();
+    const ordersCountWindowByStudent = new Map<string, number>();
+
+    for (const o of ordersWindow) {
+      const isCurrentWindow = o.createdAt >= since;
+      if (isCurrentWindow) {
+        activeIdsCurrent.add(o.studentId);
+        ordersCountWindowByStudent.set(o.studentId, (ordersCountWindowByStudent.get(o.studentId) ?? 0) + 1);
+        const campusId = o.student?.campusId;
+        if (campusId) {
+          if (!activeIdsByCampus.has(campusId)) activeIdsByCampus.set(campusId, new Set());
+          activeIdsByCampus.get(campusId)!.add(o.studentId);
+        }
+      } else {
+        activeIdsPrevious.add(o.studentId);
+      }
+    }
+
+    const totalOrdersInWindow = [...ordersCountWindowByStudent.values()].reduce((s, v) => s + v, 0);
+    const weeks = days / 7;
+    const avgFrequency = activeIdsCurrent.size > 0 ? totalOrdersInWindow / activeIdsCurrent.size / weeks : 0;
+
+    const rechargeSumByCampus = new Map<string, { sum: number; count: number }>();
+    let totalRechargeSum = 0;
+    let totalRechargeCount = 0;
+    for (const p of paymentsWindow) {
+      totalRechargeSum += Number(p.amountFcfa);
+      totalRechargeCount += 1;
+      const campusId = p.user?.campusId;
+      if (campusId) {
+        const entry = rechargeSumByCampus.get(campusId) ?? { sum: 0, count: 0 };
+        entry.sum += Number(p.amountFcfa);
+        entry.count += 1;
+        rechargeSumByCampus.set(campusId, entry);
+      }
+    }
+
+    const dayKeys: string[] = [];
+    for (let i = 6; i >= 0; i--) dayKeys.push(dayKey(daysAgo(i)));
+    const dailyRegistrations = new Array(7).fill(0);
+    for (const s of newStudents7d) {
+      const idx = dayKeys.indexOf(dayKey(s.createdAt));
+      if (idx !== -1) dailyRegistrations[idx] += 1;
+    }
+
+    const activePrevChange =
+      activeIdsPrevious.size > 0
+        ? Math.round(((activeIdsCurrent.size - activeIdsPrevious.size) / activeIdsPrevious.size) * 100)
+        : null;
+
+    const perCampus = campuses.map((c) => {
+      const enrolled = enrolledByCampus.get(c.id) ?? 0;
+      const active = activeIdsByCampus.get(c.id)?.size ?? 0;
+      const recharge = rechargeSumByCampus.get(c.id) ?? { sum: 0, count: 0 };
+      const campusOrders = ordersWindow.filter((o) => o.createdAt >= since && o.student?.campusId === c.id).length;
+      return {
+        id: c.id,
+        name: c.name,
+        enrolled,
+        active,
+        avgRecharge: recharge.count > 0 ? Math.round(recharge.sum / recharge.count) : 0,
+        avgFrequency: active > 0 ? Number((campusOrders / active / weeks).toFixed(1)) : 0,
+      };
+    });
+
+    return {
+      summary: {
+        totalEnrolled: allStudents.length,
+        totalActive: activeIdsCurrent.size,
+        activeChangePct: activePrevChange,
+        activeShare: allStudents.length > 0 ? Math.round((activeIdsCurrent.size / allStudents.length) * 100) : 0,
+        avgRecharge: totalRechargeCount > 0 ? Math.round(totalRechargeSum / totalRechargeCount) : 0,
+        avgFrequency: Number(avgFrequency.toFixed(1)),
+      },
+      dailyRegistrations: { labels: dayKeys, values: dailyRegistrations },
+      perCampus,
+    };
+  }
+
+  async getVendorFinancials(days = 30) {
+    const since = daysAgo(days);
+
+    const [vendors, vendorCampusLinks, campuses, withdrawals] = await Promise.all([
+      this.prisma.vendor.findMany({
+        where: { deletedAt: null },
+        select: { id: true, canteenName: true, balanceFcfa: true, debtFcfa: true },
+      }),
+      this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
+      this.prisma.campus.findMany({ select: { id: true, name: true } }),
+      this.prisma.withdrawal.findMany({
+        where: { status: 'COMPLETED', createdAt: { gte: since } },
+        select: { vendorId: true },
+      }),
+    ]);
+
+    const campusNameById = new Map(campuses.map((c) => [c.id, c.name]));
+    const campusNamesByVendor = new Map<string, string[]>();
+    for (const link of vendorCampusLinks) {
+      if (!campusNamesByVendor.has(link.vendorId)) campusNamesByVendor.set(link.vendorId, []);
+      const name = campusNameById.get(link.campusId);
+      if (name) campusNamesByVendor.get(link.vendorId)!.push(name);
+    }
+
+    const withdrawalsCountByVendor = new Map<string, number>();
+    for (const w of withdrawals) {
+      withdrawalsCountByVendor.set(w.vendorId, (withdrawalsCountByVendor.get(w.vendorId) ?? 0) + 1);
+    }
+
+    const rows = vendors.map((v) => ({
+      id: v.id,
+      name: v.canteenName,
+      campusName: campusNamesByVendor.get(v.id)?.join(', ') ?? '—',
+      balance: Number(v.balanceFcfa),
+      debt: Number(v.debtFcfa),
+      withdrawals30d: withdrawalsCountByVendor.get(v.id) ?? 0,
+      blocked: Number(v.debtFcfa) > 0,
+    }));
+
+    return {
+      summary: {
+        totalBalance: rows.reduce((s, v) => s + v.balance, 0),
+        totalDebt: rows.reduce((s, v) => s + v.debt, 0),
+        blockedCount: rows.filter((v) => v.blocked).length,
       },
       vendors: rows,
     };

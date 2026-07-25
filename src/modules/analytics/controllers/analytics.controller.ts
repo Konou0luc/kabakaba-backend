@@ -48,4 +48,20 @@ export class AnalyticsController {
   getVendorPerformance(@Query() query: AnalyticsQueryDto) {
     return this.analyticsService.getVendorPerformance(query.days);
   }
+
+  @Get('students')
+  @ApiOperation({ summary: 'Comportement étudiants : inscrits, actifs, recharge moyenne, fréquence' })
+  @ApiQuery({ type: AnalyticsQueryDto })
+  @ApiResponse({ status: 200, description: 'Statistiques comportementales étudiants.' })
+  getStudentBehavior(@Query() query: AnalyticsQueryDto) {
+    return this.analyticsService.getStudentBehavior(query.days);
+  }
+
+  @Get('vendor-financials')
+  @ApiOperation({ summary: 'Solde et créances par vendeur, retraits sur la période' })
+  @ApiQuery({ type: AnalyticsQueryDto })
+  @ApiResponse({ status: 200, description: 'Solde/créances par vendeur.' })
+  getVendorFinancials(@Query() query: AnalyticsQueryDto) {
+    return this.analyticsService.getVendorFinancials(query.days);
+  }
 }
