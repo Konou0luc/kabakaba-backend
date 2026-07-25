@@ -11,6 +11,16 @@ const FEE_RATE_BY_OPERATOR: Record<string, number> = { FLOOZ: 0.025, MIXX: 0.035
 const ALERT_THRESHOLD_SECONDS = 5 * 60;
 const WATCH_THRESHOLD_SECONDS = 3 * 60;
 
+const RATING_ALERT_THRESHOLD = 3.5;
+
+export const RATING_LABELS: Record<number, string> = {
+  1: 'Pas du tout satisfait',
+  2: 'Peut mieux faire',
+  3: "Ce n'est pas mal",
+  4: 'Satisfait',
+  5: 'Excellent',
+};
+
 function daysAgo(n: number) {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000);
 }
@@ -128,7 +138,7 @@ export class AnalyticsService {
     const [orders, vendors, reviews, vendorCampusLinks, campuses] = await Promise.all([
       this.prisma.order.findMany({ where: { createdAt: { gte: since } }, select: { vendorId: true, status: true } }),
       this.prisma.vendor.findMany({ select: { id: true, canteenName: true } }),
-      this.prisma.review.findMany({ select: { vendorId: true, rating: true } }),
+      this.prisma.review.findMany({ where: { deletedAt: null }, select: { vendorId: true, rating: true } }),
       this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
       this.prisma.campus.findMany({ select: { id: true, name: true } }),
     ]);
@@ -511,6 +521,90 @@ export class AnalyticsService {
         blockedCount: rows.filter((v) => v.blocked).length,
       },
       vendors: rows,
+    };
+  }
+
+  // ─── Nouveau : Qualité & avis (Notes & alertes + Commentaires) ────
+  async getReviewsQuality(days = 30) {
+    const since = daysAgo(days);
+    const sevenDaysAgo = daysAgo(7);
+
+    const [reviewsWindow, reviews7d, vendors, vendorCampusLinks, campuses] = await Promise.all([
+      this.prisma.review.findMany({
+        where: { deletedAt: null, createdAt: { gte: since } },
+        select: { rating: true, vendorId: true, createdAt: true },
+      }),
+      this.prisma.review.findMany({
+        where: { deletedAt: null, createdAt: { gte: sevenDaysAgo } },
+        select: { rating: true, createdAt: true },
+      }),
+      this.prisma.vendor.findMany({ select: { id: true, canteenName: true } }),
+      this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
+      this.prisma.campus.findMany({ select: { id: true, name: true } }),
+    ]);
+
+    const campusNameById = new Map(campuses.map((c) => [c.id, c.name]));
+    const campusNamesByVendor = new Map<string, string[]>();
+    for (const link of vendorCampusLinks) {
+      if (!campusNamesByVendor.has(link.vendorId)) campusNamesByVendor.set(link.vendorId, []);
+      const name = campusNameById.get(link.campusId);
+      if (name) campusNamesByVendor.get(link.vendorId)!.push(name);
+    }
+
+    const distribution: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+    let sumRating = 0;
+    const statsByVendor = new Map<string, { sum: number; count: number }>();
+
+    for (const r of reviewsWindow) {
+      distribution[r.rating] = (distribution[r.rating] ?? 0) + 1;
+      sumRating += r.rating;
+      const entry = statsByVendor.get(r.vendorId) ?? { sum: 0, count: 0 };
+      entry.sum += r.rating;
+      entry.count += 1;
+      statsByVendor.set(r.vendorId, entry);
+    }
+
+    const perVendor = vendors
+      .map((v) => {
+        const stats = statsByVendor.get(v.id) ?? { sum: 0, count: 0 };
+        const avgRating = stats.count > 0 ? Number((stats.sum / stats.count).toFixed(1)) : null;
+        return {
+          id: v.id,
+          name: v.canteenName,
+          campusName: campusNamesByVendor.get(v.id)?.join(', ') ?? '—',
+          avgRating,
+          reviewCount: stats.count,
+          alert: avgRating !== null && avgRating < RATING_ALERT_THRESHOLD,
+        };
+      })
+      .filter((v) => v.reviewCount > 0)
+      .sort((a, b) => (a.avgRating ?? 5) - (b.avgRating ?? 5));
+
+    const dayKeys: string[] = [];
+    for (let i = 6; i >= 0; i--) dayKeys.push(dayKey(daysAgo(i)));
+    const dailySum = new Array(7).fill(0);
+    const dailyCount = new Array(7).fill(0);
+    for (const r of reviews7d) {
+      const idx = dayKeys.indexOf(dayKey(r.createdAt));
+      if (idx === -1) continue;
+      dailySum[idx] += r.rating;
+      dailyCount[idx] += 1;
+    }
+    const dailyAvg = dailySum.map((sum, i) => (dailyCount[i] > 0 ? Number((sum / dailyCount[i]).toFixed(1)) : null));
+
+    return {
+      summary: {
+        avgRating: reviewsWindow.length > 0 ? Number((sumRating / reviewsWindow.length).toFixed(1)) : null,
+        totalReviews: reviewsWindow.length,
+        alertCount: perVendor.filter((v) => v.alert).length,
+      },
+      distribution: Object.entries(distribution).map(([rating, count]) => ({
+        rating: Number(rating),
+        label: RATING_LABELS[Number(rating)],
+        count,
+      })),
+      perVendor,
+      dailyTrend: { labels: dayKeys, avgRating: dailyAvg, count: dailyCount },
     };
   }
 }

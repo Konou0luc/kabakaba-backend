@@ -64,4 +64,12 @@ export class AnalyticsController {
   getVendorFinancials(@Query() query: AnalyticsQueryDto) {
     return this.analyticsService.getVendorFinancials(query.days);
   }
+
+  @Get('reviews')
+  @ApiOperation({ summary: 'Qualité des avis : distribution, moyenne, cantines en alerte, tendance' })
+  @ApiQuery({ type: AnalyticsQueryDto })
+  @ApiResponse({ status: 200, description: 'Statistiques agrégées sur les avis.' })
+  getReviewsQuality(@Query() query: AnalyticsQueryDto) {
+    return this.analyticsService.getReviewsQuality(query.days);
+  }
 }
