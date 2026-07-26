@@ -25,6 +25,8 @@ import { SmsModule } from './modules/sms/sms.module';
 import { DisputesModule } from './modules/disputes/disputes.module';
 import { PartnerApplicationsModule } from './modules/partner-applications/partner-applications.module';
 import { WebAuthModule } from './modules/web-auth/web-auth.module';
+import { ScheduleModule } from '@nestjs/schedule';
+import { PayrollModule } from './modules/payroll/payroll.module';
 
 @Module({
   imports: [
@@ -36,6 +38,8 @@ import { WebAuthModule } from './modules/web-auth/web-auth.module';
     // sensibles (login, 2FA, OTP) ont une limite plus stricte via @Throttle
     // directement sur leurs contrôleurs.
     ThrottlerModule.forRoot([{ name: 'default', ttl: 60000, limit: 60 }]),
+    ScheduleModule.forRoot(),
+    PayrollModule,
     DatabaseModule,
     AuthModule,
     AnalyticsModule,

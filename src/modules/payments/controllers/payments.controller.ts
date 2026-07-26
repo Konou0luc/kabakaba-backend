@@ -87,6 +87,26 @@ export class PaymentsController {
     return this.paymentsService.handleWebhook(webhookData);
   }
 
+  @Post('payout-webhook')
+  @ApiOperation({ summary: 'Webhook pour les notifications de statut de payout FedaPay' })
+  async handlePayoutWebhook(@Body() webhookData: any) {
+    // ⚠️ Format non garanti — à confirmer en sandbox. On accepte plusieurs
+    // formes plausibles (event.payout.id / event.type) sans casser si la
+    // structure réelle diffère légèrement.
+    const payout = webhookData?.event?.payout ?? webhookData?.payout;
+    const eventType: string = webhookData?.event?.type ?? webhookData?.type ?? '';
+
+    if (!payout?.id) return { message: 'Payload payout invalide, ignoré' };
+
+    if (eventType.includes('sent') || payout.status === 'sent') {
+      await this.withdrawalsService.handleFedapayPayoutStatus(String(payout.id), 'sent');
+    } else if (eventType.includes('failed') || payout.status === 'failed') {
+      await this.withdrawalsService.handleFedapayPayoutStatus(String(payout.id), 'failed');
+    }
+
+    return { message: 'Webhook payout traité' };
+  }
+
   @Post()
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
