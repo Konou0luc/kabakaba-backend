@@ -18,6 +18,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { PaymentsService } from '../services/payments.service';
+import { WithdrawalsService } from '../../payroll/services/withdrawals.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { CreatePaymentIntentDto } from '../dto/create-payment-intent.dto';
@@ -33,7 +34,10 @@ import { GetCurrentUserId } from '../../../common/decorators/get-current-user.de
 @ApiTags('Payments')
 @Controller('payments')
 export class PaymentsController {
-  constructor(private readonly paymentsService: PaymentsService) {}
+  constructor(
+    private readonly paymentsService: PaymentsService,
+    private readonly withdrawalsService: WithdrawalsService,
+  ) {}
 
   @Post('intent')
   @ApiBearerAuth()

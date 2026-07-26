@@ -1,18 +1,12 @@
-const express = require('express');
 const { createNestApp } = require('../dist/src/main');
 
-let cachedApp = null;
 let cachedExpressApp = null;
 
 module.exports = async (req, res) => {
   try {
-    if (!cachedApp) {
-      cachedApp = await createNestApp();
-      cachedExpressApp = cachedApp.getHttpAdapter().getInstance();
-    }
-
     if (!cachedExpressApp) {
-      throw new Error('Nest Express app not initialized');
+      const app = await createNestApp();
+      cachedExpressApp = app.getHttpAdapter().getInstance();
     }
 
     return new Promise((resolve, reject) => {
@@ -25,7 +19,12 @@ module.exports = async (req, res) => {
       });
     });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
+    console.error('Vercel handler error:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Internal server error',
+        message: error?.message ?? String(error),
+      });
+    }
   }
 };

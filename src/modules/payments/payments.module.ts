@@ -4,9 +4,10 @@ import { PaymentsController } from './controllers/payments.controller';
 import { PaymentsService } from './services/payments.service';
 import { FedapayService } from './services/fedapay.service';
 import { UsersModule } from '../users/users.module';
+import { PayrollModule } from '../payroll/payroll.module';
 
 @Module({
-  imports: [HttpModule, UsersModule],
+  imports: [HttpModule, UsersModule, PayrollModule],
   controllers: [PaymentsController],
   providers: [PaymentsService, FedapayService],
 })
