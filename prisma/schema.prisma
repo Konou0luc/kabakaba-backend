@@ -94,7 +94,6 @@ enum DevicePlatform {
   WEB
 }
 
-// ─── AJOUTS — Historique des suspensions & bannissement ──────────────
 enum SuspensionTrigger {
   MANUAL
   AUTOMATIC
@@ -125,31 +124,31 @@ model Campus {
 }
 
 model User {
-  id               String    @id @default(uuid())
-  phone            String?   @unique
-  email            String?   @unique
-  password         String?
-  firstName        String?
-  lastName         String?
-  avatarUrl        String?
-  role             UserRole  @default(STUDENT)
-  campusId         String?
-  walletBalance    Int       @default(0)
-  escrowBalance    Int       @default(0)
-  isSuspended      Boolean   @default(false)
-  suspendedAt      DateTime?
-  suspensionUntil  DateTime?
-  suspensionReason String?
-  isBanned         Boolean   @default(false)
-  bannedAt         DateTime?
-  banReason        String?
-  mustChangePassword Boolean @default(false)
-  notifyOrders     Boolean   @default(true)
-  notifyAmbassador Boolean   @default(true)
-  notifyPromotions Boolean   @default(false)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  deletedAt        DateTime?
+  id                 String    @id @default(uuid())
+  phone              String?   @unique
+  email              String?   @unique
+  password           String?
+  firstName          String?
+  lastName           String?
+  avatarUrl          String?
+  role               UserRole  @default(STUDENT)
+  campusId           String?
+  walletBalance      Int       @default(0)
+  escrowBalance      Int       @default(0)
+  isSuspended        Boolean   @default(false)
+  suspendedAt        DateTime?
+  suspensionUntil    DateTime?
+  suspensionReason   String?
+  isBanned           Boolean   @default(false)
+  bannedAt           DateTime?
+  banReason          String?
+  mustChangePassword Boolean   @default(false)
+  notifyOrders       Boolean   @default(true)
+  notifyAmbassador   Boolean   @default(true)
+  notifyPromotions   Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  deletedAt          DateTime?
 
   campus               Campus?              @relation(fields: [campusId], references: [id])
   orders               Order[]              @relation("StudentOrders")
@@ -366,18 +365,18 @@ enum TransactionStatus {
 }
 
 model Transaction {
-  id               String          @id @default(uuid())
+  id               String            @id @default(uuid())
   userId           String
   senderId         String?
   receiverId       String?
   type             TransactionType
   status           TransactionStatus @default(COMPLETED)
-  amount           Decimal         @db.Decimal(10, 2)
-  reference        String          @unique
+  amount           Decimal           @db.Decimal(10, 2)
+  reference        String            @unique
   description      String?
   relatedOrderId   String?
   relatedPaymentId String?
-  createdAt        DateTime        @default(now())
+  createdAt        DateTime          @default(now())
 
   user           User     @relation("TransactionUser", fields: [userId], references: [id])
   sender         User?    @relation("TransferSender", fields: [senderId], references: [id])
@@ -470,7 +469,6 @@ model AbuseLog {
   @@index([studentId])
 }
 
-// ─── AJOUT — Historique des suspensions ───────────────────────────────
 /// Un simple booléen isSuspended sur User ne suffit pas : il est écrasé à
 /// chaque changement et ne garde aucune trace une fois la suspension levée.
 /// Ce modèle conserve l'historique complet (nombre de suspensions, motifs,
@@ -626,8 +624,8 @@ model AuditLog {
   deletedAt DateTime?
 
   admin     User     @relation(fields: [adminId], references: [id])
-  webUserId String? // ← nouvelle ligne
-  webUser   WebUser? @relation(fields: [webUserId], references: [id]) // ← nouvelle ligne
+  webUserId String?
+  webUser   WebUser? @relation(fields: [webUserId], references: [id])
 }
 
 model OtpCode {
@@ -645,28 +643,26 @@ model OtpCode {
   @@index([expiresAt])
 }
 
-// ─── AJOUTS — Interface dirigeante (WebUser) ──────────────────
-
 model WebUser {
-  id              String      @id @default(uuid())
-  firstName       String
-  lastName        String
-  email           String      @unique
-  password        String
-  role            WebUserRole @default(ADMIN)
-  phone           String?
-  avatarInitials  String?
-  avatarColor     String?
-  isActive        Boolean     @default(true)
-  isRoot          Boolean     @default(false)
-  mustChangePassword Boolean  @default(true)
-  twoFaEnabled    Boolean     @default(false)
-  twoFaSecret     String?
-  twoFaBackupCode String?
-  lastLoginAt     DateTime?
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
-  deletedAt       DateTime?
+  id                 String      @id @default(uuid())
+  firstName          String
+  lastName           String
+  email              String      @unique
+  password           String
+  role               WebUserRole @default(ADMIN)
+  phone              String?
+  avatarInitials     String?
+  avatarColor        String?
+  isActive           Boolean     @default(true)
+  isRoot             Boolean     @default(false)
+  mustChangePassword Boolean     @default(true)
+  twoFaEnabled       Boolean     @default(false)
+  twoFaSecret        String?
+  twoFaBackupCode    String?
+  lastLoginAt        DateTime?
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
+  deletedAt          DateTime?
 
   sessions                   WebUserSession[]
   preferences                WebUserPreferences?
@@ -678,6 +674,7 @@ model WebUser {
   deletionRequestsAsTarget   WebUserDeletionRequest[] @relation("DeletionTarget")
   deletionRequestsInitiated  WebUserDeletionRequest[] @relation("DeletionInitiator")
   deletionRequestsConfirmed  WebUserDeletionRequest[] @relation("DeletionConfirmer")
+  deletionApprovals          WebUserDeletionApproval[]
 
   @@index([email])
   @@index([role])
@@ -687,13 +684,16 @@ enum WebUserDeletionStatus {
   PENDING
   CONFIRMED
   CANCELLED
+  EXPIRED
 }
 
-/// Suppression d'un compte WebUser à double validation ("quatre yeux") :
-/// un membre de la Supervision initie, un AUTRE membre de la Supervision
-/// confirme plus tard. La confirmation déclenche le soft delete réel
-/// (WebUser.deletedAt + isActive=false) — rien n'est jamais supprimé
-/// physiquement.
+/// Suppression d'un compte WebUser :
+/// - Cible ADMIN : exécution immédiate par n'importe quel compte
+///   Supervision, tracée (qui, quand) — pas de vote.
+/// - Cible SUPERVISION : vote à la majorité des comptes Supervision actifs
+///   (hors la cible), fenêtre de 48h — sinon annulation automatique
+///   (status EXPIRED). Le vote de l'initiateur est ajouté automatiquement.
+/// Le compte root est protégé et ne peut jamais être ciblé.
 model WebUserDeletionRequest {
   id                   String                 @id @default(uuid())
   targetWebUserId      String
@@ -701,16 +701,33 @@ model WebUserDeletionRequest {
   confirmedByWebUserId String?
   reason               String?
   status               WebUserDeletionStatus  @default(PENDING)
+  expiresAt            DateTime
   createdAt            DateTime               @default(now())
   confirmedAt          DateTime?
   cancelledAt          DateTime?
 
-  targetWebUser  WebUser  @relation("DeletionTarget", fields: [targetWebUserId], references: [id])
-  initiatedBy    WebUser  @relation("DeletionInitiator", fields: [initiatedByWebUserId], references: [id])
-  confirmedBy    WebUser? @relation("DeletionConfirmer", fields: [confirmedByWebUserId], references: [id])
+  targetWebUser  WebUser                   @relation("DeletionTarget", fields: [targetWebUserId], references: [id])
+  initiatedBy    WebUser                   @relation("DeletionInitiator", fields: [initiatedByWebUserId], references: [id])
+  confirmedBy    WebUser?                  @relation("DeletionConfirmer", fields: [confirmedByWebUserId], references: [id])
+  approvals      WebUserDeletionApproval[]
 
   @@index([targetWebUserId])
   @@index([status])
+}
+
+/// Une ligne par vote "pour" — contrainte unique : un compte ne peut voter
+/// qu'une fois par demande. Le vote de l'initiateur est créé automatiquement
+/// à la création de la demande.
+model WebUserDeletionApproval {
+  id         String   @id @default(uuid())
+  requestId  String
+  approverId String
+  createdAt  DateTime @default(now())
+
+  request  WebUserDeletionRequest @relation(fields: [requestId], references: [id])
+  approver WebUser                @relation(fields: [approverId], references: [id])
+
+  @@unique([requestId, approverId])
 }
 
 model WebUserSession {
@@ -763,8 +780,6 @@ enum WebUserRole {
   SUPERVISION
   ADMIN
 }
-
-// ─── AJOUTS — Facultés, Candidatures partenaires, Litiges, Horaires ──
 
 model FacultyList {
   id        String   @id @default(uuid())
@@ -852,7 +867,7 @@ model VendorSchedule {
   id        String   @id @default(uuid())
   vendorId  String
   day       Weekday
-  startTime String // format "HH:mm", ex: "07:30"
+  startTime String
   endTime   String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

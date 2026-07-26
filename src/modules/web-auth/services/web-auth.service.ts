@@ -22,7 +22,9 @@ export class WebAuthService {
   ) {}
 
   private get accessSecret() {
-    return this.configService.get('JWT_WEB_ACCESS_SECRET') || 'fallback-web-secret';
+    const secret = this.configService.get('JWT_WEB_ACCESS_SECRET');
+    if (!secret) throw new Error('JWT_WEB_ACCESS_SECRET manquant — démarrage refusé pour des raisons de sécurité');
+    return secret;
   }
 
   private signToken(sub: string, purpose: TokenPurpose, expiresIn: string, extra: Record<string, unknown> = {}) {
@@ -91,7 +93,6 @@ export class WebAuthService {
       where: { id: webUser.id },
       data: {
         lastLoginAt: new Date(),
-        // Une clé de secours est à usage unique — on la consomme dès qu'elle sert.
         ...(backupCodeUsed ? { twoFaBackupCode: null } : {}),
       },
     });
@@ -110,8 +111,11 @@ export class WebAuthService {
   // ─── Étapes 1 à 4 : première connexion (mot de passe temporaire) ────
 
   async firstLogin(email: string, temporaryPassword: string) {
+    // Volontairement PAS de vérification isActive ici : un compte tout
+    // juste créé est inactif par conception, et ne devient actif qu'à la
+    // toute fin de l'onboarding (voir verifyTwoFactorSetup).
     const webUser = await this.prisma.webUser.findUnique({ where: { email } });
-    if (!webUser || !webUser.isActive) throw new UnauthorizedException('Identifiants invalides');
+    if (!webUser) throw new UnauthorizedException('Identifiants invalides');
 
     if (!webUser.mustChangePassword) {
       throw new ConflictException('Ce compte a déjà terminé sa première connexion — utilisez la connexion normale');
@@ -127,9 +131,6 @@ export class WebAuthService {
   async setOnboardingPassword(onboardingToken: string, newPassword: string) {
     const { sub } = await this.verifyToken(onboardingToken, 'web_onboarding');
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
-    // mustChangePassword reste true : l'onboarding n'est complet qu'une fois
-    // le 2FA vérifié (étape 4) — sinon un compte pourrait rester bloqué sans
-    // 2FA configuré mais sans accès à la connexion normale non plus.
     await this.prisma.webUser.update({ where: { id: sub }, data: { password: hashedPassword } });
     return { success: true };
   }
@@ -143,8 +144,6 @@ export class WebAuthService {
     const otpauthUrl = generateURI({ issuer: 'kabakaba Admin', label: webUser.email, secret });
     const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
 
-    // Secret stocké mais twoFaEnabled reste false tant que l'étape de
-    // vérification (setupTwoFactor + code) n'a pas confirmé la configuration.
     await this.prisma.webUser.update({ where: { id: sub }, data: { twoFaSecret: secret } });
 
     return {
@@ -173,6 +172,7 @@ export class WebAuthService {
         twoFaEnabled: true,
         twoFaBackupCode: hashedBackupCode,
         mustChangePassword: false,
+        isActive: true, // ← le compte devient officiellement actif ici
         lastLoginAt: new Date(),
       },
     });
@@ -182,7 +182,7 @@ export class WebAuthService {
     return {
       accessToken,
       webUser: this.sanitize(updated),
-      backupCode, // affiché une seule fois, comme dans la maquette (étape 5)
+      backupCode,
     };
   }
 

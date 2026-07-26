@@ -9,11 +9,6 @@ import { WebJwtAuthGuard } from '../../../common/guards/web-jwt-auth.guard';
 import { WebRolesGuard } from '../../../common/guards/web-roles.guard';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 
-/**
- * Toute la gestion des comptes WebUser (création, liste, suppression) est
- * réservée à la Supervision — c'est elle qui définit qui a accès à quelle
- * interface (Supervision ou Admin).
- */
 @ApiTags('Web Users (gestion des comptes — Supervision)')
 @ApiBearerAuth()
 @UseGuards(WebJwtAuthGuard, WebRolesGuard)
@@ -31,44 +26,45 @@ export class WebUsersController {
 
   @Post()
   @ApiOperation({ summary: 'Créer un compte WebUser avec mot de passe temporaire (Supervision seulement)' })
-  @ApiResponse({ status: 201, description: 'Compte créé, en attente de première connexion.', type: WebUserEntity })
+  @ApiResponse({ status: 201, description: 'Compte créé, inactif jusqu\'à la première connexion.', type: WebUserEntity })
   @ApiResponse({ status: 409, description: 'Email déjà utilisé.' })
   provision(@Body() dto: ProvisionWebUserDto) {
     return this.webUsersService.provision(dto);
   }
 
   @Get('deletion-requests')
-  @ApiOperation({ summary: 'Lister les demandes de suppression en attente de confirmation' })
-  @ApiResponse({ status: 200, description: 'Retourne les demandes PENDING.' })
+  @ApiOperation({ summary: 'Lister les demandes de suppression en attente de vote' })
+  @ApiResponse({ status: 200, description: 'Retourne les demandes PENDING (cible Supervision uniquement).' })
   findPendingDeletionRequests() {
     return this.webUsersService.findPendingDeletionRequests();
+  }
+
+  @Get('deletion-requests/:requestId')
+  @ApiOperation({ summary: "Voir la progression d'une demande (votes/majorité)" })
+  @ApiResponse({ status: 200, description: 'Détail de la demande avec compte de votes.' })
+  getDeletionRequestProgress(@Param('requestId') requestId: string) {
+    return this.webUsersService.getDeletionRequestProgress(requestId);
   }
 
   @Post(':id/deletion-requests')
   @ApiOperation({
     summary:
-      'Étape 1/2 : initier la suppression d\'un compte (le compte root est protégé, la confirmation devra venir d\'une autre personne)',
+      'Initier la suppression d\'un compte — exécution immédiate si la cible est ADMIN, vote à la majorité (48h) si la cible est SUPERVISION',
   })
-  @ApiResponse({ status: 201, description: 'Demande de suppression créée, en attente de confirmation.' })
+  @ApiResponse({ status: 201, description: 'Suppression exécutée (ADMIN) ou demande créée (SUPERVISION).' })
   @ApiResponse({ status: 403, description: 'Compte root, ou auto-suppression.' })
   @ApiResponse({ status: 409, description: 'Une demande est déjà en attente pour ce compte.' })
-  initiateDeletion(
-    @Param('id') id: string,
-    @Body() dto: InitiateWebUserDeletionDto,
-    @Request() req,
-  ) {
+  initiateDeletion(@Param('id') id: string, @Body() dto: InitiateWebUserDeletionDto, @Request() req) {
     return this.webUsersService.initiateDeletion(id, req.user.id, dto.reason);
   }
 
   @Post('deletion-requests/:requestId/confirm')
-  @ApiOperation({
-    summary: 'Étape 2/2 : confirmer une suppression — doit être une personne différente de celle qui a initié',
-  })
-  @ApiResponse({ status: 200, description: 'Compte désactivé (soft delete).' })
-  @ApiResponse({ status: 403, description: 'Le confirmateur est le même que l\'initiateur.' })
-  @ApiResponse({ status: 409, description: 'Demande déjà traitée.' })
+  @ApiOperation({ summary: 'Voter "pour" la suppression d\'un compte Supervision' })
+  @ApiResponse({ status: 200, description: 'Vote enregistré, ou compte désactivé si la majorité est atteinte.' })
+  @ApiResponse({ status: 403, description: 'Vote sur son propre compte.' })
+  @ApiResponse({ status: 409, description: 'Déjà voté, demande déjà traitée, ou expirée.' })
   confirmDeletion(@Param('requestId') requestId: string, @Request() req) {
-    return this.webUsersService.confirmDeletion(requestId, req.user.id);
+    return this.webUsersService.approveDeletion(requestId, req.user.id);
   }
 
   @Post('deletion-requests/:requestId/cancel')
