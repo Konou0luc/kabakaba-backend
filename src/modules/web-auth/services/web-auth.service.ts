@@ -56,16 +56,21 @@ export class WebAuthService {
 
   async login(email: string, password: string) {
     const webUser = await this.prisma.webUser.findUnique({ where: { email } });
-    if (!webUser || !webUser.isActive) throw new UnauthorizedException('Identifiants invalides');
+    if (!webUser) throw new UnauthorizedException('Identifiants invalides');
 
     const isPasswordValid = await bcrypt.compare(password, webUser.password);
     if (!isPasswordValid) throw new UnauthorizedException('Identifiants invalides');
 
+    // Vérifié APRÈS le mot de passe, et AVANT isActive : un compte tout
+    // juste créé (isActive=false, mustChangePassword=true) doit être
+    // redirigé vers l'onboarding (409), pas rejeté en 401 générique.
     if (webUser.mustChangePassword) {
       throw new ConflictException(
-        'Ce compte doit d\'abord compléter sa première connexion (mot de passe temporaire + configuration 2FA)',
+        "Ce compte doit d'abord compléter sa première connexion (mot de passe temporaire + configuration 2FA)",
       );
     }
+
+    if (!webUser.isActive) throw new UnauthorizedException('Identifiants invalides');
 
     const challengeToken = this.signToken(webUser.id, 'web_2fa_challenge', CHALLENGE_TOKEN_TTL);
     return { challengeToken };
@@ -157,7 +162,7 @@ export class WebAuthService {
     const { sub } = await this.verifyToken(onboardingToken, 'web_onboarding');
     const webUser = await this.prisma.webUser.findUnique({ where: { id: sub } });
     if (!webUser || !webUser.twoFaSecret) {
-      throw new UnauthorizedException('Configurez d\'abord le 2FA avant de vérifier le code');
+      throw new UnauthorizedException("Configurez d'abord le 2FA avant de vérifier le code");
     }
 
     const { valid: isValid } = await verifyOtp({ secret: webUser.twoFaSecret, token: code });
