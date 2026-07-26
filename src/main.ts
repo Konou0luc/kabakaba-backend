@@ -65,16 +65,16 @@ function buildSwaggerHtml(swaggerUrl: string) {
 export async function createNestApp() {
   const app = await NestFactory.create(AppModule);
 
-  app.use(helmet());
-
   app.enableCors({
     origin: [
       'http://localhost:5173',
       'https://kabakaba-frontend.vercel.app',
     ],
-    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
+    methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
+
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 
   app.useGlobalFilters(new AllExceptionsFilter());
 
