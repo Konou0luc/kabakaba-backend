@@ -63,7 +63,7 @@ function buildSwaggerHtml(swaggerUrl: string) {
 }
 
 export async function createNestApp() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.enableCors({
     origin: [

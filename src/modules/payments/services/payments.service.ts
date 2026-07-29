@@ -66,34 +66,51 @@ export class PaymentsService {
     return fedapayPayment;
   }
 
-  async handleWebhook(webhookData: any) {
-    this.logger.log('Webhook FedaPay reçu:', webhookData);
-    const event = webhookData.event;
-    const transactionId = event?.transaction?.id;
+  async handleWebhook(rawBody: string, signatureHeader?: string) {
+    // 1. Vérifie que la requête vient bien de FedaPay
+    this.fedapayService.verifyWebhookSignature(rawBody, signatureHeader, 'payment');
 
-    if (!transactionId) {
+    // 2. Parse le payload (FedaPay envoie { name: "transaction.xxx", entity: {...} })
+    let webhookData: any;
+    try {
+      webhookData = JSON.parse(rawBody);
+    } catch {
+      throw new BadRequestException('Payload de webhook invalide (JSON malformé)');
+    }
+
+    const eventName: string = webhookData?.name;
+    const transactionId = webhookData?.entity?.id;
+
+    this.logger.log(`Webhook FedaPay reçu: ${eventName} (transaction ${transactionId})`);
+
+    if (!eventName || !transactionId) {
       throw new BadRequestException('Données de webhook invalides');
     }
 
     const payment = await this.prisma.payment.findFirst({
-      where: { fedapayReference: transactionId },
+      where: { fedapayReference: String(transactionId) },
     });
 
     if (!payment) {
       throw new NotFoundException('Paiement introuvable pour cette transaction');
     }
 
+    // Idempotence : FedaPay peut renvoyer le même webhook plusieurs fois
+    if (payment.status !== PaymentStatus.PENDING) {
+      return { message: 'Paiement déjà traité, webhook ignoré' };
+    }
+
     let newStatus: PaymentStatus;
-    switch (event.type) {
-      case 'transaction.succeeded':
+    switch (eventName) {
+      case 'transaction.approved':
         newStatus = PaymentStatus.SUCCESS;
         await this.prisma.user.update({
           where: { id: payment.userId },
           data: { walletBalance: { increment: payment.ticketsReceived } },
         });
         break;
-      case 'transaction.failed':
-      case 'transaction.cancelled':
+      case 'transaction.declined':
+      case 'transaction.canceled':
         newStatus = PaymentStatus.FAILED;
         break;
       default:

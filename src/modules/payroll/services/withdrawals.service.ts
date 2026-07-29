@@ -80,7 +80,12 @@ export class WithdrawalsService {
     return this.prisma.webUserWithdrawalRequest.update({
       where: { id: requestId },
       data: {
-        status: WithdrawalStatus.PENDING, // reste PENDING jusqu'à confirmation webhook/poll — voir handleFedapayPayoutStatus
+        // PROCESSING = validé par la Supervision et envoyé à FedaPay, en
+        // attente de confirmation (webhook payout-webhook ou sondage).
+        // Ne JAMAIS repasser à PENDING ici : sinon les boutons "Valider"
+        // et "Rejeter" restent actifs côté front et un second clic
+        // déclencherait un second payout réel pour la même demande.
+        status: WithdrawalStatus.PROCESSING,
         fedapayPayoutId: String(payoutId),
         processedById: approverId,
         processedAt: new Date(),
@@ -114,6 +119,11 @@ export class WithdrawalsService {
     });
     if (!request) {
       this.logger.warn(`Webhook payout reçu pour un id inconnu: ${fedapayPayoutId}`);
+      return;
+    }
+
+    // Idempotence : ignore si déjà finalisé (webhook FedaPay peut être renvoyé)
+    if (request.status === WithdrawalStatus.COMPLETED || request.status === WithdrawalStatus.FAILED) {
       return;
     }
 

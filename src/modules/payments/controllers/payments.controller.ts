@@ -9,7 +9,11 @@ import {
   Query,
   UseGuards,
   Request,
+  Req,
+  Headers,
+  RawBodyRequest,
 } from '@nestjs/common';
+import { Request as ExpressRequest } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -19,6 +23,7 @@ import {
 } from '@nestjs/swagger';
 import { PaymentsService } from '../services/payments.service';
 import { WithdrawalsService } from '../../payroll/services/withdrawals.service';
+import { FedapayService } from '../services/fedapay.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { CreatePaymentIntentDto } from '../dto/create-payment-intent.dto';
@@ -37,6 +42,7 @@ export class PaymentsController {
   constructor(
     private readonly paymentsService: PaymentsService,
     private readonly withdrawalsService: WithdrawalsService,
+    private readonly fedapayService: FedapayService,
   ) {}
 
   @Post('intent')
@@ -87,22 +93,40 @@ export class PaymentsController {
   @ApiOperation({
     summary: 'Webhook pour les notifications de statut de paiement FedaPay',
   })
-  handleWebhook(@Body() webhookData: any) {
-    return this.paymentsService.handleWebhook(webhookData);
+  handleWebhook(
+    @Req() req: RawBodyRequest<ExpressRequest>,
+    @Headers('x-fedapay-signature') signature: string,
+  ) {
+    const rawBody = req.rawBody
+      ? req.rawBody.toString('utf8')
+      : JSON.stringify(req.body);
+    return this.paymentsService.handleWebhook(rawBody, signature);
   }
 
   @Post('payout-webhook')
   @ApiOperation({ summary: 'Webhook pour les notifications de statut de payout FedaPay' })
-  async handlePayoutWebhook(@Body() webhookData: any) {
+  async handlePayoutWebhook(
+    @Req() req: RawBodyRequest<ExpressRequest>,
+    @Headers('x-fedapay-signature') signature: string,
+  ) {
+    const rawBody = req.rawBody
+      ? req.rawBody.toString('utf8')
+      : JSON.stringify(req.body);
+
+    // Vérifie que la requête vient bien de FedaPay (secret dédié à ce point de terminaison)
+    this.fedapayService.verifyWebhookSignature(rawBody, signature, 'payout');
+
+    const webhookData = JSON.parse(rawBody);
+
     // ⚠️ Format non garanti — à confirmer en sandbox. On accepte plusieurs
-    // formes plausibles (event.payout.id / event.type) sans casser si la
+    // formes plausibles (entity.id / name) sans casser si la
     // structure réelle diffère légèrement.
-    const payout = webhookData?.event?.payout ?? webhookData?.payout;
-    const eventType: string = webhookData?.event?.type ?? webhookData?.type ?? '';
+    const payout = webhookData?.entity ?? webhookData?.event?.payout ?? webhookData?.payout;
+    const eventType: string = webhookData?.name ?? webhookData?.event?.type ?? webhookData?.type ?? '';
 
     if (!payout?.id) return { message: 'Payload payout invalide, ignoré' };
 
-    if (eventType.includes('sent') || payout.status === 'sent') {
+    if (eventType.includes('sent') || eventType.includes('transferred') || payout.status === 'sent') {
       await this.withdrawalsService.handleFedapayPayoutStatus(String(payout.id), 'sent');
     } else if (eventType.includes('failed') || payout.status === 'failed') {
       await this.withdrawalsService.handleFedapayPayoutStatus(String(payout.id), 'failed');
