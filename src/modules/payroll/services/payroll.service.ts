@@ -97,6 +97,17 @@ export class PayrollService {
     // ici directement plutôt que de réutiliser la fenêtre glissante.
     const netRevenue = await this.computeNetRevenueForPeriod(start, end);
 
+    if (netRevenue <= 0) {
+      if (trigger === PayrollTrigger.MANUAL) {
+        throw new BadRequestException(
+          `Revenu net nul ou négatif pour cette période (${netRevenue.toFixed(0)} FCFA) : aucune paie à distribuer.`,
+        );
+      }
+      // Déclenchement automatique : on ne crée pas de run vide, juste un log.
+      this.logger.log(`Paie automatique ignorée : revenu net = ${netRevenue.toFixed(0)} FCFA pour la période.`);
+      return null;
+    }
+
     const webUsers = await this.prisma.webUser.findMany({
       where: { deletedAt: null, isActive: true, payoutPercentage: { gt: 0 } },
     });
