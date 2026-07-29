@@ -11,9 +11,9 @@ import {
   Request,
   Req,
   Headers,
-  RawBodyRequest,
 } from '@nestjs/common';
-import { Request as ExpressRequest } from 'express';
+import type { RawBodyRequest } from '@nestjs/common';
+import type { Request as ExpressRequest } from 'express';
 import {
   ApiTags,
   ApiOperation,
@@ -94,7 +94,7 @@ export class PaymentsController {
     summary: 'Webhook pour les notifications de statut de paiement FedaPay',
   })
   handleWebhook(
-    @Req() req: RawBodyRequest<ExpressRequest>,
+    @Req() req: any,
     @Headers('x-fedapay-signature') signature: string,
   ) {
     const rawBody = req.rawBody
@@ -106,12 +106,13 @@ export class PaymentsController {
   @Post('payout-webhook')
   @ApiOperation({ summary: 'Webhook pour les notifications de statut de payout FedaPay' })
   async handlePayoutWebhook(
-    @Req() req: RawBodyRequest<ExpressRequest>,
+    @Req() req: any,
     @Headers('x-fedapay-signature') signature: string,
   ) {
-    const rawBody = req.rawBody
-      ? req.rawBody.toString('utf8')
-      : JSON.stringify(req.body);
+    const rawReq = req as RawBodyRequest<ExpressRequest>;
+    const rawBody = rawReq.rawBody
+      ? rawReq.rawBody.toString('utf8')
+      : JSON.stringify(rawReq.body);
 
     // Vérifie que la requête vient bien de FedaPay (secret dédié à ce point de terminaison)
     this.fedapayService.verifyWebhookSignature(rawBody, signature, 'payout');
