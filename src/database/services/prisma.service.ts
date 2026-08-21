@@ -23,7 +23,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
     }
 
     try {
-      const pool = new Pool({ connectionString });
+      // En serverless (Vercel), chaque instance/fonction peut tourner en
+      // parallèle : un pool trop large (défaut = 10) multiplie le nombre de
+      // connexions ouvertes vers le pooler Neon et peut le saturer, ajoutant
+      // de la latence de connexion. On limite donc le pool par instance.
+      const isServerless = Boolean(process.env.VERCEL || process.env.NEST_SERVERLESS === 'true');
+      const pool = new Pool({ connectionString, max: isServerless ? 3 : 10 });
       const adapter = new PrismaPg(pool);
       super({ adapter } as any);
     } catch (error) {

@@ -110,14 +110,26 @@ export async function createNestApp() {
   app.use('/docs', express.static(swaggerUiDir, { fallthrough: true }));
   app.use('/docs', swaggerAssetPath);
 
-  const config = new DocumentBuilder()
-    .setTitle('Kabakaba API')
-    .setDescription('The Kabakaba platform API documentation')
-    .setVersion('1.0')
-    .addBearerAuth()
-    .build();
-  const document = SwaggerModule.createDocument(app, config);
   const swaggerJsonPath = '/api/v1/docs-json';
+
+  // Génération PARESSEUSE : SwaggerModule.createDocument() scanne tous les
+  // contrôleurs/DTOs/entités de l'app (coûteux, ~centaines de ms à quelques
+  // secondes). En serverless, ce coût était payé à CHAQUE cold start même
+  // quand personne ne consulte /docs. On ne le calcule donc qu'à la première
+  // requête réelle sur /docs-json, puis on le met en cache en mémoire.
+  let cachedSwaggerDocument: ReturnType<typeof SwaggerModule.createDocument> | null = null;
+  function getSwaggerDocument() {
+    if (!cachedSwaggerDocument) {
+      const config = new DocumentBuilder()
+        .setTitle('Kabakaba API')
+        .setDescription('The Kabakaba platform API documentation')
+        .setVersion('1.0')
+        .addBearerAuth()
+        .build();
+      cachedSwaggerDocument = SwaggerModule.createDocument(app, config);
+    }
+    return cachedSwaggerDocument;
+  }
 
   const httpAdapter = app.getHttpAdapter();
   const expressInstance = httpAdapter.getInstance() as express.Express;
@@ -131,7 +143,7 @@ export async function createNestApp() {
   });
 
   expressInstance.get('/api/v1/docs-json', (_req, res) => {
-    res.json(document);
+    res.json(getSwaggerDocument());
   });
 
   if (process.env.VERCEL || process.env.NEST_SERVERLESS === 'true') {
