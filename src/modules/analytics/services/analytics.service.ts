@@ -31,6 +31,34 @@ function daysAgo(n: number) {
   return new Date(Date.now() - n * 24 * 60 * 60 * 1000);
 }
 
+/**
+ * Résout la plage de dates à utiliser pour une requête analytics.
+ * - Si `from`/`to` sont fournis (calendrier de la Vue générale), on les
+ *   utilise tels quels (bornes incluses, `to` étendu à la fin de journée).
+ * - Sinon, comportement historique : les `days` derniers jours jusqu'à maintenant.
+ * La période précédente (`prevSince`/`prevUntil`) est une fenêtre de même
+ * durée, immédiatement avant la période sélectionnée — utilisée pour les
+ * comparaisons ("vs période précédente").
+ */
+function resolveRange(days = 30, from?: string, to?: string) {
+  if (from) {
+    const since = new Date(from);
+    const until = to ? new Date(to) : new Date();
+    // Étend la borne de fin à 23:59:59.999 pour inclure toute la journée choisie
+    until.setHours(23, 59, 59, 999);
+    const durationMs = until.getTime() - since.getTime();
+    const prevUntil = new Date(since.getTime() - 1);
+    const prevSince = new Date(prevUntil.getTime() - durationMs);
+    return { since, until, prevSince, prevUntil };
+  }
+
+  const since = daysAgo(days);
+  const until = new Date();
+  const prevSince = daysAgo(days * 2);
+  const prevUntil = since;
+  return { since, until, prevSince, prevUntil };
+}
+
 function dayKey(d: Date) {
   return d.toISOString().slice(0, 10);
 }
@@ -45,19 +73,18 @@ function uncoveredWithdrawalFee(amount: number, platformFee: number, operatorFee
 export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getCampusComparison(days = 30) {
-    const since = daysAgo(days);
-    const prevSince = daysAgo(days * 2);
+  async getCampusComparison(days = 30, from?: string, to?: string) {
+    const { since, until, prevSince, prevUntil } = resolveRange(days, from, to);
     const sevenDaysAgo = daysAgo(7);
 
     const [campuses, students, ordersWindow, ordersPrevWindow, orders7d, vendorCampusLinks] = await Promise.all([
       this.prisma.campus.findMany({ orderBy: { name: 'asc' } }),
       this.prisma.user.findMany({ where: { role: 'STUDENT', campusId: { not: null } }, select: { id: true, campusId: true } }),
       this.prisma.order.findMany({
-        where: { createdAt: { gte: since } },
+        where: { createdAt: { gte: since, lte: until } },
         select: { status: true, escrowAmount: true, studentId: true, student: { select: { campusId: true } } },
       }),
-      this.prisma.order.findMany({ where: { createdAt: { gte: prevSince, lt: since } }, select: { status: true, escrowAmount: true } }),
+      this.prisma.order.findMany({ where: { createdAt: { gte: prevSince, lte: prevUntil } }, select: { status: true, escrowAmount: true } }),
       this.prisma.order.findMany({ where: { createdAt: { gte: sevenDaysAgo } }, select: { createdAt: true, student: { select: { campusId: true } } } }),
       this.prisma.vendorCampus.findMany({ select: { campusId: true } }),
     ]);
@@ -194,19 +221,19 @@ export class AnalyticsService {
       .slice(0, limit);
   }
 
-  async getRevenueBreakdown(days = 30) {
-    const since = daysAgo(days);
+  async getRevenueBreakdown(days = 30, from?: string, to?: string) {
+    const { since, until } = resolveRange(days, from, to);
     const [payments, withdrawals, commissions, campuses, vendorCampusLinks] = await Promise.all([
       this.prisma.payment.findMany({
-        where: { status: 'SUCCESS', createdAt: { gte: since } },
+        where: { status: 'SUCCESS', createdAt: { gte: since, lte: until } },
         select: { operator: true, amountFcfa: true, ticketsReceived: true, createdAt: true, user: { select: { campusId: true } } },
       }),
       this.prisma.withdrawal.findMany({
-        where: { status: 'COMPLETED', createdAt: { gte: since } },
+        where: { status: 'COMPLETED', createdAt: { gte: since, lte: until } },
         select: { vendorId: true, amount: true, platformFee: true, operatorFee: true, createdAt: true },
       }),
       this.prisma.ambassadorCommission.findMany({
-        where: { deletedAt: null, createdAt: { gte: since } },
+        where: { deletedAt: null, createdAt: { gte: since, lte: until } },
         select: { amount: true, createdAt: true, payment: { select: { user: { select: { campusId: true } } } } },
       }),
       this.prisma.campus.findMany({ select: { id: true, name: true } }),
@@ -286,12 +313,12 @@ export class AnalyticsService {
     };
   }
 
-  async getVendorPerformance(days = 30) {
-    const since = daysAgo(days);
+  async getVendorPerformance(days = 30, from?: string, to?: string) {
+    const { since, until } = resolveRange(days, from, to);
     const [orders, acceptanceEvents, vendors, vendorCampusLinks, campuses] = await Promise.all([
-      this.prisma.order.findMany({ where: { createdAt: { gte: since } }, select: { vendorId: true, status: true } }),
+      this.prisma.order.findMany({ where: { createdAt: { gte: since, lte: until } }, select: { vendorId: true, status: true } }),
       this.prisma.orderStatusHistory.findMany({
-        where: { newStatus: 'ACCEPTED', order: { createdAt: { gte: since } } },
+        where: { newStatus: 'ACCEPTED', order: { createdAt: { gte: since, lte: until } } },
         select: { createdAt: true, order: { select: { vendorId: true, createdAt: true } } },
       }),
       this.prisma.vendor.findMany({ select: { id: true, canteenName: true } }),

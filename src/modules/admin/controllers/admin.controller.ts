@@ -45,6 +45,20 @@ export class AdminController {
     return this.adminService.getSupervisionStats();
   }
 
+  @Get('events/today')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: "Événements système survenus aujourd'hui (centre de notifications)" })
+  @ApiResponse({
+    status: 200,
+    description: "Liste des événements du jour, réinitialisée chaque jour à minuit",
+  })
+  getTodayEvents() {
+    return this.adminService.getTodayEvents();
+  }
+
   @Post('audit-logs')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)

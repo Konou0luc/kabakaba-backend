@@ -1,15 +1,25 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsInt, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsISO8601, IsOptional, Max, Min } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class AnalyticsQueryDto {
-  @ApiProperty({ required: false, default: 30, description: "Fenêtre en jours" })
+  @ApiProperty({ required: false, default: 30, description: "Fenêtre en jours (ignoré si from/to fournis)" })
   @IsOptional()
   @IsInt()
   @Min(1)
   @Max(365)
   @Transform(({ value }) => parseInt(value))
   days?: number = 30;
+
+  @ApiProperty({ required: false, description: 'Date de début (ISO 8601), pour une plage personnalisée' })
+  @IsOptional()
+  @IsISO8601()
+  from?: string;
+
+  @ApiProperty({ required: false, description: 'Date de fin (ISO 8601), pour une plage personnalisée' })
+  @IsOptional()
+  @IsISO8601()
+  to?: string;
 
   @ApiProperty({ required: false, default: 10, description: "Nombre d'éléments (classements)" })
   @IsOptional()

@@ -22,7 +22,7 @@ export class AnalyticsController {
   @ApiQuery({ type: AnalyticsQueryDto })
   @ApiResponse({ status: 200, description: 'Statistiques comparatives par campus.' })
   getCampusComparison(@Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getCampusComparison(query.days);
+    return this.analyticsService.getCampusComparison(query.days, query.from, query.to);
   }
 
   @Get('top-canteens')
@@ -38,7 +38,7 @@ export class AnalyticsController {
   @ApiQuery({ type: AnalyticsQueryDto })
   @ApiResponse({ status: 200, description: 'Revenus décomposés, par campus et tendance 7 jours.' })
   getRevenueBreakdown(@Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getRevenueBreakdown(query.days);
+    return this.analyticsService.getRevenueBreakdown(query.days, query.from, query.to);
   }
 
   @Get('vendors')
@@ -46,7 +46,7 @@ export class AnalyticsController {
   @ApiQuery({ type: AnalyticsQueryDto })
   @ApiResponse({ status: 200, description: 'Statistiques de performance par vendeur.' })
   getVendorPerformance(@Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getVendorPerformance(query.days);
+    return this.analyticsService.getVendorPerformance(query.days, query.from, query.to);
   }
 
   @Get('students')
