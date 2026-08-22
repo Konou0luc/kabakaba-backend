@@ -166,10 +166,10 @@ export class AnalyticsService {
     };
   }
 
-  async getTopCanteens(days = 30, limit = 10) {
-    const since = daysAgo(days);
+  async getTopCanteens(days = 30, limit = 10, from?: string, to?: string) {
+    const { since, until } = resolveRange(days, from, to);
     const [orders, vendors, reviews, vendorCampusLinks, campuses] = await Promise.all([
-      this.prisma.order.findMany({ where: { createdAt: { gte: since } }, select: { vendorId: true, status: true } }),
+      this.prisma.order.findMany({ where: { createdAt: { gte: since, lte: until } }, select: { vendorId: true, status: true } }),
       this.prisma.vendor.findMany({ select: { id: true, canteenName: true } }),
       this.prisma.review.findMany({ where: { deletedAt: null }, select: { vendorId: true, rating: true } }),
       this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
@@ -283,7 +283,10 @@ export class AnalyticsService {
 
     const perCampus = campuses.map((c) => {
       const agg = byCampus.get(c.id) ?? { surplus: 0, uncoveredFees: 0, commissions: 0, rechargesGross: 0 };
-      return { id: c.id, name: c.name, rechargesGross: agg.rechargesGross, surplus: agg.surplus, commissions: agg.commissions, net: agg.surplus + agg.uncoveredFees - agg.commissions };
+      // uncoveredFees = frais de retrait que la plateforme absorbe à la place du
+      // vendeur (montant sous les seuils 10k/30k FCFA) : c'est un COÛT, donc on
+      // le soustrait du surplus (et non l'inverse, comme c'était fait par erreur avant).
+      return { id: c.id, name: c.name, rechargesGross: agg.rechargesGross, surplus: agg.surplus, commissions: agg.commissions, net: agg.surplus - agg.uncoveredFees - agg.commissions };
     });
 
     const dayKeys: string[] = [];
@@ -298,7 +301,7 @@ export class AnalyticsService {
     for (const w of withdrawals) {
       const idx = dayKeys.indexOf(dayKey(w.createdAt));
       if (idx === -1) continue;
-      dailyNet[idx] += uncoveredWithdrawalFee(Number(w.amount), Number(w.platformFee), Number(w.operatorFee));
+      dailyNet[idx] -= uncoveredWithdrawalFee(Number(w.amount), Number(w.platformFee), Number(w.operatorFee));
     }
     for (const c of commissions) {
       const idx = dayKeys.indexOf(dayKey(c.createdAt));
@@ -307,7 +310,7 @@ export class AnalyticsService {
     }
 
     return {
-      summary: { surplus: totalSurplus, uncoveredFees: totalUncoveredFees, commissions: totalCommissions, net: totalSurplus + totalUncoveredFees - totalCommissions, rechargesGross: totalGross },
+      summary: { surplus: totalSurplus, uncoveredFees: totalUncoveredFees, commissions: totalCommissions, net: totalSurplus - totalUncoveredFees - totalCommissions, rechargesGross: totalGross },
       perCampus,
       dailyNet: { labels: dayKeys, values: dailyNet },
     };
@@ -402,19 +405,18 @@ export class AnalyticsService {
     };
   }
 
-  async getStudentBehavior(days = 30) {
-    const since = daysAgo(days);
-    const prevSince = daysAgo(days * 2);
+  async getStudentBehavior(days = 30, from?: string, to?: string) {
+    const { since, until, prevSince } = resolveRange(days, from, to);
     const sevenDaysAgo = daysAgo(7);
 
     const [allStudents, ordersWindow, paymentsWindow, newStudents7d, campuses] = await Promise.all([
       this.prisma.user.findMany({ where: { role: 'STUDENT' }, select: { id: true, campusId: true } }),
       this.prisma.order.findMany({
-        where: { createdAt: { gte: prevSince } },
+        where: { createdAt: { gte: prevSince, lte: until } },
         select: { createdAt: true, studentId: true, student: { select: { campusId: true } } },
       }),
       this.prisma.payment.findMany({
-        where: { status: 'SUCCESS', createdAt: { gte: since } },
+        where: { status: 'SUCCESS', createdAt: { gte: since, lte: until } },
         select: { amountFcfa: true, userId: true, user: { select: { campusId: true } } },
       }),
       this.prisma.user.findMany({
@@ -448,7 +450,8 @@ export class AnalyticsService {
     }
 
     const totalOrdersInWindow = [...ordersCountWindowByStudent.values()].reduce((s, v) => s + v, 0);
-    const weeks = days / 7;
+    const spanDays = Math.max(1, Math.round((until.getTime() - since.getTime()) / (24 * 60 * 60 * 1000)));
+    const weeks = spanDays / 7;
     const avgFrequency = activeIdsCurrent.size > 0 ? totalOrdersInWindow / activeIdsCurrent.size / weeks : 0;
 
     const rechargeSumByCampus = new Map<string, { sum: number; count: number }>();
@@ -508,8 +511,8 @@ export class AnalyticsService {
     };
   }
 
-  async getVendorFinancials(days = 30) {
-    const since = daysAgo(days);
+  async getVendorFinancials(days = 30, from?: string, to?: string) {
+    const { since, until } = resolveRange(days, from, to);
 
     const [vendors, vendorCampusLinks, campuses, withdrawals] = await Promise.all([
       this.prisma.vendor.findMany({
@@ -519,7 +522,7 @@ export class AnalyticsService {
       this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
       this.prisma.campus.findMany({ select: { id: true, name: true } }),
       this.prisma.withdrawal.findMany({
-        where: { status: 'COMPLETED', createdAt: { gte: since } },
+        where: { status: 'COMPLETED', createdAt: { gte: since, lte: until } },
         select: { vendorId: true },
       }),
     ]);
@@ -557,13 +560,13 @@ export class AnalyticsService {
     };
   }
 
-  async getReviewsQuality(days = 30) {
-    const since = daysAgo(days);
+  async getReviewsQuality(days = 30, from?: string, to?: string) {
+    const { since, until } = resolveRange(days, from, to);
     const sevenDaysAgo = daysAgo(7);
 
     const [reviewsWindow, reviews7d, vendors, vendorCampusLinks, campuses] = await Promise.all([
       this.prisma.review.findMany({
-        where: { deletedAt: null, createdAt: { gte: since } },
+        where: { deletedAt: null, createdAt: { gte: since, lte: until } },
         select: { rating: true, vendorId: true, createdAt: true },
       }),
       this.prisma.review.findMany({
@@ -641,8 +644,8 @@ export class AnalyticsService {
   }
 
   // ─── Nouveau : Supervision ambassadeurs ───────────────────────────
-  async getAmbassadorRanking(days = 30) {
-    const since = daysAgo(days);
+  async getAmbassadorRanking(days = 30, from?: string, to?: string) {
+    const { since, until } = resolveRange(days, from, to);
 
     const [ambassadors, affiliateCounts, commissionsWindow] = await Promise.all([
       this.prisma.ambassador.findMany({
@@ -661,7 +664,7 @@ export class AnalyticsService {
         _count: { _all: true },
       }),
       this.prisma.ambassadorCommission.findMany({
-        where: { deletedAt: null, createdAt: { gte: since } },
+        where: { deletedAt: null, createdAt: { gte: since, lte: until } },
         select: { ambassadorId: true, amount: true },
       }),
     ]);
@@ -702,8 +705,8 @@ export class AnalyticsService {
     };
   }
 
-  async getAmbassadorDetail(id: string, days = 30) {
-    const since = daysAgo(days);
+  async getAmbassadorDetail(id: string, days = 30, from?: string, to?: string) {
+    const { since, until } = resolveRange(days, from, to);
 
     const ambassador = await this.prisma.ambassador.findUnique({
       where: { id, deletedAt: null },
@@ -737,7 +740,7 @@ export class AnalyticsService {
     });
     const rechargeSumByStudent = new Map(rechargesByStudent.map((r) => [r.userId, Number(r._sum.amountFcfa ?? 0)]));
 
-    const commissionsInWindow = commissions.filter((c) => c.createdAt >= since);
+    const commissionsInWindow = commissions.filter((c) => c.createdAt >= since && c.createdAt <= until);
     const commissionThisMonth = commissionsInWindow.reduce((s, c) => s + Number(c.amount), 0);
 
     const levelThresholds = { BRONZE: 0, SILVER: 50000, GOLD: 150000 };

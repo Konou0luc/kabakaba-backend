@@ -30,7 +30,7 @@ export class AnalyticsController {
   @ApiQuery({ type: AnalyticsQueryDto })
   @ApiResponse({ status: 200, description: 'Classement des cantines.' })
   getTopCanteens(@Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getTopCanteens(query.days, query.limit);
+    return this.analyticsService.getTopCanteens(query.days, query.limit, query.from, query.to);
   }
 
   @Get('revenue')
@@ -54,7 +54,7 @@ export class AnalyticsController {
   @ApiQuery({ type: AnalyticsQueryDto })
   @ApiResponse({ status: 200, description: 'Statistiques comportementales étudiants.' })
   getStudentBehavior(@Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getStudentBehavior(query.days);
+    return this.analyticsService.getStudentBehavior(query.days, query.from, query.to);
   }
 
   @Get('vendor-financials')
@@ -62,7 +62,7 @@ export class AnalyticsController {
   @ApiQuery({ type: AnalyticsQueryDto })
   @ApiResponse({ status: 200, description: 'Solde/créances par vendeur.' })
   getVendorFinancials(@Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getVendorFinancials(query.days);
+    return this.analyticsService.getVendorFinancials(query.days, query.from, query.to);
   }
 
   @Get('reviews')
@@ -70,7 +70,7 @@ export class AnalyticsController {
   @ApiQuery({ type: AnalyticsQueryDto })
   @ApiResponse({ status: 200, description: 'Statistiques agrégées sur les avis.' })
   getReviewsQuality(@Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getReviewsQuality(query.days);
+    return this.analyticsService.getReviewsQuality(query.days, query.from, query.to);
   }
 
   @Get('ambassadors')
@@ -78,7 +78,7 @@ export class AnalyticsController {
   @ApiQuery({ type: AnalyticsQueryDto })
   @ApiResponse({ status: 200, description: 'Classement et synthèse du programme ambassadeur.' })
   getAmbassadorRanking(@Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getAmbassadorRanking(query.days);
+    return this.analyticsService.getAmbassadorRanking(query.days, query.from, query.to);
   }
 
   @Get('ambassadors/:id')
@@ -87,6 +87,6 @@ export class AnalyticsController {
   @ApiResponse({ status: 200, description: 'Détail complet.' })
   @ApiResponse({ status: 404, description: 'Ambassadeur introuvable.' })
   getAmbassadorDetail(@Param('id') id: string, @Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getAmbassadorDetail(id, query.days);
+    return this.analyticsService.getAmbassadorDetail(id, query.days, query.from, query.to);
   }
 }
