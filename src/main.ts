@@ -5,9 +5,77 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import * as express from 'express';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import helmet from 'helmet';
 import { getAbsoluteFSPath } from 'swagger-ui-dist';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+
+/**
+ * En production, /docs et /docs-json exposent la structure complète de
+ * l'API (routes, DTOs, rôles requis) à quiconque connaît l'URL : c'est de
+ * la reconnaissance offerte gratuitement à un attaquant (OWASP API9:2023,
+ * gestion d'inventaire). On les protège par Basic Auth uniquement quand
+ * l'app tourne en production ; en dev/local, la doc reste ouverte pour ne
+ * pas gêner le travail quotidien.
+ *
+ * Fail-closed : si SWAGGER_USER/SWAGGER_PASSWORD ne sont pas configurés en
+ * production, l'accès est refusé plutôt que laissé ouvert par défaut.
+ */
+function isProductionEnv() {
+  return process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production';
+}
+
+function timingSafeStringEqual(a: string, b: string): boolean {
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function requireSwaggerAuth(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction,
+) {
+  if (!isProductionEnv()) return next();
+
+  const expectedUser = process.env.SWAGGER_USER;
+  const expectedPassword = process.env.SWAGGER_PASSWORD;
+
+  const reject = () => {
+    res.set('WWW-Authenticate', 'Basic realm="Kabakaba API docs"');
+    res.status(401).send('Authentification requise');
+  };
+
+  if (!expectedUser || !expectedPassword) {
+    // Pas de credentials configurés en prod : on refuse plutôt que d'exposer.
+    res.status(403).send('Documentation désactivée');
+    return;
+  }
+
+  const header = req.headers.authorization;
+  if (!header || !header.startsWith('Basic ')) {
+    reject();
+    return;
+  }
+
+  const decoded = Buffer.from(header.slice('Basic '.length), 'base64').toString('utf8');
+  const separatorIndex = decoded.indexOf(':');
+  if (separatorIndex === -1) {
+    reject();
+    return;
+  }
+
+  const user = decoded.slice(0, separatorIndex);
+  const password = decoded.slice(separatorIndex + 1);
+
+  if (!timingSafeStringEqual(user, expectedUser) || !timingSafeStringEqual(password, expectedPassword)) {
+    reject();
+    return;
+  }
+
+  next();
+}
 
 export function resolveSwaggerAssetPath(requestPath: string, swaggerUiDir: string) {
   const normalizedPath = requestPath.replace(/^\/docs\/?/, '').replace(/^\//, '');
@@ -107,8 +175,8 @@ export async function createNestApp() {
     });
   };
 
-  app.use('/docs', express.static(swaggerUiDir, { fallthrough: true }));
-  app.use('/docs', swaggerAssetPath);
+  app.use('/docs', requireSwaggerAuth, express.static(swaggerUiDir, { fallthrough: true }));
+  app.use('/docs', requireSwaggerAuth, swaggerAssetPath);
 
   const swaggerJsonPath = '/api/v1/docs-json';
 
@@ -134,15 +202,15 @@ export async function createNestApp() {
   const httpAdapter = app.getHttpAdapter();
   const expressInstance = httpAdapter.getInstance() as express.Express;
 
-  expressInstance.get('/docs', (_req, res) => {
+  expressInstance.get('/docs', requireSwaggerAuth, (_req, res) => {
     res.type('html').send(buildSwaggerHtml(swaggerJsonPath));
   });
 
-  expressInstance.get('/docs/', (_req, res) => {
+  expressInstance.get('/docs/', requireSwaggerAuth, (_req, res) => {
     res.type('html').send(buildSwaggerHtml(swaggerJsonPath));
   });
 
-  expressInstance.get('/api/v1/docs-json', (_req, res) => {
+  expressInstance.get('/api/v1/docs-json', requireSwaggerAuth, (_req, res) => {
     res.json(getSwaggerDocument());
   });
 

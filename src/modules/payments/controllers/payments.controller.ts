@@ -76,10 +76,12 @@ export class PaymentsController {
   initiatePayment(
     @Param('id') paymentId: string,
     @Body() initiatePaymentDto: InitiatePaymentDto,
+    @Request() req,
   ) {
     return this.paymentsService.initiatePayment(
       paymentId,
       initiatePaymentDto.phoneNumber,
+      { id: req.user.id, role: req.user.role },
     );
   }
 
@@ -139,8 +141,8 @@ export class PaymentsController {
   @ApiOperation({ summary: 'Récupérer un paiement actif' })
   @ApiResponse({ status: 200, description: 'Retourne le paiement.', type: PaymentEntity })
   @ApiResponse({ status: 404, description: 'Paiement introuvable.' })
-  findOne(@Param('id') id: string) {
-    return this.paymentsService.findOne(id);
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.paymentsService.findOne(id, { id: req.user.id, role: req.user.role });
   }
 
   @Patch(':id')

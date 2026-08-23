@@ -165,8 +165,11 @@ export class FedapayService {
   /**
    * Vérifie la signature d'un webhook FedaPay (header X-FEDAPAY-SIGNATURE
    * au format "t=<timestamp>,s=<signature>", HMAC-SHA256 sur `${t}.${rawBody}`).
-   * Lève une BadRequestException si la signature est absente ou invalide.
+   * Lève une BadRequestException si la signature est absente, invalide, ou
+   * si le timestamp est trop ancien (protection anti-rejeu).
    */
+  private static readonly WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
+
   verifyWebhookSignature(
     rawBody: string | Buffer,
     signatureHeader: string | undefined,
@@ -198,6 +201,21 @@ export class FedapayService {
 
     if (!timestamp || !signature) {
       throw new BadRequestException('Format de signature de webhook invalide');
+    }
+
+    // Anti-rejeu : le timestamp fait partie du message signé (il ne peut donc
+    // pas être falsifié sans invalider la signature), on rejette s'il est
+    // trop éloigné de l'heure serveur — qu'il soit trop vieux (webhook
+    // intercepté et rejoué) ou dans le futur (horloge cliente incohérente).
+    const timestampSeconds = Number(timestamp);
+    if (!Number.isFinite(timestampSeconds)) {
+      throw new BadRequestException('Format de signature de webhook invalide');
+    }
+
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const skewSeconds = Math.abs(nowSeconds - timestampSeconds);
+    if (skewSeconds > FedapayService.WEBHOOK_TOLERANCE_SECONDS) {
+      throw new BadRequestException('Webhook expiré (timestamp hors tolérance)');
     }
 
     const expectedSignature = crypto

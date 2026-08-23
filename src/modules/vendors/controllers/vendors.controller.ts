@@ -8,6 +8,7 @@ import {
   Delete,
   Query,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -77,8 +78,8 @@ export class VendorsController {
     description: 'The vendor has been successfully updated.',
     type: VendorEntity,
   })
-  update(@Param('id') id: string, @Body() updateVendorDto: UpdateVendorDto) {
-    return this.vendorsService.update(id, updateVendorDto);
+  update(@Param('id') id: string, @Body() updateVendorDto: UpdateVendorDto, @Request() req) {
+    return this.vendorsService.update(id, updateVendorDto, { id: req.user.id, role: req.user.role });
   }
 
   @Delete(':id')

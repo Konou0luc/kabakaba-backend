@@ -23,7 +23,7 @@ const SELF_UPDATABLE_FIELDS = [
   'notifyPromotions',
 ] as const;
 
-function sanitize<T extends { password?: string | null }>(user: T) {
+export function sanitize<T extends { password?: string | null }>(user: T) {
   const { password, ...safe } = user;
   return safe;
 }

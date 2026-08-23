@@ -11,56 +11,59 @@ export class WalletService {
   async sendMoney(senderId: string, sendMoneyDto: SendMoneyDto) {
     const { recipientPhone, amount } = sendMoneyDto;
 
-    // Récupérer l'expéditeur
-    const sender = await this.prisma.user.findUnique({
-      where: { id: senderId },
-    });
-    if (!sender) {
-      throw new NotFoundException('Expéditeur introuvable');
-    }
-
-    // Vérifier le solde
-    if (sender.walletBalance < amount) {
-      throw new BadRequestException('Solde insuffisant');
-    }
-
-    // Récupérer le destinataire
-    const recipient = await this.prisma.user.findUnique({
-      where: { phone: recipientPhone },
-    });
-    if (!recipient) {
-      throw new NotFoundException('Destinataire introuvable');
-    }
-
-    if (senderId === recipient.id) {
-      throw new BadRequestException('Vous ne pouvez pas envoyer de l\'argent à vous-même');
-    }
-
-    // Générer une référence unique
-    const reference = crypto.randomUUID();
-
-    // Utiliser une transaction Prisma pour assurer l'atomicité
-    await this.prisma.$transaction([
-      // Débiter l'expéditeur
-      this.prisma.user.update({
+    return this.prisma.$transaction(async (tx) => {
+      const sender = await tx.user.findUnique({
         where: { id: senderId },
+      });
+      if (!sender) {
+        throw new NotFoundException('Expéditeur introuvable');
+      }
+
+      const recipient = await tx.user.findUnique({
+        where: { phone: recipientPhone },
+      });
+      if (!recipient) {
+        throw new NotFoundException('Destinataire introuvable');
+      }
+
+      if (senderId === recipient.id) {
+        throw new BadRequestException('Vous ne pouvez pas envoyer de l\'argent à vous-même');
+      }
+
+      const reference = crypto.randomUUID();
+
+      // Débit conditionnel atomique : la clause `walletBalance: { gte: amount }`
+      // fait partie du WHERE de l'UPDATE lui-même, exécuté et vérifié par
+      // Postgres sous le verrou de ligne qu'il pose sur cette ligne. Deux
+      // requêtes sendMoney concurrentes pour le même expéditeur s'exécutent
+      // donc en série au niveau base : la seconde relit le solde déjà débité
+      // par la première avant de décider si elle peut aboutir. Contrairement
+      // à une lecture préalable suivie d'un update séparé, il ne peut donc
+      // pas y avoir de fenêtre où deux débits passent tous les deux la
+      // vérification sur le même solde initial (double dépense).
+      const debit = await tx.user.updateMany({
+        where: { id: senderId, walletBalance: { gte: amount } },
         data: {
           walletBalance: {
             decrement: amount,
           },
         },
-      }),
-      // Créditer le destinataire
-      this.prisma.user.update({
+      });
+
+      if (debit.count === 0) {
+        throw new BadRequestException('Solde insuffisant');
+      }
+
+      await tx.user.update({
         where: { id: recipient.id },
         data: {
           walletBalance: {
             increment: amount,
           },
         },
-      }),
-      // Créer la transaction pour l'expéditeur
-      this.prisma.transaction.create({
+      });
+
+      await tx.transaction.create({
         data: {
           type: TransactionType.TRANSFER,
           amount,
@@ -70,9 +73,9 @@ export class WalletService {
           senderId,
           receiverId: recipient.id,
         },
-      }),
-      // Créer la transaction pour le destinataire
-      this.prisma.transaction.create({
+      });
+
+      await tx.transaction.create({
         data: {
           type: TransactionType.TRANSFER,
           amount,
@@ -82,14 +85,14 @@ export class WalletService {
           senderId,
           receiverId: recipient.id,
         },
-      }),
-    ]);
+      });
 
-    return {
-      success: true,
-      message: 'Argent envoyé avec succès',
-      reference,
-      amount,
-    };
+      return {
+        success: true,
+        message: 'Argent envoyé avec succès',
+        reference,
+        amount,
+      };
+    });
   }
 }

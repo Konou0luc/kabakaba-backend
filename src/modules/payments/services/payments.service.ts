@@ -1,10 +1,15 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { FedapayService } from './fedapay.service';
 import { UsersService } from '../../users/services/users.service';
-import { PaymentStatus } from '@prisma/client';
+import { PaymentStatus, UserRole } from '@prisma/client';
+
+interface Actor {
+  id: string;
+  role: UserRole;
+}
 
 @Injectable()
 export class PaymentsService {
@@ -51,8 +56,14 @@ export class PaymentsService {
     return { payment, fedapayTransaction };
   }
 
-  async initiatePayment(paymentId: string, phoneNumber: string) {
-    const payment = await this.findOne(paymentId);
+  async initiatePayment(paymentId: string, phoneNumber: string, actor: Actor) {
+    const payment = await this.getPaymentOrThrow(paymentId);
+
+    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+    if (!isAdmin && payment.userId !== actor.id) {
+      throw new ForbiddenException("Vous n'avez pas accès à ce paiement");
+    }
+
     if (payment.status !== PaymentStatus.PENDING) {
       throw new BadRequestException('Paiement déjà initié ou traité');
     }
@@ -161,7 +172,7 @@ export class PaymentsService {
     };
   }
 
-  async findOne(id: string) {
+  private async getPaymentOrThrow(id: string) {
     const payment = await this.prisma.payment.findUnique({
       where: { id, deletedAt: null },
     });
@@ -171,8 +182,21 @@ export class PaymentsService {
     return payment;
   }
 
+  async findOne(id: string, actor: Actor) {
+    const payment = await this.getPaymentOrThrow(id);
+
+    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+    if (!isAdmin && payment.userId !== actor.id) {
+      throw new ForbiddenException("Vous n'avez pas accès à ce paiement");
+    }
+
+    return payment;
+  }
+
   async update(id: string, updatePaymentDto: UpdatePaymentDto) {
-    await this.findOne(id);
+    // Accessible uniquement à ADMIN/SUPER_ADMIN au niveau du contrôleur :
+    // pas de contrôle d'ownership à appliquer ici.
+    await this.getPaymentOrThrow(id);
     return this.prisma.payment.update({
       where: { id },
       data: updatePaymentDto,
@@ -180,7 +204,7 @@ export class PaymentsService {
   }
 
   async remove(id: string) {
-    await this.findOne(id);
+    await this.getPaymentOrThrow(id);
     return this.prisma.payment.update({
       where: { id },
       data: { deletedAt: new Date() },

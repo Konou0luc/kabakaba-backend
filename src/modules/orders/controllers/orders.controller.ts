@@ -84,8 +84,8 @@ export class OrdersController {
   @ApiOperation({ summary: 'Récupérer une commande active' })
   @ApiResponse({ status: 200, description: 'Retourne la commande.', type: OrderEntity })
   @ApiResponse({ status: 404, description: 'Commande introuvable.' })
-  findOne(@Param('id') id: string) {
-    return this.ordersService.findOne(id);
+  findOne(@Param('id') id: string, @Request() req) {
+    return this.ordersService.findOne(id, { id: req.user.id, role: req.user.role });
   }
 
   @Patch(':id')
@@ -98,8 +98,8 @@ export class OrdersController {
     description: 'La commande a été mise à jour avec succès.',
     type: OrderEntity,
   })
-  update(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto) {
-    return this.ordersService.update(id, updateOrderDto);
+  update(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto, @Request() req) {
+    return this.ordersService.update(id, updateOrderDto, { id: req.user.id, role: req.user.role });
   }
 
   @Delete(':id')
@@ -111,7 +111,7 @@ export class OrdersController {
     status: 200,
     description: 'La commande a été supprimée avec succès.',
   })
-  remove(@Param('id') id: string) {
-    return this.ordersService.remove(id);
+  remove(@Param('id') id: string, @Request() req) {
+    return this.ordersService.remove(id, { id: req.user.id, role: req.user.role });
   }
 }

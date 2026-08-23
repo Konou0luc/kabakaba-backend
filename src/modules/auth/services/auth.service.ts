@@ -7,7 +7,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/services/prisma.service';
-import { UsersService } from '../../users/services/users.service';
+import { UsersService, sanitize } from '../../users/services/users.service';
 import { SmsService } from '../../sms/services/sms.service';
 import { SendOtpDto } from '../dto/send-otp.dto';
 import { VerifyOtpDto } from '../dto/verify-otp.dto';
@@ -41,13 +41,14 @@ export class AuthService {
     }
 
     const code = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedCode = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
     if (existingOtp) {
       await this.prisma.otpCode.update({
         where: { id: existingOtp.id },
         data: {
-          code,
+          code: hashedCode,
           expiresAt,
           attempts: existingOtp.attempts + 1,
         },
@@ -56,7 +57,7 @@ export class AuthService {
       await this.prisma.otpCode.create({
         data: {
           phone,
-          code,
+          code: hashedCode,
           expiresAt,
         },
       });
@@ -83,7 +84,7 @@ export class AuthService {
       where: { phone, used: false, expiresAt: { gt: new Date() } },
     });
 
-    if (!otp || otp.code !== code) {
+    if (!otp || !(await bcrypt.compare(code, otp.code))) {
       throw new BadRequestException('Code OTP invalide ou expiré');
     }
 
@@ -107,7 +108,7 @@ export class AuthService {
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return {
-      user,
+      user: sanitize(user),
       ...tokens,
     };
   }
@@ -127,7 +128,7 @@ export class AuthService {
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return {
-      user,
+      user: sanitize(user),
       ...tokens,
     };
   }
@@ -168,9 +169,20 @@ export class AuthService {
 
       if (!user) throw new UnauthorizedException();
 
-      const tokenExists = user.refreshTokens.find(
-        (rt) => rt.token === refreshToken && !rt.revoked,
+      // hashedToken est un hash bcrypt (salé) : impossible de le comparer
+      // via une clause WHERE, on compare donc candidat par candidat parmi
+      // les tokens encore valides de cet utilisateur.
+      const candidates = user.refreshTokens.filter(
+        (rt) => !rt.revoked && rt.expiresAt > new Date(),
       );
+
+      let tokenExists = false;
+      for (const rt of candidates) {
+        if (await bcrypt.compare(refreshToken, rt.hashedToken)) {
+          tokenExists = true;
+          break;
+        }
+      }
 
       if (!tokenExists) throw new UnauthorizedException();
 
@@ -225,7 +237,6 @@ export class AuthService {
     await this.prisma.refreshToken.create({
       data: {
         userId,
-        token: refreshToken,
         hashedToken: hashedRefreshToken,
         expiresAt,
       },

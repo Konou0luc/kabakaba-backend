@@ -578,8 +578,7 @@ model Device {
 model RefreshToken {
   id          String    @id @default(uuid())
   userId      String
-  token       String    @unique
-  hashedToken String?
+  hashedToken String
   expiresAt   DateTime
   revoked     Boolean   @default(false)
   createdAt   DateTime  @default(now())

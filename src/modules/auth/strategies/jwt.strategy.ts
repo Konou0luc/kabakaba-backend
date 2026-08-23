@@ -29,7 +29,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       where: { id: payload.sub },
     });
 
-    if (!user || user.deletedAt) return null;
+    // Un compte supprimé, suspendu ou banni ne doit pas pouvoir continuer à
+    // utiliser un access token déjà émis : sans ce contrôle, une suspension
+    // décidée par un admin ne prend effet qu'à l'expiration naturelle du
+    // token (jusqu'à 15 min) plutôt qu'immédiatement.
+    if (!user || user.deletedAt || user.isSuspended || user.isBanned) return null;
 
     return { ...user, __authKind: 'mobile' as const };
   }

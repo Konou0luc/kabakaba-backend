@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/services/prisma.service';
@@ -6,6 +6,11 @@ import { CreateVendorDto } from '../dto/create-vendor.dto';
 import { UpdateVendorDto } from '../dto/update-vendor.dto';
 
 const SALT_ROUNDS = 10;
+
+interface Actor {
+  id: string;
+  role: UserRole;
+}
 
 @Injectable()
 export class VendorsService {
@@ -120,8 +125,17 @@ export class VendorsService {
     return vendor;
   }
 
-  async update(id: string, updateVendorDto: UpdateVendorDto) {
+  async update(id: string, updateVendorDto: UpdateVendorDto, actor: Actor) {
     await this.findOne(id);
+
+    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+    if (!isAdmin) {
+      const ownVendor = await this.prisma.vendor.findUnique({ where: { userId: actor.id } });
+      if (!ownVendor || ownVendor.id !== id) {
+        throw new ForbiddenException("Vous n'avez pas accès à cette cantine");
+      }
+    }
+
     const { campusIds, ...profileFields } = updateVendorDto;
 
     if (campusIds) {
