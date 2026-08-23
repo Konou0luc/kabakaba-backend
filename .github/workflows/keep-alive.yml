@@ -1,0 +1,14 @@
+name: Keep Neon awake
+
+on:
+  schedule:
+    # Toutes les 4 minutes — en dessous du délai d'auto-suspend de Neon (~5 min)
+    - cron: '*/4 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping health endpoint (touche la DB)
+        run: curl -fsS --max-time 15 https://kabakaba-backend.vercel.app/api/v1/health
