@@ -12,7 +12,6 @@ export class FedapayService {
   private readonly environment: string;
   private readonly baseUrl: string;
   private readonly webhookSecret: string;
-  private readonly payoutWebhookSecret: string;
 
   // Mapping opérateur Kabakaba -> "mode" attendu par l'API FedaPay
   private static readonly OPERATOR_TO_MODE: Record<string, string> = {
@@ -27,10 +26,7 @@ export class FedapayService {
     this.secretKey = this.configService.get<string>('FEDAPAY_SECRET_KEY') || '';
     this.environment = this.configService.get<string>('FEDAPAY_ENVIRONMENT') || '';
     this.baseUrl = this.configService.get<string>('FEDAPAY_BASE_URL') || '';
-    // FedaPay génère un secret DIFFÉRENT pour chaque point de terminaison webhook
     this.webhookSecret = this.configService.get<string>('FEDAPAY_WEBHOOK_SECRET') || '';
-    this.payoutWebhookSecret =
-      this.configService.get<string>('FEDAPAY_PAYOUT_WEBHOOK_SECRET') || '';
   }
 
   private getHeaders() {
@@ -170,21 +166,16 @@ export class FedapayService {
    * Vérifie la signature d'un webhook FedaPay (header X-FEDAPAY-SIGNATURE
    * au format "t=<timestamp>,s=<signature>", HMAC-SHA256 sur `${t}.${rawBody}`).
    * Lève une BadRequestException si la signature est absente ou invalide.
-   *
-   * @param kind 'payment' utilise FEDAPAY_WEBHOOK_SECRET, 'payout' utilise
-   *             FEDAPAY_PAYOUT_WEBHOOK_SECRET — FedaPay génère un secret
-   *             différent pour chaque point de terminaison.
    */
   verifyWebhookSignature(
     rawBody: string | Buffer,
     signatureHeader: string | undefined,
-    kind: 'payment' | 'payout' = 'payment',
   ): void {
-    const secret = kind === 'payout' ? this.payoutWebhookSecret : this.webhookSecret;
+    const secret = this.webhookSecret;
 
     if (!secret) {
       this.logger.warn(
-        `FEDAPAY_${kind === 'payout' ? 'PAYOUT_WEBHOOK_SECRET' : 'WEBHOOK_SECRET'} non configuré : la signature du webhook (${kind}) n'est PAS vérifiée. À corriger avant la mise en production.`,
+        'FEDAPAY_WEBHOOK_SECRET non configuré : la signature du webhook n\'est PAS vérifiée. À corriger avant la mise en production.',
       );
       return;
     }
@@ -220,72 +211,6 @@ export class FedapayService {
 
     if (!isValid) {
       throw new BadRequestException('Signature de webhook invalide');
-    }
-  }
-
-  // ─── Payouts (retraits sortants) ───────────────────────────────────
-
-  async createPayout(
-    amount: number,
-    recipient: { name: string; phoneNumber: string; country?: string },
-    description: string,
-    merchantReference: string,
-  ): Promise<any> {
-    try {
-      const url = `${this.baseUrl}/v1/payouts`;
-      const payload = {
-        amount: Math.round(amount),
-        currency: { iso: 'XOF' },
-        description,
-        merchant_reference: merchantReference,
-        recipient: {
-          name: recipient.name,
-          phone_number: {
-            number: recipient.phoneNumber,
-            country: recipient.country || 'tg',
-          },
-        },
-      };
-
-      const response: AxiosResponse<any> = await firstValueFrom(
-        this.httpService.post(url, payload, { headers: this.getHeaders() }),
-      );
-
-      this.logger.log(`Payout FedaPay créé: ${response.data.payout?.id}`);
-      return response.data;
-    } catch (error) {
-      this.logger.error(`Erreur lors de la création du payout FedaPay: ${error.message}`, error.stack);
-      throw new BadRequestException('Erreur lors de la création du retrait');
-    }
-  }
-
-  async sendPayoutNow(payoutId: string): Promise<any> {
-    try {
-      const url = `${this.baseUrl}/v1/payouts/start`;
-      const payload = { payouts: [{ id: payoutId }] };
-
-      const response: AxiosResponse<any> = await firstValueFrom(
-        this.httpService.put(url, payload, { headers: this.getHeaders() }),
-      );
-
-      this.logger.log(`Payout FedaPay envoyé: ${payoutId}`);
-      return response.data;
-    } catch (error) {
-      this.logger.error(`Erreur lors de l'envoi du payout FedaPay: ${error.message}`, error.stack);
-      throw new BadRequestException("Erreur lors de l'envoi du retrait");
-    }
-  }
-
-  async retrievePayout(payoutId: string): Promise<any> {
-    try {
-      const url = `${this.baseUrl}/v1/payouts/${payoutId}`;
-      const response: AxiosResponse<any> = await firstValueFrom(
-        this.httpService.get(url, { headers: this.getHeaders() }),
-      );
-      return response.data;
-    } catch (error) {
-      this.logger.error(`Erreur lors de la récupération du payout FedaPay: ${error.message}`, error.stack);
-      throw new BadRequestException('Erreur lors de la récupération du retrait');
     }
   }
 }

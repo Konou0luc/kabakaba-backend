@@ -68,7 +68,7 @@ export class PaymentsService {
 
   async handleWebhook(rawBody: string, signatureHeader?: string) {
     // 1. Vérifie que la requête vient bien de FedaPay
-    this.fedapayService.verifyWebhookSignature(rawBody, signatureHeader, 'payment');
+    this.fedapayService.verifyWebhookSignature(rawBody, signatureHeader);
 
     // 2. Parse le payload (FedaPay envoie { name: "transaction.xxx", entity: {...} })
     let webhookData: any;
