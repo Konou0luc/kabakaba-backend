@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Request, UseGuards } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WebAuthService } from '../services/web-auth.service';
 import { WebLoginDto } from '../dto/web-login.dto';
@@ -19,6 +20,7 @@ export class WebAuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Étape 1/2 de connexion : email + mot de passe → jeton de challenge 2FA' })
   @ApiResponse({ status: 200, description: 'Identifiants valides, code 2FA requis.' })
   @ApiResponse({ status: 401, description: 'Identifiants invalides.' })
@@ -29,6 +31,7 @@ export class WebAuthController {
 
   @Post('verify-2fa')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Étape 2/2 de connexion : code Google Authenticator (ou clé de secours) → session' })
   @ApiResponse({ status: 200, description: 'Connexion réussie, jeton de session renvoyé.' })
   @ApiResponse({ status: 401, description: 'Code invalide ou jeton de challenge expiré.' })
@@ -40,6 +43,7 @@ export class WebAuthController {
 
   @Post('first-login')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: 'Étape 1/4 onboarding : vérifie le mot de passe temporaire → jeton d\'onboarding' })
   @ApiResponse({ status: 200, description: 'Mot de passe temporaire valide.' })
   @ApiResponse({ status: 401, description: 'Identifiants invalides.' })
@@ -70,6 +74,7 @@ export class WebAuthController {
 
   @Post('first-login/2fa/verify')
   @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Étape 4/4 onboarding : vérifie le code TOTP → active le 2FA et ouvre la session (Bearer = onboardingToken)' })
   @ApiResponse({ status: 200, description: 'Onboarding terminé, session ouverte, clé de secours affichée une seule fois.' })

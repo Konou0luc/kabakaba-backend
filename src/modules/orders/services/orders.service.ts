@@ -95,11 +95,33 @@ export class OrdersService {
     return order;
   }
 
+  // Champs qu'un VENDOR peut modifier sur une commande. Les champs métier
+  // sensibles (vendorId, totalTickets, escrowAmount, packagingOptionId) ne
+  // sont modifiables que par un admin.
+  private static readonly VENDOR_UPDATABLE_FIELDS = ['status'] as const;
+
   async update(id: string, updateOrderDto: UpdateOrderDto, actor: Actor) {
     await this.findOne(id, actor);
+
+    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+    let data: Partial<UpdateOrderDto> = updateOrderDto;
+
+    if (!isAdmin) {
+      // SÉCURITÉ : UpdateOrderDto hérite de tous les champs de CreateOrderDto
+      // (vendorId, totalTickets, escrowAmount, packagingOptionId). On filtre
+      // explicitement pour qu'un vendeur ne puisse changer que le statut de
+      // SA commande, jamais son montant ou son propriétaire.
+      data = {};
+      for (const field of OrdersService.VENDOR_UPDATABLE_FIELDS) {
+        if (updateOrderDto[field] !== undefined) {
+          (data as any)[field] = updateOrderDto[field];
+        }
+      }
+    }
+
     return this.prisma.order.update({
       where: { id },
-      data: updateOrderDto,
+      data,
     });
   }
 

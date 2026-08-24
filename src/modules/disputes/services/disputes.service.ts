@@ -1,4 +1,4 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { DisputeStatus, DisputeDecision, TransactionType, TransactionStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateDisputeDto } from '../dto/create-dispute.dto';
@@ -25,6 +25,19 @@ export class DisputesService {
       if (!vendor || vendor.id !== order.vendorId) {
         throw new ForbiddenException('Vous ne pouvez contester que des commandes qui vous concernent');
       }
+    }
+
+    // SÉCURITÉ : ticketAmount est fourni par le client — il ne doit jamais
+    // pouvoir dépasser le montant réel de la commande contestée, sous peine
+    // de permettre un remboursement supérieur au préjudice réel si le litige
+    // est accepté par un administrateur.
+    if (
+      createDisputeDto.ticketAmount !== undefined &&
+      createDisputeDto.ticketAmount > order.totalTickets
+    ) {
+      throw new BadRequestException(
+        `Le montant contesté ne peut pas dépasser le total de la commande (${order.totalTickets} tickets)`,
+      );
     }
 
     return this.prisma.dispute.create({

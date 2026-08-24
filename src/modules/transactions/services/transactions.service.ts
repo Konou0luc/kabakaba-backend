@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { TransactionType, TransactionStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateTransactionDto } from '../dto/create-transaction.dto';
@@ -51,12 +51,19 @@ export class TransactionsService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: { id: string; isAdmin: boolean }) {
     const transaction = await this.prisma.transaction.findUnique({
       where: { id },
     });
 
     if (!transaction) throw new NotFoundException(`Transaction avec l'identifiant ${id} introuvable`);
+
+    if (actor && !actor.isAdmin) {
+      const isParty = transaction.senderId === actor.id || transaction.receiverId === actor.id;
+      if (!isParty) {
+        throw new ForbiddenException("Vous n'avez pas accès à cette transaction");
+      }
+    }
 
     return transaction;
   }

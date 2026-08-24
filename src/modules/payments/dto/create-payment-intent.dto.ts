@@ -1,22 +1,19 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsPositive, IsString, IsEnum } from 'class-validator';
+import { IsNotEmpty, IsInt, IsEnum, Min, Max } from 'class-validator';
 import { PaymentOperator } from '@prisma/client';
+import { MIN_RECHARGE_TICKETS, MAX_RECHARGE_TICKETS } from '../pricing/recharge-pricing';
 
 export class CreatePaymentIntentDto {
   @ApiProperty({
-    example: 5000,
-    description: 'Montant en FCFA à recharger',
+    example: 1000,
+    description:
+      "Nombre de tickets souhaités. Le montant à payer (FCFA) est calculé " +
+      "par le serveur selon le barème officiel — il n'est jamais fourni par le client.",
   })
   @IsNotEmpty()
-  @IsPositive()
-  amount: number;
-
-  @ApiProperty({
-    example: 50,
-    description: 'Nombre de tickets à recevoir',
-  })
-  @IsNotEmpty()
-  @IsPositive()
+  @IsInt()
+  @Min(MIN_RECHARGE_TICKETS)
+  @Max(MAX_RECHARGE_TICKETS)
   ticketsReceived: number;
 
   @ApiProperty({

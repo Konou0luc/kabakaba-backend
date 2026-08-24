@@ -5,6 +5,7 @@ import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { FedapayService } from './fedapay.service';
 import { UsersService } from '../../users/services/users.service';
 import { PaymentStatus, UserRole } from '@prisma/client';
+import { computeRechargeAmountFcfa } from '../pricing/recharge-pricing';
 
 interface Actor {
   id: string;
@@ -22,13 +23,17 @@ export class PaymentsService {
   ) {}
 
   async createPaymentIntent(
-    amount: number,
     ticketsReceived: number,
     operator: string,
     userId: string,
   ) {
     const user = await this.usersService.findOne(userId);
     if (!user) throw new NotFoundException('Utilisateur introuvable');
+
+    // SÉCURITÉ : le montant à payer est calculé UNIQUEMENT côté serveur à
+    // partir du barème officiel — jamais fourni par le client. Voir
+    // src/modules/payments/pricing/recharge-pricing.ts.
+    const amount = computeRechargeAmountFcfa(ticketsReceived);
 
     const fedapayTransaction = await this.fedapayService.createTransaction(
       amount,
@@ -113,13 +118,31 @@ export class PaymentsService {
 
     let newStatus: PaymentStatus;
     switch (eventName) {
-      case 'transaction.approved':
+      case 'transaction.approved': {
+        // Défense en profondeur : même si `amount` est désormais calculé
+        // côté serveur (voir recharge-pricing.ts) et ne peut plus être
+        // falsifié à la création, on vérifie en plus que le montant que
+        // FedaPay confirme avoir réellement encaissé correspond bien au
+        // montant qu'on attendait, avant de créditer le wallet.
+        const confirmedAmount = webhookData?.entity?.amount;
+        if (
+          confirmedAmount !== undefined &&
+          confirmedAmount !== null &&
+          Number(confirmedAmount) !== Number(payment.amountFcfa)
+        ) {
+          this.logger.error(
+            `Webhook FedaPay: montant confirmé (${confirmedAmount}) ≠ montant attendu (${payment.amountFcfa}) pour la transaction ${transactionId}. Crédit refusé.`,
+          );
+          throw new BadRequestException('Montant confirmé par FedaPay incohérent avec le paiement attendu');
+        }
+
         newStatus = PaymentStatus.SUCCESS;
         await this.prisma.user.update({
           where: { id: payment.userId },
           data: { walletBalance: { increment: payment.ticketsReceived } },
         });
         break;
+      }
       case 'transaction.declined':
       case 'transaction.canceled':
         newStatus = PaymentStatus.FAILED;

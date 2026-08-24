@@ -80,12 +80,17 @@ export class UsersController {
 
   @Get(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard)
-  @ApiOperation({ summary: 'Récupérer un utilisateur par son identifiant' })
+  @UseGuards(CombinedJwtAuthGuard)
+  @ApiOperation({ summary: 'Récupérer un utilisateur par son identifiant (soi-même, ou rôle admin/supervision)' })
   @ApiResponse({ status: 200, description: "Retourne l'utilisateur.", type: UserEntity })
+  @ApiResponse({ status: 403, description: "Vous n'avez pas accès à ce profil." })
   @ApiResponse({ status: 404, description: 'Utilisateur introuvable.' })
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
+  findOne(@Param('id') id: string, @Request() req) {
+    const isPrivileged =
+      req.user.__authKind === 'web' ||
+      req.user.role === UserRole.ADMIN ||
+      req.user.role === UserRole.SUPER_ADMIN;
+    return this.usersService.findOne(id, { id: req.user.id, isPrivileged });
   }
 
   @Patch(':id')

@@ -1,4 +1,4 @@
-import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -177,10 +177,15 @@ export class FedapayService {
     const secret = this.webhookSecret;
 
     if (!secret) {
-      this.logger.warn(
-        'FEDAPAY_WEBHOOK_SECRET non configuré : la signature du webhook n\'est PAS vérifiée. À corriger avant la mise en production.',
+      // Fail-CLOSED : un webhook financier ne doit jamais être accepté
+      // sans vérification de signature possible. Si le secret manque,
+      // on rejette la requête au lieu de l'accepter en silence.
+      this.logger.error(
+        'FEDAPAY_WEBHOOK_SECRET non configuré : webhook rejeté (fail-closed).',
       );
-      return;
+      throw new InternalServerErrorException(
+        'Configuration serveur incomplète : webhook refusé',
+      );
     }
 
     if (!signatureHeader) {

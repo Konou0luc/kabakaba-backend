@@ -1,4 +1,8 @@
-import { PartialType } from '@nestjs/swagger';
+import { PartialType, OmitType } from '@nestjs/swagger';
 import { CreatePackagingOptionDto } from './create-packaging-option.dto';
 
-export class UpdatePackagingOptionDto extends PartialType(CreatePackagingOptionDto) {}
+// SÉCURITÉ : itemId ne doit jamais être modifiable après création (même
+// raison que UpdateMenuComponentDto).
+export class UpdatePackagingOptionDto extends PartialType(
+  OmitType(CreatePackagingOptionDto, ['itemId'] as const),
+) {}

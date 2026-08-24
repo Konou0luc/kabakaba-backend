@@ -75,8 +75,9 @@ export class NotificationsController {
   @ApiOperation({ summary: 'Récupérer une notification active' })
   @ApiResponse({ status: 200, description: 'Retourne la notification.', type: NotificationEntity })
   @ApiResponse({ status: 404, description: 'Notification introuvable.' })
-  findOne(@Param('id') id: string) {
-    return this.notificationsService.findOne(id);
+  findOne(@Param('id') id: string, @Request() req) {
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    return this.notificationsService.findOne(id, { id: req.user.id, isAdmin });
   }
 
   @Patch(':id')
@@ -89,8 +90,9 @@ export class NotificationsController {
     description: 'La notification a été mise à jour avec succès.',
     type: NotificationEntity,
   })
-  update(@Param('id') id: string, @Body() updateNotificationDto: UpdateNotificationDto) {
-    return this.notificationsService.update(id, updateNotificationDto);
+  update(@Param('id') id: string, @Body() updateNotificationDto: UpdateNotificationDto, @Request() req) {
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    return this.notificationsService.update(id, updateNotificationDto, { id: req.user.id, isAdmin });
   }
 
   @Delete(':id')

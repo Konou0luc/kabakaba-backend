@@ -1,7 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateNotificationDto } from '../dto/create-notification.dto';
 import { UpdateNotificationDto } from '../dto/update-notification.dto';
+
+interface Actor {
+  id: string;
+  isAdmin: boolean;
+}
 
 @Injectable()
 export class NotificationsService {
@@ -40,18 +45,24 @@ export class NotificationsService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: Actor) {
     const notification = await this.prisma.notification.findUnique({
       where: { id, deletedAt: null },
     });
 
     if (!notification) throw new NotFoundException(`Notification avec l'identifiant ${id} introuvable`);
 
+    // SÉCURITÉ : un utilisateur non-admin ne peut consulter/modifier que
+    // SES propres notifications.
+    if (actor && !actor.isAdmin && notification.userId !== actor.id) {
+      throw new ForbiddenException("Vous n'avez pas accès à cette notification");
+    }
+
     return notification;
   }
 
-  async update(id: string, updateNotificationDto: UpdateNotificationDto) {
-    await this.findOne(id);
+  async update(id: string, updateNotificationDto: UpdateNotificationDto, actor?: Actor) {
+    await this.findOne(id, actor);
     return this.prisma.notification.update({
       where: { id },
       data: updateNotificationDto,

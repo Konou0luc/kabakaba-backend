@@ -23,6 +23,13 @@ const SELF_UPDATABLE_FIELDS = [
   'notifyPromotions',
 ] as const;
 
+// Champs de modération qu'un ADMIN web peut modifier — jamais l'identité ni
+// les identifiants d'un utilisateur (mot de passe, email, téléphone, nom...).
+// Décision produit : le dashboard web ne fait QUE lire/afficher des
+// informations et modérer des comptes, jamais toucher à ce qui protège le
+// compte de l'utilisateur.
+const WEB_ADMIN_MODERATION_FIELDS = ['isSuspended', 'suspensionUntil', 'suspensionReason'] as const;
+
 export function sanitize<T extends { password?: string | null }>(user: T) {
   const { password, ...safe } = user;
   return safe;
@@ -89,9 +96,17 @@ export class UsersService {
     };
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: { id: string; isPrivileged: boolean }) {
     const user = await this.prisma.user.findFirst({ where: { id, deletedAt: null } });
     if (!user) throw new NotFoundException(`Utilisateur avec l'identifiant ${id} introuvable`);
+
+    // SÉCURITÉ : un utilisateur normal ne peut consulter que son propre
+    // profil — évite qu'un étudiant/vendeur puisse voir le profil complet
+    // (email, téléphone, campus...) de n'importe qui en devinant son UUID.
+    if (actor && !actor.isPrivileged && actor.id !== id) {
+      throw new ForbiddenException("Vous n'avez pas accès à ce profil");
+    }
+
     return sanitize(user);
   }
 
@@ -109,25 +124,47 @@ export class UsersService {
     const current = await this.prisma.user.findFirst({ where: { id, deletedAt: null } });
     if (!current) throw new NotFoundException(`Utilisateur avec l'identifiant ${id} introuvable`);
 
-    const isPrivileged =
-      actor.kind === 'web' || actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+    const isSelf = actor.id === id;
+    const isMobilePrivileged =
+      actor.kind === 'mobile' && (actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN);
+    const isWebAdmin = actor.kind === 'web' && actor.role === 'ADMIN';
+    const isWebSupervision = actor.kind === 'web' && actor.role === 'SUPERVISION';
 
-    if (!isPrivileged && actor.id !== id) {
+    if (isWebSupervision) {
+      // SÉCURITÉ : la supervision web est en lecture seule sur les comptes
+      // utilisateurs — elle affiche des informations, elle ne les modifie pas.
+      throw new ForbiddenException('La supervision est en lecture seule sur les comptes utilisateurs');
+    }
+
+    if (!isSelf && !isMobilePrivileged && !isWebAdmin) {
       throw new ForbiddenException('Vous ne pouvez modifier que votre propre profil');
     }
 
-    // Un acteur non privilégié ne peut toucher qu'un sous-ensemble de champs
-    // de son propre profil — jamais role, isSuspended, isBanned, campusId...
-    const payload: Record<string, any> = isPrivileged
-      ? { ...updateUserDto }
-      : Object.fromEntries(
-          Object.entries(updateUserDto).filter(([key]) =>
-            (SELF_UPDATABLE_FIELDS as readonly string[]).includes(key),
-          ),
-        );
+    let payload: Record<string, any>;
+    if (isMobilePrivileged) {
+      // Admin/Super admin côté app mobile : accès complet (support utilisateur).
+      payload = { ...updateUserDto };
+    } else if (isWebAdmin) {
+      // SÉCURITÉ : même un admin web ne touche JAMAIS à l'identité ni aux
+      // identifiants d'un utilisateur (mot de passe, email, téléphone,
+      // nom...) — uniquement des actions de modération (suspension).
+      payload = Object.fromEntries(
+        Object.entries(updateUserDto).filter(([key]) =>
+          (WEB_ADMIN_MODERATION_FIELDS as readonly string[]).includes(key),
+        ),
+      );
+    } else {
+      // Utilisateur mobile modifiant son propre profil.
+      payload = Object.fromEntries(
+        Object.entries(updateUserDto).filter(([key]) =>
+          (SELF_UPDATABLE_FIELDS as readonly string[]).includes(key),
+        ),
+      );
+    }
 
-    const isSuspending = isPrivileged && payload.isSuspended === true && !current.isSuspended;
-    const isLifting = isPrivileged && payload.isSuspended === false && current.isSuspended;
+    const isPrivilegedForSuspension = isMobilePrivileged || isWebAdmin;
+    const isSuspending = isPrivilegedForSuspension && payload.isSuspended === true && !current.isSuspended;
+    const isLifting = isPrivilegedForSuspension && payload.isSuspended === false && current.isSuspended;
 
     if (isSuspending) {
       await this.suspensionsService.suspend({

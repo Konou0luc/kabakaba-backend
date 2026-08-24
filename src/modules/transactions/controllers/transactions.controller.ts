@@ -82,8 +82,10 @@ export class TransactionsController {
   @ApiOperation({ summary: 'Récupérer une transaction' })
   @ApiResponse({ status: 200, description: 'Retourne la transaction.', type: TransactionEntity })
   @ApiResponse({ status: 404, description: 'Transaction introuvable.' })
-  findOne(@Param('id') id: string) {
-    return this.transactionsService.findOne(id);
+  findOne(@Param('id') id: string, @Request() req) {
+    const isAdmin =
+      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    return this.transactionsService.findOne(id, { id: req.user.id, isAdmin });
   }
 
   @Patch(':id')

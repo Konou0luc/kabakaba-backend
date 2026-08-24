@@ -8,6 +8,7 @@ import {
   Delete,
   Query,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,7 +17,7 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
-import { CatalogService } from '../services/catalog.service';
+import { CatalogService, CatalogActor } from '../services/catalog.service';
 import { CreateMenuItemDto } from '../dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from '../dto/update-menu-item.dto';
 import { CreateMenuComponentDto } from '../dto/create-menu-component.dto';
@@ -33,6 +34,14 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { Public } from '../../../common/decorators/public.decorator';
 
+function actorFromRequest(req: any): CatalogActor {
+  return {
+    id: req.user.id,
+    role: req.user.role,
+    isAdmin: req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN,
+  };
+}
+
 @ApiTags('Catalog')
 @Controller('catalog')
 export class CatalogController {
@@ -48,8 +57,8 @@ export class CatalogController {
     description: 'The menu item has been successfully created.',
     type: MenuItemEntity,
   })
-  createMenuItem(@Body() createMenuItemDto: CreateMenuItemDto) {
-    return this.catalogService.createMenuItem(createMenuItemDto);
+  createMenuItem(@Body() createMenuItemDto: CreateMenuItemDto, @Request() req) {
+    return this.catalogService.createMenuItem(createMenuItemDto, actorFromRequest(req));
   }
 
   @Get('menu-items')
@@ -91,8 +100,8 @@ export class CatalogController {
     description: 'The menu item has been successfully updated.',
     type: MenuItemEntity,
   })
-  updateMenuItem(@Param('id') id: string, @Body() updateMenuItemDto: UpdateMenuItemDto) {
-    return this.catalogService.updateMenuItem(id, updateMenuItemDto);
+  updateMenuItem(@Param('id') id: string, @Body() updateMenuItemDto: UpdateMenuItemDto, @Request() req) {
+    return this.catalogService.updateMenuItem(id, updateMenuItemDto, actorFromRequest(req));
   }
 
   @Delete('menu-items/:id')
@@ -104,8 +113,8 @@ export class CatalogController {
     status: 200,
     description: 'The menu item has been successfully soft deleted.',
   })
-  removeMenuItem(@Param('id') id: string) {
-    return this.catalogService.removeMenuItem(id);
+  removeMenuItem(@Param('id') id: string, @Request() req) {
+    return this.catalogService.removeMenuItem(id, actorFromRequest(req));
   }
 
   // Menu Components
@@ -119,8 +128,8 @@ export class CatalogController {
     description: 'The menu component has been successfully created.',
     type: MenuComponentEntity,
   })
-  createMenuComponent(@Body() createMenuComponentDto: CreateMenuComponentDto) {
-    return this.catalogService.createMenuComponent(createMenuComponentDto);
+  createMenuComponent(@Body() createMenuComponentDto: CreateMenuComponentDto, @Request() req) {
+    return this.catalogService.createMenuComponent(createMenuComponentDto, actorFromRequest(req));
   }
 
   @Get('menu-components/:itemId')
@@ -164,8 +173,9 @@ export class CatalogController {
   updateMenuComponent(
     @Param('id') id: string,
     @Body() updateMenuComponentDto: UpdateMenuComponentDto,
+    @Request() req,
   ) {
-    return this.catalogService.updateMenuComponent(id, updateMenuComponentDto);
+    return this.catalogService.updateMenuComponent(id, updateMenuComponentDto, actorFromRequest(req));
   }
 
   @Delete('menu-components/:id')
@@ -177,8 +187,8 @@ export class CatalogController {
     status: 200,
     description: 'The menu component has been successfully soft deleted.',
   })
-  removeMenuComponent(@Param('id') id: string) {
-    return this.catalogService.removeMenuComponent(id);
+  removeMenuComponent(@Param('id') id: string, @Request() req) {
+    return this.catalogService.removeMenuComponent(id, actorFromRequest(req));
   }
 
   // Packaging Options
@@ -192,8 +202,8 @@ export class CatalogController {
     description: 'The packaging option has been successfully created.',
     type: PackagingOptionEntity,
   })
-  createPackagingOption(@Body() createPackagingOptionDto: CreatePackagingOptionDto) {
-    return this.catalogService.createPackagingOption(createPackagingOptionDto);
+  createPackagingOption(@Body() createPackagingOptionDto: CreatePackagingOptionDto, @Request() req) {
+    return this.catalogService.createPackagingOption(createPackagingOptionDto, actorFromRequest(req));
   }
 
   @Get('packaging-options/:itemId')
@@ -237,8 +247,9 @@ export class CatalogController {
   updatePackagingOption(
     @Param('id') id: string,
     @Body() updatePackagingOptionDto: UpdatePackagingOptionDto,
+    @Request() req,
   ) {
-    return this.catalogService.updatePackagingOption(id, updatePackagingOptionDto);
+    return this.catalogService.updatePackagingOption(id, updatePackagingOptionDto, actorFromRequest(req));
   }
 
   @Delete('packaging-options/:id')
@@ -250,7 +261,7 @@ export class CatalogController {
     status: 200,
     description: 'The packaging option has been successfully soft deleted.',
   })
-  removePackagingOption(@Param('id') id: string) {
-    return this.catalogService.removePackagingOption(id);
+  removePackagingOption(@Param('id') id: string, @Request() req) {
+    return this.catalogService.removePackagingOption(id, actorFromRequest(req));
   }
 }

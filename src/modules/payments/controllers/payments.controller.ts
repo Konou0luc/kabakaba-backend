@@ -55,7 +55,6 @@ export class PaymentsController {
     @GetCurrentUserId() userId: string,
   ) {
     return this.paymentsService.createPaymentIntent(
-      createPaymentIntentDto.amount,
       createPaymentIntentDto.ticketsReceived,
       createPaymentIntentDto.operator,
       userId,

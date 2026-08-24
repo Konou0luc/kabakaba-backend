@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateReviewDto } from '../dto/create-review.dto';
 import { UpdateReviewDto } from '../dto/update-review.dto';
@@ -10,11 +10,41 @@ const SORT_MAP: Record<string, { field: string; direction: 'asc' | 'desc' }> = {
   lowest: { field: 'rating', direction: 'asc' },
 };
 
+// Statuts de commande éligibles à un avis (commande effectivement reçue).
+const REVIEW_ELIGIBLE_ORDER_STATUSES = ['RECEIVED', 'AUTO_RECEIVED'];
+
 @Injectable()
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async create(createReviewDto: CreateReviewDto, studentId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id: createReviewDto.orderId },
+    });
+
+    if (!order) {
+      throw new NotFoundException('Commande introuvable');
+    }
+    // SÉCURITÉ : empêche un étudiant de créer un avis sur la commande d'un
+    // autre étudiant, ou avec un vendorId qui ne correspond pas à la
+    // commande réelle.
+    if (order.studentId !== studentId) {
+      throw new ForbiddenException("Vous ne pouvez laisser un avis que sur vos propres commandes");
+    }
+    if (order.vendorId !== createReviewDto.vendorId) {
+      throw new BadRequestException("Le vendeur indiqué ne correspond pas à cette commande");
+    }
+    if (!REVIEW_ELIGIBLE_ORDER_STATUSES.includes(order.status)) {
+      throw new BadRequestException("Cette commande n'est pas encore éligible à un avis");
+    }
+
+    const existing = await this.prisma.review.findUnique({
+      where: { orderId: createReviewDto.orderId },
+    });
+    if (existing) {
+      throw new BadRequestException('Un avis existe déjà pour cette commande');
+    }
+
     return this.prisma.review.create({
       data: {
         ...createReviewDto,
@@ -76,7 +106,11 @@ export class ReviewsService {
   }
 
   async update(id: string, updateReviewDto: UpdateReviewDto, studentId: string) {
-    await this.findOne(id);
+    const review = await this.findOne(id);
+    // SÉCURITÉ : un étudiant ne peut modifier que son propre avis.
+    if (review.studentId !== studentId) {
+      throw new ForbiddenException("Vous ne pouvez modifier que vos propres avis");
+    }
     return this.prisma.review.update({
       where: { id },
       data: updateReviewDto,

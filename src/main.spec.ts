@@ -53,9 +53,18 @@ describe('main bootstrap', () => {
   });
 
   it('maps docs asset requests to the Swagger UI directory', () => {
+    const originalExistsSync = require('fs').existsSync;
+    jest.spyOn(require('fs'), 'existsSync').mockImplementation((candidatePath: unknown) => {
+      if (candidatePath === '/tmp/swagger-ui/swagger-ui.css') return true;
+      if (candidatePath === '/tmp/swagger-ui/swagger-ui-bundle.js') return true;
+      return originalExistsSync(candidatePath as string);
+    });
+
     expect(resolveSwaggerAssetPath('/docs/swagger-ui.css', '/tmp/swagger-ui')).toBe('/tmp/swagger-ui/swagger-ui.css');
     expect(resolveSwaggerAssetPath('/docs/swagger-ui-bundle.js', '/tmp/swagger-ui')).toBe('/tmp/swagger-ui/swagger-ui-bundle.js');
     expect(resolveSwaggerAssetPath('/docs/', '/tmp/swagger-ui')).toBeNull();
+
+    jest.restoreAllMocks();
   });
 
   it('falls back to the packaged index.css for swagger-ui.css when needed', () => {
