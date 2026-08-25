@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { UsersService, sanitize } from '../../users/services/users.service';
 import { SmsService } from '../../sms/services/sms.service';
@@ -40,7 +41,10 @@ export class AuthService {
       throw new BadRequestException('Trop de tentatives, veuillez demander un nouveau code OTP');
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    // SÉCURITÉ : crypto.randomInt (CSPRNG) au lieu de Math.random() — un
+    // code d'authentification ne doit jamais reposer sur un générateur
+    // pseudo-aléatoire non cryptographique.
+    const code = crypto.randomInt(100000, 1000000).toString();
     const hashedCode = await bcrypt.hash(code, 10);
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
@@ -84,7 +88,24 @@ export class AuthService {
       where: { phone, used: false, expiresAt: { gt: new Date() } },
     });
 
-    if (!otp || !(await bcrypt.compare(code, otp.code))) {
+    if (!otp) {
+      throw new BadRequestException('Code OTP invalide ou expiré');
+    }
+
+    // SÉCURITÉ : plafond de tentatives vérifié AVANT la comparaison — sans
+    // ça, `attempts` n'était incrémenté qu'à la régénération d'un code,
+    // jamais lors d'un échec de vérification, laissant un même code
+    // brute-forçable sans limite pendant ses 5 minutes de validité.
+    if (otp.attempts >= 5) {
+      throw new BadRequestException('Trop de tentatives, veuillez demander un nouveau code OTP');
+    }
+
+    const isValid = await bcrypt.compare(code, otp.code);
+    if (!isValid) {
+      await this.prisma.otpCode.update({
+        where: { id: otp.id },
+        data: { attempts: otp.attempts + 1 },
+      });
       throw new BadRequestException('Code OTP invalide ou expiré');
     }
 
@@ -171,26 +192,47 @@ export class AuthService {
 
       // hashedToken est un hash bcrypt (salé) : impossible de le comparer
       // via une clause WHERE, on compare donc candidat par candidat parmi
-      // les tokens encore valides de cet utilisateur.
-      const candidates = user.refreshTokens.filter(
-        (rt) => !rt.revoked && rt.expiresAt > new Date(),
-      );
+      // les tokens non expirés de cet utilisateur (révoqués INCLUS, pour
+      // pouvoir détecter une réutilisation — voir plus bas).
+      const candidates = user.refreshTokens.filter((rt) => rt.expiresAt > new Date());
 
-      let tokenExists = false;
+      let matched: (typeof candidates)[number] | null = null;
       for (const rt of candidates) {
         if (await bcrypt.compare(refreshToken, rt.hashedToken)) {
-          tokenExists = true;
+          matched = rt;
           break;
         }
       }
 
-      if (!tokenExists) throw new UnauthorizedException();
+      if (!matched) throw new UnauthorizedException();
+
+      if (matched.revoked) {
+        // SÉCURITÉ : ce refresh token a déjà été consommé une fois (rotation
+        // précédente). Le revoir signifie soit un double-clic client, soit —
+        // plus grave — qu'il a été volé et qu'un attaquant tente de
+        // l'utiliser après (ou avant) le titulaire légitime. Dans le doute,
+        // on tue toute la famille de tokens : la session entière doit se
+        // reconnecter.
+        await this.prisma.refreshToken.updateMany({
+          where: { userId: user.id, familyId: matched.familyId, revoked: false },
+          data: { revoked: true },
+        });
+        throw new UnauthorizedException('Session invalidée, veuillez vous reconnecter');
+      }
+
+      // Rotation légitime : on révoque IMMÉDIATEMENT le token consommé avant
+      // d'en émettre un nouveau dans la même famille.
+      await this.prisma.refreshToken.update({
+        where: { id: matched.id },
+        data: { revoked: true },
+      });
 
       const tokens = await this.getTokens(user.id, user.role);
-      await this.updateRefreshToken(user.id, tokens.refreshToken);
+      await this.updateRefreshToken(user.id, tokens.refreshToken, matched.familyId);
 
       return tokens;
     } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Token de renouvellement invalide');
     }
   }
@@ -230,7 +272,7 @@ export class AuthService {
     };
   }
 
-  private async updateRefreshToken(userId: string, refreshToken: string) {
+  private async updateRefreshToken(userId: string, refreshToken: string, familyId?: string) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
@@ -239,6 +281,9 @@ export class AuthService {
         userId,
         hashedToken: hashedRefreshToken,
         expiresAt,
+        // Si aucune famille n'est fournie (connexion initiale), le schéma
+        // en génère une nouvelle via @default(uuid()).
+        ...(familyId ? { familyId } : {}),
       },
     });
   }

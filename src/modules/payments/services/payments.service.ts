@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
-import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { FedapayService } from './fedapay.service';
 import { UsersService } from '../../users/services/users.service';
@@ -103,7 +102,7 @@ export class PaymentsService {
       throw new BadRequestException('Données de webhook invalides');
     }
 
-    const payment = await this.prisma.payment.findFirst({
+    const payment = await this.prisma.payment.findUnique({
       where: { fedapayReference: String(transactionId) },
     });
 
@@ -111,38 +110,11 @@ export class PaymentsService {
       throw new NotFoundException('Paiement introuvable pour cette transaction');
     }
 
-    // Idempotence : FedaPay peut renvoyer le même webhook plusieurs fois
-    if (payment.status !== PaymentStatus.PENDING) {
-      return { message: 'Paiement déjà traité, webhook ignoré' };
-    }
-
     let newStatus: PaymentStatus;
     switch (eventName) {
-      case 'transaction.approved': {
-        // Défense en profondeur : même si `amount` est désormais calculé
-        // côté serveur (voir recharge-pricing.ts) et ne peut plus être
-        // falsifié à la création, on vérifie en plus que le montant que
-        // FedaPay confirme avoir réellement encaissé correspond bien au
-        // montant qu'on attendait, avant de créditer le wallet.
-        const confirmedAmount = webhookData?.entity?.amount;
-        if (
-          confirmedAmount !== undefined &&
-          confirmedAmount !== null &&
-          Number(confirmedAmount) !== Number(payment.amountFcfa)
-        ) {
-          this.logger.error(
-            `Webhook FedaPay: montant confirmé (${confirmedAmount}) ≠ montant attendu (${payment.amountFcfa}) pour la transaction ${transactionId}. Crédit refusé.`,
-          );
-          throw new BadRequestException('Montant confirmé par FedaPay incohérent avec le paiement attendu');
-        }
-
+      case 'transaction.approved':
         newStatus = PaymentStatus.SUCCESS;
-        await this.prisma.user.update({
-          where: { id: payment.userId },
-          data: { walletBalance: { increment: payment.ticketsReceived } },
-        });
         break;
-      }
       case 'transaction.declined':
       case 'transaction.canceled':
         newStatus = PaymentStatus.FAILED;
@@ -151,21 +123,61 @@ export class PaymentsService {
         return { message: 'Événement non traité' };
     }
 
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { status: newStatus },
+    if (newStatus === PaymentStatus.SUCCESS) {
+      // Défense en profondeur : même si `amount` est désormais calculé
+      // côté serveur (voir recharge-pricing.ts) et ne peut plus être
+      // falsifié à la création, on vérifie en plus que le montant que
+      // FedaPay confirme avoir réellement encaissé correspond bien au
+      // montant qu'on attendait, avant de créditer le wallet.
+      const confirmedAmount = webhookData?.entity?.amount;
+      if (confirmedAmount === undefined || confirmedAmount === null) {
+        // SÉCURITÉ : un montant absent n'est plus toléré/ignoré — pour un
+        // événement financier, l'absence d'information n'autorise jamais
+        // implicitement le crédit.
+        this.logger.error(
+          `Webhook FedaPay: montant absent du payload pour la transaction ${transactionId}. Crédit refusé.`,
+        );
+        throw new BadRequestException('Montant confirmé manquant dans le webhook FedaPay');
+      }
+      if (Number(confirmedAmount) !== Number(payment.amountFcfa)) {
+        this.logger.error(
+          `Webhook FedaPay: montant confirmé (${confirmedAmount}) ≠ montant attendu (${payment.amountFcfa}) pour la transaction ${transactionId}. Crédit refusé.`,
+        );
+        throw new BadRequestException('Montant confirmé par FedaPay incohérent avec le paiement attendu');
+      }
+    }
+
+    // SÉCURITÉ : le claim ATOMIQUE de la transition PENDING -> newStatus et
+    // le crédit du wallet doivent réussir ou échouer ENSEMBLE, dans une
+    // seule transaction DB. Sans ça, un crash serveur entre les deux
+    // laisserait le paiement bloqué à SUCCESS sans que le wallet n'ait
+    // jamais été crédité — un webhook rejoué verrait alors "déjà traité"
+    // et le crédit serait perdu définitivement.
+    const result = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.payment.updateMany({
+        where: { id: payment.id, status: PaymentStatus.PENDING },
+        data: { status: newStatus },
+      });
+
+      if (claim.count === 0) {
+        return { alreadyProcessed: true };
+      }
+
+      if (newStatus === PaymentStatus.SUCCESS) {
+        await tx.user.update({
+          where: { id: payment.userId },
+          data: { walletBalance: { increment: payment.ticketsReceived } },
+        });
+      }
+
+      return { alreadyProcessed: false };
     });
+
+    if (result.alreadyProcessed) {
+      return { message: 'Paiement déjà traité, webhook ignoré' };
+    }
 
     return { message: 'Webhook traité avec succès' };
-  }
-
-  async create(createPaymentDto: CreatePaymentDto, userId: string) {
-    return this.prisma.payment.create({
-      data: {
-        ...createPaymentDto,
-        userId,
-      },
-    });
   }
 
   async findAll(page: number = 1, limit: number = 10, userId?: string) {

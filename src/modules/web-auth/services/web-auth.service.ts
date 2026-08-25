@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
 import { generateSecret, generateURI, verify as verifyOtp } from 'otplib';
 import * as QRCode from 'qrcode';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 
 const SALT_ROUNDS = 10;
@@ -192,7 +193,12 @@ export class WebAuthService {
   }
 
   private generateBackupCode(): string {
-    const random = () => Math.random().toString(36).slice(2, 6).toUpperCase();
-    return `${random()}-${random()}-${random()}-${random()}`;
+    // SÉCURITÉ : crypto.randomInt (CSPRNG) au lieu de Math.random(), qui
+    // n'est ni cryptographiquement sûr ni uniformément distribué une fois
+    // converti en base36 — un backup code EST un secret d'authentification.
+    const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const randomGroup = () =>
+      Array.from({ length: 4 }, () => alphabet[crypto.randomInt(alphabet.length)]).join('');
+    return `${randomGroup()}-${randomGroup()}-${randomGroup()}-${randomGroup()}`;
   }
 }
