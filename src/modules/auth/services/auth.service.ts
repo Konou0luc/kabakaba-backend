@@ -220,12 +220,20 @@ export class AuthService {
         throw new UnauthorizedException('Session invalidée, veuillez vous reconnecter');
       }
 
-      // Rotation légitime : on révoque IMMÉDIATEMENT le token consommé avant
-      // d'en émettre un nouveau dans la même famille.
-      await this.prisma.refreshToken.update({
-        where: { id: matched.id },
+      // SÉCURITÉ : claim ATOMIQUE — deux requêtes de refresh concurrentes
+      // avec le même RT ne doivent produire qu'UN SEUL nouveau token. Le
+      // `where: revoked: false` fait que seule la première requête à
+      // atteindre la DB obtient count === 1 ; l'autre voit count === 0 et
+      // doit se réauthentifier au lieu de recevoir un second token valide
+      // issu du même RT consommé.
+      const claim = await this.prisma.refreshToken.updateMany({
+        where: { id: matched.id, revoked: false },
         data: { revoked: true },
       });
+
+      if (claim.count === 0) {
+        throw new UnauthorizedException('Token de renouvellement déjà utilisé, veuillez vous reconnecter');
+      }
 
       const tokens = await this.getTokens(user.id, user.role);
       await this.updateRefreshToken(user.id, tokens.refreshToken, matched.familyId);
@@ -275,6 +283,14 @@ export class AuthService {
   private async updateRefreshToken(userId: string, refreshToken: string, familyId?: string) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+
+    // Hygiène : purge les tokens déjà expirés de cet utilisateur à chaque
+    // nouvelle émission, pour éviter que la table ne grossisse sans limite
+    // et que refreshTokens() n'ait de plus en plus de bcrypt.compare() à
+    // faire au fil du temps.
+    await this.prisma.refreshToken.deleteMany({
+      where: { userId, expiresAt: { lt: new Date() } },
+    });
 
     await this.prisma.refreshToken.create({
       data: {
