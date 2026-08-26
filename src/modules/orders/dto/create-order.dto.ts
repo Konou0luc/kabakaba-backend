@@ -1,26 +1,28 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsOptional, IsArray, ArrayMinSize, ArrayMaxSize, ValidateNested } from 'class-validator';
+import { IsNotEmpty, IsString, IsOptional, IsArray, ArrayMinSize, ValidateNested } from 'class-validator';
 import { Type } from 'class-transformer';
-import { OrderItemInputDto } from './order-item-input.dto';
+import { CreateOrderItemDto } from './create-order-item.dto';
 
+/**
+ * `totalTickets` et `escrowAmount` n'existent plus dans ce DTO : ce sont
+ * des montants calculés par le serveur (voir OrdersService.create), jamais
+ * fournis par le client. Le client décrit uniquement CE QU'IL COMMANDE
+ * (items, composants, packaging) ; le prix est déterminé à partir des
+ * valeurs fixées par le vendeur en base (MenuItem.priceTickets,
+ * MenuComponent.unitPriceTickets, PackagingOption.extraCost).
+ */
 export class CreateOrderDto {
   @ApiProperty({ example: 'vendor-uuid' })
   @IsNotEmpty()
   @IsString()
   vendorId: string;
 
-  @ApiProperty({
-    type: [OrderItemInputDto],
-    description:
-      "Items commandés. Le prix total (totalTickets/escrowAmount) est calculé " +
-      "par le serveur à partir du catalogue — il n'est jamais fourni par le client.",
-  })
+  @ApiProperty({ type: [CreateOrderItemDto] })
   @IsArray()
   @ArrayMinSize(1)
-  @ArrayMaxSize(50)
   @ValidateNested({ each: true })
-  @Type(() => OrderItemInputDto)
-  items: OrderItemInputDto[];
+  @Type(() => CreateOrderItemDto)
+  items: CreateOrderItemDto[];
 
   @ApiProperty({ example: 'packaging-option-uuid', required: false })
   @IsOptional()

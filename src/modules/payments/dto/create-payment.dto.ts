@@ -3,6 +3,16 @@ import { IsNotEmpty, IsEnum, IsInt, Min, IsOptional, IsString } from 'class-vali
 import { PaymentOperator } from '@prisma/client';
 
 export class CreatePaymentDto {
+  @ApiProperty({
+    example: 'user-uuid',
+    required: false,
+    description:
+      "ID de l'étudiant à créditer. Réservé aux admins — ignoré si l'appelant n'est pas admin (le paiement est alors créé pour l'appelant lui-même).",
+  })
+  @IsOptional()
+  @IsString()
+  userId?: string;
+
   @ApiProperty({ enum: PaymentOperator })
   @IsNotEmpty()
   @IsEnum(PaymentOperator)

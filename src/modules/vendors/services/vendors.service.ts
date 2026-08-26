@@ -12,19 +12,6 @@ interface Actor {
   role: UserRole;
 }
 
-// SÉCURITÉ : projection publique — ne renvoie JAMAIS userId, balanceFcfa,
-// debtFcfa sur les routes non-authentifiées (GET /vendors, GET /vendors/:id).
-const PUBLIC_VENDOR_SELECT = {
-  id: true,
-  canteenName: true,
-  logoUrl: true,
-  bannerUrl: true,
-  description: true,
-  isActive: true,
-  isOpen: true,
-  createdAt: true,
-} as const;
-
 @Injectable()
 export class VendorsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -37,22 +24,9 @@ export class VendorsService {
    * (cf. User.mustChangePassword + POST /auth/change-password).
    */
   async create(createVendorDto: CreateVendorDto) {
-    const {
-      canteenName,
-      vendorName,
-      phone,
-      email,
-      temporaryPassword,
-      campusIds,
-      logoUrl,
-      bannerUrl,
-      description,
-      isActive,
-      isOpen,
-    } = createVendorDto;
-
-    const [firstName, ...rest] = vendorName.trim().split(/\s+/);
-    const lastName = rest.join(' ') || firstName;
+    const { vendor: personDto, canteen: canteenDto } = createVendorDto;
+    const { firstName, lastName, phone, email, temporaryPassword } = personDto;
+    const { canteenName, campusIds, logoUrl, bannerUrl, description, isActive, isOpen } = canteenDto;
 
     const campuses = await this.prisma.campus.findMany({ where: { id: { in: campusIds } } });
     if (campuses.length !== campusIds.length) {
@@ -114,7 +88,6 @@ export class VendorsService {
         where: { deletedAt: null },
         skip,
         take: limit,
-        select: PUBLIC_VENDOR_SELECT,
       }),
     ]);
 
@@ -132,7 +105,6 @@ export class VendorsService {
   async findOne(id: string) {
     const vendor = await this.prisma.vendor.findUnique({
       where: { id, deletedAt: null },
-      select: PUBLIC_VENDOR_SELECT,
     });
 
     if (!vendor) throw new NotFoundException(`Vendor with id ${id} not found`);

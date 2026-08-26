@@ -1,12 +1,12 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, OmitType, PartialType } from '@nestjs/swagger';
+import { CreateOrderDto } from './create-order.dto';
 import { IsOptional, IsEnum } from 'class-validator';
 import { OrderStatus } from '@prisma/client';
 
-// Volontairement indépendant de CreateOrderDto : une commande ne se modifie
-// pas en changeant ses items/son prix après coup (on annule et on recrée).
-// Seul le statut peut évoluer après création — voir aussi
-// OrdersService.VENDOR_UPDATABLE_FIELDS pour la restriction par rôle.
-export class UpdateOrderDto {
+// `items` n'est jamais modifiable après création (c'est une relation, pas
+// un scalaire — la commande doit être annulée et recréée pour changer son
+// contenu, pas patchée).
+export class UpdateOrderDto extends PartialType(OmitType(CreateOrderDto, ['items'] as const)) {
   @ApiProperty({ enum: OrderStatus, required: false })
   @IsOptional()
   @IsEnum(OrderStatus)

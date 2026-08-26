@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { AmbassadorLevel, AmbassadorStatus } from '@prisma/client';
-import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateAmbassadorDto } from '../dto/create-ambassador.dto';
 import { UpdateAmbassadorDto } from '../dto/update-ambassador.dto';
@@ -96,7 +95,7 @@ export class AmbassadorsService {
     const year = new Date().getFullYear();
 
     for (let attempt = 0; attempt < 5; attempt++) {
-      const suffix = attempt === 0 ? '' : `-${crypto.randomInt(100, 1000)}`;
+      const suffix = attempt === 0 ? '' : `-${Math.floor(100 + Math.random() * 900)}`;
       const candidate = `${base}-${year}${suffix}`;
       const collision = await this.prisma.ambassador.findUnique({ where: { promoCode: candidate } });
       if (!collision) return candidate;

@@ -20,6 +20,7 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { PaymentsService } from '../services/payments.service';
+import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { CreatePaymentIntentDto } from '../dto/create-payment-intent.dto';
 import { InitiatePaymentDto } from '../dto/initiate-payment.dto';
@@ -95,6 +96,25 @@ export class PaymentsController {
       ? req.rawBody.toString('utf8')
       : JSON.stringify(req.body);
     return this.paymentsService.handleWebhook(rawBody, signature);
+  }
+
+  @Post()
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @ApiOperation({
+    summary: 'Créer un paiement manuellement (Admin seulement — ex: ajustement, régularisation)',
+    description:
+      "Réservé aux admins : un étudiant ne doit jamais pouvoir choisir librement ticketsReceived/amountFcfa. " +
+      'Pour recharger son wallet, un étudiant passe uniquement par POST /payments/intent.',
+  })
+  @ApiResponse({
+    status: 201,
+    description: 'Le paiement a été créé avec succès.',
+    type: PaymentEntity,
+  })
+  create(@Body() createPaymentDto: CreatePaymentDto, @Request() req) {
+    return this.paymentsService.create(createPaymentDto, req.user.id);
   }
 
   @Get()

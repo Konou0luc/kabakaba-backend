@@ -42,133 +42,141 @@ export class OrdersService {
   async create(createOrderDto: CreateOrderDto, studentId: string) {
     const { vendorId, items, packagingOptionId } = createOrderDto;
 
-    if (items.length === 0) {
-      throw new BadRequestException('La commande doit contenir au moins un item');
-    }
-
-    const vendor = await this.prisma.vendor.findUnique({ where: { id: vendorId } });
-    if (!vendor || !vendor.isActive || vendor.deletedAt) {
-      throw new NotFoundException('Cantine introuvable ou inactive');
-    }
-
-    const menuItemIds = [...new Set(items.map((i) => i.itemId))];
-    const menuItems = await this.prisma.menuItem.findMany({
-      where: { id: { in: menuItemIds }, deletedAt: null },
-    });
-    const menuItemById = new Map(menuItems.map((mi) => [mi.id, mi]));
-
-    const componentIds = [...new Set(items.flatMap((i) => (i.components ?? []).map((c) => c.componentId)))];
-    const components = componentIds.length
-      ? await this.prisma.menuComponent.findMany({ where: { id: { in: componentIds }, deletedAt: null } })
-      : [];
-    const componentById = new Map(components.map((c) => [c.id, c]));
-
-    let totalTickets = 0;
-    // Lignes prêtes à insérer une fois la commande créée (a besoin de orderId).
-    const itemsToCreate: {
-      itemId: string;
-      quantity: number;
-      unitPrice: number;
-      components: { componentId: string; quantity: number }[];
-    }[] = [];
-
-    for (const inputItem of items) {
-      const menuItem = menuItemById.get(inputItem.itemId);
-      if (!menuItem) {
-        throw new NotFoundException(`Item de menu introuvable : ${inputItem.itemId}`);
-      }
-      // SÉCURITÉ : tous les items commandés doivent appartenir au vendorId
-      // annoncé — empêche de mélanger des items de plusieurs cantines dans
-      // une seule commande/paiement.
-      if (menuItem.vendorId !== vendorId) {
-        throw new BadRequestException(`L'item "${menuItem.name}" n'appartient pas à cette cantine`);
-      }
-      if (!menuItem.isAvailable) {
-        throw new BadRequestException(`L'item "${menuItem.name}" n'est plus disponible`);
+    return this.prisma.$transaction(async (tx) => {
+      const vendor = await tx.vendor.findUnique({ where: { id: vendorId, deletedAt: null } });
+      if (!vendor) throw new NotFoundException('Vendeur introuvable');
+      if (!vendor.isActive) {
+        throw new BadRequestException("Cette cantine n'accepte pas de commandes actuellement");
       }
 
-      totalTickets += menuItem.priceTickets * inputItem.quantity;
+      const menuItemIds = items.map((i) => i.menuItemId);
+      const menuItems = await tx.menuItem.findMany({
+        where: { id: { in: menuItemIds }, deletedAt: null },
+        include: { components: { where: { deletedAt: null } } },
+      });
+      const menuItemById = new Map(menuItems.map((m) => [m.id, m]));
 
-      const resolvedComponents: { componentId: string; quantity: number }[] = [];
-      for (const inputComponent of inputItem.components ?? []) {
-        const component = componentById.get(inputComponent.componentId);
-        if (!component) {
-          throw new NotFoundException(`Composant introuvable : ${inputComponent.componentId}`);
+      const allComponentIds = items.flatMap((i) => (i.components ?? []).map((c) => c.componentId));
+      const menuComponents = allComponentIds.length
+        ? await tx.menuComponent.findMany({ where: { id: { in: allComponentIds }, deletedAt: null } })
+        : [];
+      const componentById = new Map(menuComponents.map((c) => [c.id, c]));
+
+      let totalTickets = 0;
+      const orderItemsData: {
+        itemId: string;
+        quantity: number;
+        unitPrice: number;
+        components: { componentId: string; quantity: number }[];
+      }[] = [];
+
+      for (const requestedItem of items) {
+        const menuItem = menuItemById.get(requestedItem.menuItemId);
+        if (!menuItem) {
+          throw new NotFoundException(`Menu item ${requestedItem.menuItemId} introuvable`);
         }
-        // SÉCURITÉ : un composant ne peut être choisi que pour l'item de
-        // menu auquel il appartient réellement.
-        if (component.itemId !== inputItem.itemId) {
-          throw new BadRequestException(`Le composant "${component.name}" n'appartient pas à cet item`);
+        if (menuItem.vendorId !== vendorId) {
+          throw new BadRequestException(`Le menu "${menuItem.name}" n'appartient pas à ce vendeur`);
         }
-        if (inputComponent.quantity < component.minQty || inputComponent.quantity > component.maxQty) {
+        if (!menuItem.isAvailable) {
+          throw new BadRequestException(`"${menuItem.name}" n'est pas disponible actuellement`);
+        }
+
+        let componentsUnitTotal = 0;
+        const resolvedComponents: { componentId: string; quantity: number }[] = [];
+
+        for (const requestedComponent of requestedItem.components ?? []) {
+          const component = componentById.get(requestedComponent.componentId);
+          if (!component) {
+            throw new NotFoundException(`Composant ${requestedComponent.componentId} introuvable`);
+          }
+          if (component.itemId !== menuItem.id) {
+            throw new BadRequestException(
+              `Le composant "${component.name}" n'appartient pas à "${menuItem.name}"`,
+            );
+          }
+          if (requestedComponent.quantity < component.minQty || requestedComponent.quantity > component.maxQty) {
+            throw new BadRequestException(
+              `Quantité invalide pour "${component.name}" (attendu entre ${component.minQty} et ${component.maxQty})`,
+            );
+          }
+          componentsUnitTotal += component.unitPriceTickets * requestedComponent.quantity;
+          resolvedComponents.push({ componentId: component.id, quantity: requestedComponent.quantity });
+        }
+
+        // Composants obligatoires (minQty > 0) non fournis par le client : rejeter.
+        const requiredComponentIds = menuItem.components
+          .filter((c) => c.minQty > 0)
+          .map((c) => c.id);
+        const providedComponentIds = new Set(resolvedComponents.map((c) => c.componentId));
+        const missing = requiredComponentIds.filter((id) => !providedComponentIds.has(id));
+        if (missing.length > 0) {
+          throw new BadRequestException(`Composant(s) obligatoire(s) manquant(s) pour "${menuItem.name}"`);
+        }
+
+        // Prix fixé par le vendeur en base (priceTickets, unitPriceTickets) —
+        // jamais fourni par le client : c'est le calcul serveur.
+        const unitPrice = menuItem.priceTickets + componentsUnitTotal;
+        totalTickets += unitPrice * requestedItem.quantity;
+
+        orderItemsData.push({
+          itemId: menuItem.id,
+          quantity: requestedItem.quantity,
+          unitPrice,
+          components: resolvedComponents,
+        });
+      }
+
+      let packagingExtraCost = 0;
+      if (packagingOptionId) {
+        const packaging = await tx.packagingOption.findUnique({
+          where: { id: packagingOptionId, deletedAt: null },
+        });
+        if (!packaging) throw new NotFoundException("Option d'emballage introuvable");
+        if (!menuItemIds.includes(packaging.itemId)) {
           throw new BadRequestException(
-            `Quantité invalide pour "${component.name}" (attendu entre ${component.minQty} et ${component.maxQty})`,
+            "Cette option d'emballage ne correspond à aucun des articles commandés",
           );
         }
-
-        totalTickets += component.unitPriceTickets * inputComponent.quantity;
-        resolvedComponents.push({ componentId: component.id, quantity: inputComponent.quantity });
+        packagingExtraCost = packaging.extraCost;
+      } else {
+        // Aucun emballage choisi : vérifier qu'aucun item commandé n'en impose un.
+        const requiredPackaging = await tx.packagingOption.findFirst({
+          where: { itemId: { in: menuItemIds }, required: true, deletedAt: null },
+        });
+        if (requiredPackaging) {
+          throw new BadRequestException("Un choix d'emballage est requis pour cette commande");
+        }
       }
 
-      itemsToCreate.push({
-        itemId: menuItem.id,
-        quantity: inputItem.quantity,
-        unitPrice: menuItem.priceTickets,
-        components: resolvedComponents,
-      });
-    }
+      totalTickets += packagingExtraCost;
 
-    if (packagingOptionId) {
-      const packagingOption = await this.prisma.packagingOption.findUnique({
-        where: { id: packagingOptionId, deletedAt: null },
-        include: { menuItem: true },
-      });
-      if (!packagingOption) {
-        throw new NotFoundException('Option de packaging introuvable');
-      }
-      if (packagingOption.menuItem.vendorId !== vendorId) {
-        throw new BadRequestException("Cette option de packaging n'appartient pas à cette cantine");
-      }
-      totalTickets += packagingOption.extraCost;
-    }
+      // Tickets = FCFA en séquestre, conversion 1:1 : aucune commission sur
+      // les commandes (contrairement aux recharges wallet, qui ont leur
+      // propre barème — voir recharge-pricing.ts).
+      const escrowAmount = totalTickets;
 
-    // 1 ticket = 1 FCFA en séquestre (voir barème de recharge : le ticket
-    // EST la monnaie de la plateforme, sans conversion supplémentaire ici).
-    const escrowAmount = totalTickets;
-
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.create({
+      return tx.order.create({
         data: {
-          vendorId,
           studentId,
+          vendorId,
           totalTickets,
           escrowAmount,
           packagingOptionId: packagingOptionId ?? null,
-        },
-      });
-
-      for (const item of itemsToCreate) {
-        const orderItem = await tx.orderItem.create({
-          data: {
-            orderId: order.id,
-            itemId: item.itemId,
-            quantity: item.quantity,
-            unitPrice: item.unitPrice,
+          items: {
+            create: orderItemsData.map((item) => ({
+              itemId: item.itemId,
+              quantity: item.quantity,
+              unitPrice: item.unitPrice,
+              components: {
+                create: item.components.map((c) => ({
+                  componentId: c.componentId,
+                  quantity: c.quantity,
+                })),
+              },
+            })),
           },
-        });
-        for (const component of item.components) {
-          await tx.orderItemComponent.create({
-            data: {
-              orderItemId: orderItem.id,
-              componentId: component.componentId,
-              quantity: component.quantity,
-            },
-          });
-        }
-      }
-
-      return tx.order.findUnique({
-        where: { id: order.id },
+        },
         include: { items: { include: { components: true } } },
       });
     });
@@ -180,12 +188,26 @@ export class OrdersService {
     studentId?: string,
     vendorId?: string,
     status?: OrderStatus,
+    vendorUserId?: string,
   ) {
+    // Order.vendorId référence Vendor.id, pas User.id : quand un VENDOR
+    // liste ses propres commandes (vendorUserId = son User.id), il faut
+    // résoudre son Vendor.id avant de filtrer — sinon aucune commande ne
+    // matche jamais et la liste reste vide en permanence pour tout vendeur.
+    let resolvedVendorId = vendorId;
+    if (vendorUserId) {
+      const vendor = await this.prisma.vendor.findUnique({ where: { userId: vendorUserId } });
+      // Vendeur sans profil Vendor résolu : aucune commande ne peut lui
+      // appartenir, on force un filtre qui ne matchera jamais plutôt que
+      // de renvoyer toutes les commandes (fail-closed).
+      resolvedVendorId = vendor ? vendor.id : '__no_vendor_profile__';
+    }
+
     const skip = (page - 1) * limit;
     const where = {
       deletedAt: null,
       ...(studentId ? { studentId } : {}),
-      ...(vendorId ? { vendorId } : {}),
+      ...(resolvedVendorId ? { vendorId: resolvedVendorId } : {}),
       ...(status ? { status } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
@@ -221,14 +243,33 @@ export class OrdersService {
     return order;
   }
 
+  // Champs qu'un VENDOR peut modifier sur une commande. Les champs métier
+  // sensibles (vendorId, totalTickets, escrowAmount, packagingOptionId) ne
+  // sont modifiables que par un admin.
+  private static readonly VENDOR_UPDATABLE_FIELDS = ['status'] as const;
+
   async update(id: string, updateOrderDto: UpdateOrderDto, actor: Actor) {
     await this.findOne(id, actor);
-    // UpdateOrderDto ne contient que `status` désormais (voir sa définition :
-    // volontairement détaché de CreateOrderDto, une commande ne se modifie
-    // pas en changeant ses items/son prix après coup).
+
+    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+    let data: Partial<UpdateOrderDto> = updateOrderDto;
+
+    if (!isAdmin) {
+      // SÉCURITÉ : UpdateOrderDto hérite de tous les champs de CreateOrderDto
+      // (vendorId, totalTickets, escrowAmount, packagingOptionId). On filtre
+      // explicitement pour qu'un vendeur ne puisse changer que le statut de
+      // SA commande, jamais son montant ou son propriétaire.
+      data = {};
+      for (const field of OrdersService.VENDOR_UPDATABLE_FIELDS) {
+        if (updateOrderDto[field] !== undefined) {
+          (data as any)[field] = updateOrderDto[field];
+        }
+      }
+    }
+
     return this.prisma.order.update({
       where: { id },
-      data: updateOrderDto,
+      data,
     });
   }
 

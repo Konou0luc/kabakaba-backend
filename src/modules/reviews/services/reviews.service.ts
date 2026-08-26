@@ -13,18 +13,6 @@ const SORT_MAP: Record<string, { field: string; direction: 'asc' | 'desc' }> = {
 // Statuts de commande éligibles à un avis (commande effectivement reçue).
 const REVIEW_ELIGIBLE_ORDER_STATUSES = ['RECEIVED', 'AUTO_RECEIVED'];
 
-// SÉCURITÉ : projection publique — ne renvoie jamais les identifiants
-// internes studentId/vendorId/orderId sur les routes publiques (GET
-// /reviews, GET /reviews/:id).
-const PUBLIC_REVIEW_SELECT = {
-  id: true,
-  rating: true,
-  comment: true,
-  createdAt: true,
-  student: { select: { firstName: true, lastName: true } },
-  vendor: { select: { canteenName: true } },
-} as const;
-
 @Injectable()
 export class ReviewsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -89,7 +77,10 @@ export class ReviewsService {
         skip,
         take: limit,
         orderBy: { [sort.field]: sort.direction },
-        select: PUBLIC_REVIEW_SELECT,
+        include: {
+          student: { select: { firstName: true, lastName: true } },
+          vendor: { select: { canteenName: true } },
+        },
       }),
     ]);
 
@@ -107,20 +98,6 @@ export class ReviewsService {
   async findOne(id: string) {
     const review = await this.prisma.review.findUnique({
       where: { id, deletedAt: null },
-      select: PUBLIC_REVIEW_SELECT,
-    });
-
-    if (!review) throw new NotFoundException(`Avis avec l'identifiant ${id} introuvable`);
-
-    return review;
-  }
-
-  // Usage interne uniquement (update/remove) : a besoin de studentId pour la
-  // vérification de propriété — ne jamais exposer directement via un
-  // contrôleur, contrairement à findOne() qui est la projection publique.
-  private async findOneInternal(id: string) {
-    const review = await this.prisma.review.findUnique({
-      where: { id, deletedAt: null },
     });
 
     if (!review) throw new NotFoundException(`Avis avec l'identifiant ${id} introuvable`);
@@ -129,7 +106,7 @@ export class ReviewsService {
   }
 
   async update(id: string, updateReviewDto: UpdateReviewDto, studentId: string) {
-    const review = await this.findOneInternal(id);
+    const review = await this.findOne(id);
     // SÉCURITÉ : un étudiant ne peut modifier que son propre avis.
     if (review.studentId !== studentId) {
       throw new ForbiddenException("Vous ne pouvez modifier que vos propres avis");

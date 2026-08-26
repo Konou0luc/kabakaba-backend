@@ -9,6 +9,7 @@ import * as crypto from 'crypto';
 export class FedapayService {
   private readonly logger = new Logger(FedapayService.name);
   private readonly secretKey: string;
+  private readonly environment: string;
   private readonly baseUrl: string;
   private readonly webhookSecret: string;
 
@@ -23,6 +24,7 @@ export class FedapayService {
     private readonly httpService: HttpService,
   ) {
     this.secretKey = this.configService.get<string>('FEDAPAY_SECRET_KEY') || '';
+    this.environment = this.configService.get<string>('FEDAPAY_ENVIRONMENT') || '';
     this.baseUrl = this.configService.get<string>('FEDAPAY_BASE_URL') || '';
     this.webhookSecret = this.configService.get<string>('FEDAPAY_WEBHOOK_SECRET') || '';
   }

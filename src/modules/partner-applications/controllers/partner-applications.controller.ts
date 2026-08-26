@@ -1,5 +1,4 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserRole, WebUserRole } from '@prisma/client';
 import { PartnerApplicationsService } from '../services/partner-applications.service';
@@ -22,7 +21,6 @@ export class PartnerApplicationsController {
 
   @Post()
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 600000 } })
   @ApiOperation({ summary: 'Soumettre une candidature partenaire (aucun compte requis)' })
   @ApiResponse({
     status: 201,

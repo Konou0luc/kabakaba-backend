@@ -60,8 +60,9 @@ export class OrdersController {
   findAll(@Query() query: FindOrdersQueryDto, @Request() req) {
     let studentId: string | undefined;
     let vendorId: string | undefined;
+    let vendorUserId: string | undefined;
     if (req.user.role === UserRole.STUDENT) studentId = req.user.id;
-    if (req.user.role === UserRole.VENDOR) vendorId = req.user.id;
+    if (req.user.role === UserRole.VENDOR) vendorUserId = req.user.id;
 
     // Le filtre vendorId de la query n'est appliqué que pour les admins :
     // un STUDENT/VENDOR reste toujours scopé à son propre périmètre.
@@ -74,6 +75,7 @@ export class OrdersController {
       studentId,
       vendorId,
       query.status,
+      vendorUserId,
     );
   }
 
