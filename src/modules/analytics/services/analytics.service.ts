@@ -86,11 +86,17 @@ export class AnalyticsService {
       }),
       this.prisma.order.findMany({ where: { createdAt: { gte: prevSince, lte: prevUntil } }, select: { status: true, escrowAmount: true } }),
       this.prisma.order.findMany({ where: { createdAt: { gte: sevenDaysAgo } }, select: { createdAt: true, student: { select: { campusId: true } } } }),
-      this.prisma.vendorCampus.findMany({ select: { campusId: true } }),
+      this.prisma.vendorCampus.findMany({ select: { campusId: true, vendor: { select: { isActive: true } } } }),
     ]);
 
     const cantinesByCampus = new Map<string, number>();
-    for (const link of vendorCampusLinks) cantinesByCampus.set(link.campusId, (cantinesByCampus.get(link.campusId) ?? 0) + 1);
+    // Un campus est actif si au moins un vendeur qui y est rattaché a
+    // isActive = true (pas un champ statique sur Campus — calculé ici).
+    const hasActiveVendorByCampus = new Map<string, boolean>();
+    for (const link of vendorCampusLinks) {
+      cantinesByCampus.set(link.campusId, (cantinesByCampus.get(link.campusId) ?? 0) + 1);
+      if (link.vendor.isActive) hasActiveVendorByCampus.set(link.campusId, true);
+    }
 
     const enrolledByCampus = new Map<string, number>();
     for (const s of students) if (s.campusId) enrolledByCampus.set(s.campusId, (enrolledByCampus.get(s.campusId) ?? 0) + 1);
@@ -143,13 +149,13 @@ export class AnalyticsService {
         revenue: stats.revenue,
         enrolled: enrolledByCampus.get(c.id) ?? 0,
         active: activeStudentIdsByCampus.get(c.id)?.size ?? 0,
-        isActive: c.isActive,
+        isActive: hasActiveVendorByCampus.get(c.id) ?? false,
       };
     });
 
     return {
       summary: {
-        activeCampuses: campuses.filter((c) => c.isActive).length,
+        activeCampuses: campusRows.filter((c) => c.isActive).length,
         totalCampuses: campuses.length,
         totalOrders: campusRows.reduce((s, c) => s + c.orders, 0),
         totalOrdersPrevPeriod: prevTotalOrders,

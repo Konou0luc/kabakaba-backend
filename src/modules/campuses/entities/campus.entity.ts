@@ -10,7 +10,4 @@ export class CampusEntity extends BaseEntity {
 
   @ApiProperty({ example: 'Université Paris 1' })
   institution: string;
-
-  @ApiProperty({ example: true })
-  isActive: boolean;
 }

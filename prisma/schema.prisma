@@ -105,7 +105,6 @@ model Campus {
   name        String
   city        String
   institution String
-  isActive    Boolean   @default(true)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
@@ -579,6 +578,11 @@ model RefreshToken {
   id          String    @id @default(uuid())
   userId      String
   hashedToken String
+  // Regroupe tous les tokens issus d'une même connexion initiale. Permet de
+  // révoquer toute la chaîne d'un coup si un token déjà consommé est
+  // représenté (signal fort de vol de token — voir refreshTokens() dans
+  // auth.service.ts).
+  familyId    String    @default(uuid())
   expiresAt   DateTime
   revoked     Boolean   @default(false)
   createdAt   DateTime  @default(now())
@@ -586,6 +590,8 @@ model RefreshToken {
   deletedAt   DateTime?
 
   user User @relation(fields: [userId], references: [id])
+
+  @@index([familyId])
 }
 
 model AuditLog {
