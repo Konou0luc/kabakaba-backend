@@ -12,6 +12,19 @@ interface Actor {
   role: UserRole;
 }
 
+// SÉCURITÉ : projection publique — ne renvoie JAMAIS userId, balanceFcfa,
+// debtFcfa sur les routes non-authentifiées (GET /vendors, GET /vendors/:id).
+const PUBLIC_VENDOR_SELECT = {
+  id: true,
+  canteenName: true,
+  logoUrl: true,
+  bannerUrl: true,
+  description: true,
+  isActive: true,
+  isOpen: true,
+  createdAt: true,
+} as const;
+
 @Injectable()
 export class VendorsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -88,6 +101,7 @@ export class VendorsService {
         where: { deletedAt: null },
         skip,
         take: limit,
+        select: PUBLIC_VENDOR_SELECT,
       }),
     ]);
 
@@ -105,6 +119,7 @@ export class VendorsService {
   async findOne(id: string) {
     const vendor = await this.prisma.vendor.findUnique({
       where: { id, deletedAt: null },
+      select: PUBLIC_VENDOR_SELECT,
     });
 
     if (!vendor) throw new NotFoundException(`Vendor with id ${id} not found`);

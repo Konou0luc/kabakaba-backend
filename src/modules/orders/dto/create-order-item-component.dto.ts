@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsInt, Min } from 'class-validator';
+import { IsNotEmpty, IsString, IsInt, Min, Max } from 'class-validator';
 
 export class CreateOrderItemComponentDto {
   @ApiProperty({ example: 'component-uuid' })
@@ -11,5 +11,6 @@ export class CreateOrderItemComponentDto {
   @IsNotEmpty()
   @IsInt()
   @Min(0)
+  @Max(1000)
   quantity: number;
 }

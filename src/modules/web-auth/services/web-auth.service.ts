@@ -291,6 +291,16 @@ export class WebAuthService {
     return GENERIC_RESET_RESPONSE;
   }
 
+  private generateBackupCode(): string {
+    // SÉCURITÉ : crypto.randomInt (CSPRNG) au lieu de Math.random(), qui
+    // n'est ni cryptographiquement sûr ni uniformément distribué une fois
+    // converti en base36 — un backup code EST un secret d'authentification.
+    const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    const randomGroup = () =>
+      Array.from({ length: 4 }, () => alphabet[crypto.randomInt(alphabet.length)]).join('');
+    return `${randomGroup()}-${randomGroup()}-${randomGroup()}-${randomGroup()}`;
+  }
+
   async verifyPasswordReset(rawToken: string, code: string) {
     const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
     const record = await this.prisma.webUserPasswordReset.findUnique({ where: { tokenHash } });
