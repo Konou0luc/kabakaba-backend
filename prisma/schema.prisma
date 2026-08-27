@@ -639,7 +639,7 @@ model WebUser {
   mustChangePassword Boolean     @default(true)
   twoFaEnabled       Boolean     @default(false)
   twoFaSecret        String?
-  twoFaBackupCode    String?
+  tokenVersion       Int         @default(0)
   lastLoginAt        DateTime?
   createdAt          DateTime    @default(now())
   updatedAt          DateTime    @updatedAt
@@ -657,9 +657,43 @@ model WebUser {
   deletionRequestsConfirmed  WebUserDeletionRequest[] @relation("DeletionConfirmer")
 
   deletionApprovals          WebUserDeletionApproval[]
+  backupCodes                WebUserBackupCode[]
+  passwordResets             WebUserPasswordReset[]
 
   @@index([email])
   @@index([role])
+}
+
+/// Codes de secours 2FA — générés par lot de 10 (crypto.randomBytes) lors
+/// de l'activation du 2FA. Un seul usage par code (usedAt marque la
+/// consommation). Remplace l'ancien champ unique WebUser.twoFaBackupCode.
+model WebUserBackupCode {
+  id        String    @id @default(uuid())
+  webUserId String
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  webUser WebUser @relation(fields: [webUserId], references: [id])
+
+  @@index([webUserId])
+}
+
+/// Jeton de réinitialisation de mot de passe envoyé par email. Le jeton
+/// brut n'est JAMAIS stocké — seul son hash SHA-256 l'est (tokenHash).
+/// Durée de vie 15 min, usage unique (usedAt).
+model WebUserPasswordReset {
+  id        String    @id @default(uuid())
+  webUserId String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  webUser WebUser @relation(fields: [webUserId], references: [id])
+
+  @@index([webUserId])
+  @@index([tokenHash])
 }
 
 enum WebUserDeletionStatus {

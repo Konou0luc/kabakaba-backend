@@ -12,7 +12,7 @@ export class WebUsersService {
   constructor(private readonly prisma: PrismaService) {}
 
   private sanitize(webUser: any) {
-    const { password, twoFaSecret, twoFaBackupCode, ...safe } = webUser;
+    const { password, twoFaSecret, ...safe } = webUser;
     return safe;
   }
 

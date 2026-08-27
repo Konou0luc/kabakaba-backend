@@ -7,6 +7,9 @@ import { WebVerify2faDto } from '../dto/web-verify-2fa.dto';
 import { WebFirstLoginDto } from '../dto/web-first-login.dto';
 import { WebSetPasswordDto } from '../dto/web-set-password.dto';
 import { WebVerify2faSetupDto } from '../dto/web-verify-2fa-setup.dto';
+import { RequestPasswordResetDto } from '../dto/request-password-reset.dto';
+import { VerifyPasswordResetDto } from '../dto/verify-password-reset.dto';
+import { ConfirmPasswordResetDto } from '../dto/confirm-password-reset.dto';
 import { WebUserEntity } from '../entities/web-user.entity';
 import { extractBearerToken } from '../../../common/utils/extract-bearer-token';
 import { WebJwtAuthGuard } from '../../../common/guards/web-jwt-auth.guard';
@@ -82,6 +85,40 @@ export class WebAuthController {
   verifyTwoFactorSetup(@Headers('authorization') authorization: string, @Body() dto: WebVerify2faSetupDto) {
     const onboardingToken = extractBearerToken(authorization);
     return this.webAuthService.verifyTwoFactorSetup(onboardingToken, dto.code);
+  }
+
+  // ─── Réinitialisation de mot de passe (email + TOTP/clé de secours) ─
+  //
+  // Garantie de sécurité : un canal compromis seul (boîte email OU
+  // application TOTP) ne suffit jamais à réinitialiser le mot de passe.
+
+  @Post('password-reset/request')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Étape 1/3 reset : demande un lien de réinitialisation par email' })
+  @ApiResponse({ status: 200, description: 'Réponse générique, que le compte existe ou non (anti-énumération).' })
+  requestPasswordReset(@Body() dto: RequestPasswordResetDto) {
+    return this.webAuthService.requestPasswordReset(dto.email);
+  }
+
+  @Post('password-reset/verify')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Étape 2/3 reset : vérifie le lien email + code TOTP/clé de secours → jeton de session de reset' })
+  @ApiResponse({ status: 200, description: 'Second facteur valide, jeton de reset renvoyé.' })
+  @ApiResponse({ status: 401, description: 'Lien invalide/expiré ou code invalide.' })
+  verifyPasswordReset(@Body() dto: VerifyPasswordResetDto) {
+    return this.webAuthService.verifyPasswordReset(dto.token, dto.code);
+  }
+
+  @Post('password-reset/confirm')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Étape 3/3 reset : définit le nouveau mot de passe et déconnecte tous les appareils' })
+  @ApiResponse({ status: 200, description: 'Mot de passe mis à jour, toutes les sessions existantes invalidées.' })
+  @ApiResponse({ status: 401, description: 'Jeton de reset invalide ou expiré.' })
+  confirmPasswordReset(@Body() dto: ConfirmPasswordResetDto) {
+    return this.webAuthService.confirmPasswordReset(dto.resetSessionToken, dto.newPassword);
   }
 
   // ─── Session ──────────────────────────────────────────────────────

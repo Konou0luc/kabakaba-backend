@@ -7,10 +7,12 @@ import { WebUsersController } from './controllers/web-users.controller';
 import { WebAuthService } from './services/web-auth.service';
 import { WebUsersService } from './services/web-users.service';
 import { WebJwtStrategy } from './strategies/web-jwt.strategy';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
     PassportModule,
+    EmailModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {

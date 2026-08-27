@@ -22,7 +22,7 @@ export class WebJwtStrategy extends PassportStrategy(Strategy, 'web-jwt') {
     });
   }
 
-  async validate(payload: { sub: string; role: string; purpose: string }) {
+  async validate(payload: { sub: string; role: string; purpose: string; tokenVersion?: number }) {
     if (payload.purpose !== 'web_session') {
       throw new UnauthorizedException('Jeton invalide pour cette opération');
     }
@@ -32,7 +32,15 @@ export class WebJwtStrategy extends PassportStrategy(Strategy, 'web-jwt') {
       throw new UnauthorizedException();
     }
 
-    const { password, twoFaSecret, twoFaBackupCode, ...safeWebUser } = webUser;
+    // Un mot de passe réinitialisé incrémente tokenVersion : tout jeton émis
+    // avant ce moment devient automatiquement invalide, sur tous les
+    // appareils, dès la requête suivante — sans avoir besoin d'une table de
+    // sessions active à interroger.
+    if (payload.tokenVersion !== webUser.tokenVersion) {
+      throw new UnauthorizedException('Session invalidée — veuillez vous reconnecter');
+    }
+
+    const { password, twoFaSecret, ...safeWebUser } = webUser;
 
     return { ...safeWebUser, __authKind: 'web' as const };
   }
