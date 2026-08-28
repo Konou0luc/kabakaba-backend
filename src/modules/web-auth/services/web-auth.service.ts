@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -48,6 +48,30 @@ export class WebAuthService {
       throw new UnauthorizedException('Jeton invalide pour cette opération');
     }
     return payload;
+  }
+
+  /**
+   * Rejette un nouveau mot de passe s'il est trop faible OU s'il est
+   * identique au mot de passe actuel de l'utilisateur — avec EXACTEMENT
+   * le même message générique dans les deux cas. C'est volontaire : si un
+   * attaquant devine par hasard l'ancien mot de passe réel, sa tentative
+   * doit être indiscernable d'un simple refus pour faiblesse. Une erreur
+   * du type "ce mot de passe a déjà été utilisé" lui confirmerait qu'il a
+   * trouvé le bon mot de passe, ce qui est exactement l'information à ne
+   * jamais laisser fuiter.
+   */
+  private async assertPasswordAcceptable(newPassword: string, currentPasswordHash: string) {
+    const genericError = new BadRequestException('Ce mot de passe ne peut pas être utilisé. Choisissez-en un autre.');
+
+    const isStrongEnough =
+      newPassword.length >= 12 &&
+      /[A-Z]/.test(newPassword) &&
+      /[0-9]/.test(newPassword) &&
+      /[^A-Za-z0-9]/.test(newPassword);
+    if (!isStrongEnough) throw genericError;
+
+    const isSameAsCurrent = await bcrypt.compare(newPassword, currentPasswordHash);
+    if (isSameAsCurrent) throw genericError;
   }
 
   private sanitize(webUser: any) {
@@ -173,6 +197,14 @@ export class WebAuthService {
 
   async setOnboardingPassword(onboardingToken: string, newPassword: string) {
     const { sub } = await this.verifyToken(onboardingToken, 'web_onboarding');
+
+    const webUser = await this.prisma.webUser.findUnique({ where: { id: sub } });
+    if (!webUser) throw new UnauthorizedException('Jeton invalide ou expiré');
+
+    // Empêche de garder le mot de passe temporaire transmis par l'équipe
+    // dirigeante comme mot de passe personnel définitif.
+    await this.assertPasswordAcceptable(newPassword, webUser.password);
+
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
     await this.prisma.webUser.update({ where: { id: sub }, data: { password: hashedPassword } });
     return { success: true };
@@ -278,6 +310,12 @@ export class WebAuthService {
 
   async confirmPasswordReset(resetSessionToken: string, newPassword: string) {
     const { sub } = await this.verifyToken(resetSessionToken, 'web_password_reset');
+
+    const webUser = await this.prisma.webUser.findUnique({ where: { id: sub } });
+    if (!webUser) throw new UnauthorizedException('Jeton invalide ou expiré');
+
+    await this.assertPasswordAcceptable(newPassword, webUser.password);
+
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
     // tokenVersion incrémenté : tout jeton de session émis avant cet
