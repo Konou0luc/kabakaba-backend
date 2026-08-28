@@ -1,11 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
 
 export class VerifyPasswordResetDto {
-  @ApiProperty({ description: 'Jeton brut reçu dans le lien envoyé par email' })
+  @ApiProperty({ example: 'directeur@kabakaba.app' })
   @IsNotEmpty()
-  @IsString()
-  token: string;
+  @IsEmail()
+  email: string;
 
   @ApiProperty({ example: '482913', description: 'Code TOTP à 6 chiffres ou clé de secours' })
   @IsNotEmpty()

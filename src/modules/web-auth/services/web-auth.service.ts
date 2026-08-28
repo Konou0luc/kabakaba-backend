@@ -6,25 +6,15 @@ import * as crypto from 'crypto';
 import { generateSecret, generateURI, verify as verifyOtp } from 'otplib';
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../../database/services/prisma.service';
-import { EmailService } from '../../email/services/email.service';
 
 const SALT_ROUNDS = 10;
 const CHALLENGE_TOKEN_TTL = '5m';
 const ONBOARDING_TOKEN_TTL = '20m';
 const SESSION_TOKEN_TTL = '8h';
 const PASSWORD_RESET_SESSION_TTL = '5m';
-const PASSWORD_RESET_LINK_TTL_MS = 15 * 60 * 1000; // 15 minutes
 const BACKUP_CODE_COUNT = 10;
 
 type TokenPurpose = 'web_2fa_challenge' | 'web_onboarding' | 'web_session' | 'web_password_reset';
-
-// Réponse générique renvoyée par requestPasswordReset dans TOUS les cas
-// (compte inexistant, inactif, sans 2FA, ou email réellement envoyé) —
-// aucune différence observable ne doit permettre de deviner si un email
-// existe en base (anti-énumération).
-const GENERIC_RESET_RESPONSE = {
-  message: "Si cet email correspond à un compte, un lien de réinitialisation a été envoyé.",
-};
 
 @Injectable()
 export class WebAuthService {
@@ -32,7 +22,6 @@ export class WebAuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-    private readonly emailService: EmailService,
   ) {}
 
   private get accessSecret() {
@@ -244,74 +233,30 @@ export class WebAuthService {
     };
   }
 
-  // ─── Réinitialisation de mot de passe (email + TOTP/clé de secours) ─
+  // ─── Réinitialisation de mot de passe (TOTP ou clé de secours) ──────
   //
-  // Garantie : un canal compromis seul (boîte email OU application TOTP)
-  // ne suffit jamais à réinitialiser le mot de passe. Les deux facteurs
-  // sont requis avant qu'un nouveau mot de passe puisse être défini.
+  // Facteur unique volontaire : aucun canal externe (email/SMS) branché.
+  // Possession du TOTP (ou d'une clé de secours) suffit à elle seule à
+  // réinitialiser le mot de passe — décision assumée, pas de canal
+  // externe disponible pour le moment.
+  //
+  // Anti-énumération : la même erreur générique est renvoyée que le
+  // compte n'existe pas, n'ait pas de 2FA actif, ou que le code soit
+  // invalide — aucune différence observable entre ces cas.
 
-  async requestPasswordReset(email: string) {
+  async verifyPasswordReset(email: string, code: string) {
+    const genericError = new UnauthorizedException('Identifiants ou code invalides');
+
     const webUser = await this.prisma.webUser.findUnique({ where: { email } });
-
-    if (!webUser || !webUser.isActive || webUser.deletedAt) {
-      return GENERIC_RESET_RESPONSE;
-    }
-
-    // Un compte qui n'a pas terminé son onboarding (mustChangePassword) ou
-    // n'a pas encore activé le 2FA n'a pas de second facteur à opposer à un
-    // email compromis — le flux de réinitialisation par 2FA ne s'applique
-    // pas à ce cas. On ne matérialise aucun lien, mais on renvoie quand
-    // même la réponse générique pour ne rien révéler.
-    if (webUser.mustChangePassword || !webUser.twoFaEnabled || !webUser.twoFaSecret) {
-      return GENERIC_RESET_RESPONSE;
-    }
-
-    const rawToken = crypto.randomBytes(32).toString('hex');
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-
-    // Invalide tout lien de réinitialisation encore actif pour ce compte —
-    // un seul lien valide à la fois.
-    await this.prisma.webUserPasswordReset.updateMany({
-      where: { webUserId: webUser.id, usedAt: null },
-      data: { usedAt: new Date() },
-    });
-
-    await this.prisma.webUserPasswordReset.create({
-      data: {
-        webUserId: webUser.id,
-        tokenHash,
-        expiresAt: new Date(Date.now() + PASSWORD_RESET_LINK_TTL_MS),
-      },
-    });
-
-    const frontendUrl = this.configService.get('FRONTEND_URL') || 'https://kabakaba-backend.vercel.app';
-    const resetUrl = `${frontendUrl}/supervision/reset-password?token=${rawToken}`;
-    await this.emailService.sendPasswordResetEmail(webUser.email, resetUrl);
-
-    return GENERIC_RESET_RESPONSE;
-  }
-
-  private generateBackupCode(): string {
-    // SÉCURITÉ : crypto.randomInt (CSPRNG) au lieu de Math.random(), qui
-    // n'est ni cryptographiquement sûr ni uniformément distribué une fois
-    // converti en base36 — un backup code EST un secret d'authentification.
-    const alphabet = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-    const randomGroup = () =>
-      Array.from({ length: 4 }, () => alphabet[crypto.randomInt(alphabet.length)]).join('');
-    return `${randomGroup()}-${randomGroup()}-${randomGroup()}-${randomGroup()}`;
-  }
-
-  async verifyPasswordReset(rawToken: string, code: string) {
-    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
-    const record = await this.prisma.webUserPasswordReset.findUnique({ where: { tokenHash } });
-
-    if (!record || record.usedAt || record.expiresAt < new Date()) {
-      throw new UnauthorizedException('Lien invalide ou expiré');
-    }
-
-    const webUser = await this.prisma.webUser.findUnique({ where: { id: record.webUserId } });
-    if (!webUser || !webUser.isActive || !webUser.twoFaEnabled || !webUser.twoFaSecret) {
-      throw new UnauthorizedException('Lien invalide ou expiré');
+    if (
+      !webUser ||
+      !webUser.isActive ||
+      webUser.deletedAt ||
+      webUser.mustChangePassword ||
+      !webUser.twoFaEnabled ||
+      !webUser.twoFaSecret
+    ) {
+      throw genericError;
     }
 
     const { valid: codeIsValid, backupCodeUsed } = await this.verifyTotpOrBackupCode(
@@ -319,15 +264,7 @@ export class WebAuthService {
       webUser.twoFaSecret,
       code,
     );
-    if (!codeIsValid) throw new UnauthorizedException('Code invalide');
-
-    // Le lien email a rempli son rôle (prouver l'accès à la boîte mail) et
-    // ne peut plus servir à relancer une vérification : il est consommé ici,
-    // pas seulement à la confirmation finale du nouveau mot de passe.
-    await this.prisma.webUserPasswordReset.update({
-      where: { id: record.id },
-      data: { usedAt: new Date() },
-    });
+    if (!codeIsValid) throw genericError;
 
     const resetSessionToken = this.signToken(webUser.id, 'web_password_reset', PASSWORD_RESET_SESSION_TTL);
 
