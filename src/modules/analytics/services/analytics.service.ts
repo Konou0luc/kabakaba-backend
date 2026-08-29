@@ -63,6 +63,37 @@ function dayKey(d: Date) {
   return d.toISOString().slice(0, 10);
 }
 
+// Plafond de sécurité : au-delà, un graphique à 1 barre/jour deviendrait
+// illisible et le payload trop lourd. Sur une période plus longue, on
+// affiche les MAX_DAILY_BUCKETS derniers jours de la période choisie.
+const MAX_DAILY_BUCKETS = 92;
+
+/**
+ * Construit la liste des clés de jour (YYYY-MM-DD) couvrant TOUTE la
+ * période sélectionnée (since -> until), au lieu d'une fenêtre fixe de
+ * "7 derniers jours calendaires" indépendante du filtre choisi par
+ * l'utilisateur. Utilisé par tous les graphiques "évolution journalière"
+ * de la supervision (Vue générale, Volume & revenus, Comportement
+ * étudiants, Notes & alertes) pour qu'ils s'adaptent au calendrier choisi.
+ */
+function buildDayKeys(since: Date, until: Date): string[] {
+  const start = new Date(since);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(until);
+  end.setHours(0, 0, 0, 0);
+
+  const totalDays = Math.max(1, Math.round((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000)) + 1);
+  const daysToShow = Math.min(totalDays, MAX_DAILY_BUCKETS);
+
+  const keys: string[] = [];
+  const cursor = new Date(end);
+  for (let i = 0; i < daysToShow; i++) {
+    keys.push(dayKey(cursor));
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  return keys.reverse();
+}
+
 function uncoveredWithdrawalFee(amount: number, platformFee: number, operatorFee: number) {
   if (amount < 10000) return platformFee + operatorFee;
   if (amount < 30000) return operatorFee;
@@ -75,9 +106,10 @@ export class AnalyticsService {
 
   async getCampusComparison(days = 30, from?: string, to?: string) {
     const { since, until, prevSince, prevUntil } = resolveRange(days, from, to);
-    const sevenDaysAgo = daysAgo(7);
+    const dayKeys = buildDayKeys(since, until);
+    const chartStart = new Date(dayKeys[0]);
 
-    const [campuses, students, ordersWindow, ordersPrevWindow, orders7d, vendorCampusLinks] = await Promise.all([
+    const [campuses, students, ordersWindow, ordersPrevWindow, ordersForChart, vendorCampusLinks] = await Promise.all([
       this.prisma.campus.findMany({ orderBy: { name: 'asc' } }),
       this.prisma.user.findMany({ where: { role: 'STUDENT', campusId: { not: null } }, select: { id: true, campusId: true } }),
       this.prisma.order.findMany({
@@ -85,7 +117,7 @@ export class AnalyticsService {
         select: { status: true, escrowAmount: true, studentId: true, student: { select: { campusId: true } } },
       }),
       this.prisma.order.findMany({ where: { createdAt: { gte: prevSince, lte: prevUntil } }, select: { status: true, escrowAmount: true } }),
-      this.prisma.order.findMany({ where: { createdAt: { gte: sevenDaysAgo } }, select: { createdAt: true, student: { select: { campusId: true } } } }),
+      this.prisma.order.findMany({ where: { createdAt: { gte: chartStart, lte: until } }, select: { createdAt: true, student: { select: { campusId: true } } } }),
       this.prisma.vendorCampus.findMany({ select: { campusId: true, vendor: { select: { isActive: true } } } }),
     ]);
 
@@ -124,17 +156,15 @@ export class AnalyticsService {
       if (COMPLETED_STATUSES.includes(o.status)) prevTotalRevenue += Number(o.escrowAmount);
     }
 
-    const dayKeys: string[] = [];
-    for (let i = 6; i >= 0; i--) dayKeys.push(dayKey(daysAgo(i)));
     const dailyByCampus = new Map<string, number[]>();
-    const dailyTotal = new Array(7).fill(0);
-    for (const o of orders7d) {
+    const dailyTotal = new Array(dayKeys.length).fill(0);
+    for (const o of ordersForChart) {
       const idx = dayKeys.indexOf(dayKey(o.createdAt));
       if (idx === -1) continue;
       dailyTotal[idx] += 1;
       const campusId = o.student?.campusId;
       if (!campusId) continue;
-      if (!dailyByCampus.has(campusId)) dailyByCampus.set(campusId, new Array(7).fill(0));
+      if (!dailyByCampus.has(campusId)) dailyByCampus.set(campusId, new Array(dayKeys.length).fill(0));
       dailyByCampus.get(campusId)![idx] += 1;
     }
 
@@ -167,7 +197,7 @@ export class AnalyticsService {
       campuses: campusRows,
       dailyVolume: {
         labels: dayKeys,
-        series: { 'Tous les campus': dailyTotal, ...Object.fromEntries(campuses.map((c) => [c.name, dailyByCampus.get(c.id) ?? new Array(7).fill(0)])) },
+        series: { 'Tous les campus': dailyTotal, ...Object.fromEntries(campuses.map((c) => [c.name, dailyByCampus.get(c.id) ?? new Array(dayKeys.length).fill(0)])) },
       },
     };
   }
@@ -295,9 +325,8 @@ export class AnalyticsService {
       return { id: c.id, name: c.name, rechargesGross: agg.rechargesGross, surplus: agg.surplus, commissions: agg.commissions, net: agg.surplus - agg.uncoveredFees - agg.commissions };
     });
 
-    const dayKeys: string[] = [];
-    for (let i = 6; i >= 0; i--) dayKeys.push(dayKey(daysAgo(i)));
-    const dailyNet = new Array(7).fill(0);
+    const dayKeys = buildDayKeys(since, until);
+    const dailyNet = new Array(dayKeys.length).fill(0);
     for (const p of payments) {
       const idx = dayKeys.indexOf(dayKey(p.createdAt));
       if (idx === -1) continue;
@@ -413,9 +442,10 @@ export class AnalyticsService {
 
   async getStudentBehavior(days = 30, from?: string, to?: string) {
     const { since, until, prevSince } = resolveRange(days, from, to);
-    const sevenDaysAgo = daysAgo(7);
+    const dayKeys = buildDayKeys(since, until);
+    const chartStart = new Date(dayKeys[0]);
 
-    const [allStudents, ordersWindow, paymentsWindow, newStudents7d, campuses] = await Promise.all([
+    const [allStudents, ordersWindow, paymentsWindow, newStudentsForChart, campuses] = await Promise.all([
       this.prisma.user.findMany({ where: { role: 'STUDENT' }, select: { id: true, campusId: true } }),
       this.prisma.order.findMany({
         where: { createdAt: { gte: prevSince, lte: until } },
@@ -423,10 +453,10 @@ export class AnalyticsService {
       }),
       this.prisma.payment.findMany({
         where: { status: 'SUCCESS', createdAt: { gte: since, lte: until } },
-        select: { amountFcfa: true, userId: true, user: { select: { campusId: true } } },
+        select: { amountFcfa: true, userId: true, createdAt: true, user: { select: { campusId: true } } },
       }),
       this.prisma.user.findMany({
-        where: { role: 'STUDENT', createdAt: { gte: sevenDaysAgo } },
+        where: { role: 'STUDENT', createdAt: { gte: chartStart, lte: until } },
         select: { createdAt: true },
       }),
       this.prisma.campus.findMany({ select: { id: true, name: true } }),
@@ -438,13 +468,11 @@ export class AnalyticsService {
     const activeIdsCurrent = new Set<string>();
     const activeIdsPrevious = new Set<string>();
     const activeIdsByCampus = new Map<string, Set<string>>();
-    const ordersCountWindowByStudent = new Map<string, number>();
 
     for (const o of ordersWindow) {
       const isCurrentWindow = o.createdAt >= since;
       if (isCurrentWindow) {
         activeIdsCurrent.add(o.studentId);
-        ordersCountWindowByStudent.set(o.studentId, (ordersCountWindowByStudent.get(o.studentId) ?? 0) + 1);
         const campusId = o.student?.campusId;
         if (campusId) {
           if (!activeIdsByCampus.has(campusId)) activeIdsByCampus.set(campusId, new Set());
@@ -455,32 +483,39 @@ export class AnalyticsService {
       }
     }
 
-    const totalOrdersInWindow = [...ordersCountWindowByStudent.values()].reduce((s, v) => s + v, 0);
-    const spanDays = Math.max(1, Math.round((until.getTime() - since.getTime()) / (24 * 60 * 60 * 1000)));
-    const weeks = spanDays / 7;
-    const avgFrequency = activeIdsCurrent.size > 0 ? totalOrdersInWindow / activeIdsCurrent.size / weeks : 0;
-
     const rechargeSumByCampus = new Map<string, { sum: number; count: number }>();
     let totalRechargeSum = 0;
     let totalRechargeCount = 0;
+    let minRecharge: number | null = null;
+    let maxRecharge: number | null = null;
     for (const p of paymentsWindow) {
-      totalRechargeSum += Number(p.amountFcfa);
+      const amount = Number(p.amountFcfa);
+      totalRechargeSum += amount;
       totalRechargeCount += 1;
+      if (minRecharge === null || amount < minRecharge) minRecharge = amount;
+      if (maxRecharge === null || amount > maxRecharge) maxRecharge = amount;
       const campusId = p.user?.campusId;
       if (campusId) {
         const entry = rechargeSumByCampus.get(campusId) ?? { sum: 0, count: 0 };
-        entry.sum += Number(p.amountFcfa);
+        entry.sum += amount;
         entry.count += 1;
         rechargeSumByCampus.set(campusId, entry);
       }
     }
 
-    const dayKeys: string[] = [];
-    for (let i = 6; i >= 0; i--) dayKeys.push(dayKey(daysAgo(i)));
-    const dailyRegistrations = new Array(7).fill(0);
-    for (const s of newStudents7d) {
+    const dailyRegistrations = new Array(dayKeys.length).fill(0);
+    for (const s of newStudentsForChart) {
       const idx = dayKeys.indexOf(dayKey(s.createdAt));
       if (idx !== -1) dailyRegistrations[idx] += 1;
+    }
+
+    // Recharges sur la même fenêtre que le graphique d'inscriptions
+    // (chartStart -> until), sous-ensemble de paymentsWindow déjà chargé.
+    const dailyRecharges = new Array(dayKeys.length).fill(0);
+    for (const p of paymentsWindow) {
+      if (p.createdAt < chartStart) continue;
+      const idx = dayKeys.indexOf(dayKey(p.createdAt));
+      if (idx !== -1) dailyRecharges[idx] += Number(p.amountFcfa);
     }
 
     const activePrevChange =
@@ -492,14 +527,12 @@ export class AnalyticsService {
       const enrolled = enrolledByCampus.get(c.id) ?? 0;
       const active = activeIdsByCampus.get(c.id)?.size ?? 0;
       const recharge = rechargeSumByCampus.get(c.id) ?? { sum: 0, count: 0 };
-      const campusOrders = ordersWindow.filter((o) => o.createdAt >= since && o.student?.campusId === c.id).length;
       return {
         id: c.id,
         name: c.name,
         enrolled,
         active,
         avgRecharge: recharge.count > 0 ? Math.round(recharge.sum / recharge.count) : 0,
-        avgFrequency: active > 0 ? Number((campusOrders / active / weeks).toFixed(1)) : 0,
       };
     });
 
@@ -508,11 +541,12 @@ export class AnalyticsService {
         totalEnrolled: allStudents.length,
         totalActive: activeIdsCurrent.size,
         activeChangePct: activePrevChange,
-        activeShare: allStudents.length > 0 ? Math.round((activeIdsCurrent.size / allStudents.length) * 100) : 0,
         avgRecharge: totalRechargeCount > 0 ? Math.round(totalRechargeSum / totalRechargeCount) : 0,
-        avgFrequency: Number(avgFrequency.toFixed(1)),
+        minRecharge: minRecharge ?? 0,
+        maxRecharge: maxRecharge ?? 0,
       },
       dailyRegistrations: { labels: dayKeys, values: dailyRegistrations },
+      dailyRecharges: { labels: dayKeys, values: dailyRecharges },
       perCampus,
     };
   }
@@ -568,16 +602,13 @@ export class AnalyticsService {
 
   async getReviewsQuality(days = 30, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
-    const sevenDaysAgo = daysAgo(7);
+    const dayKeys = buildDayKeys(since, until);
+    const chartStart = new Date(dayKeys[0]);
 
-    const [reviewsWindow, reviews7d, vendors, vendorCampusLinks, campuses] = await Promise.all([
+    const [reviewsWindow, vendors, vendorCampusLinks, campuses] = await Promise.all([
       this.prisma.review.findMany({
         where: { deletedAt: null, createdAt: { gte: since, lte: until } },
         select: { rating: true, vendorId: true, createdAt: true },
-      }),
-      this.prisma.review.findMany({
-        where: { deletedAt: null, createdAt: { gte: sevenDaysAgo } },
-        select: { rating: true, createdAt: true },
       }),
       this.prisma.vendor.findMany({ select: { id: true, canteenName: true } }),
       this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
@@ -621,11 +652,10 @@ export class AnalyticsService {
       .filter((v) => v.reviewCount > 0)
       .sort((a, b) => (a.avgRating ?? 5) - (b.avgRating ?? 5));
 
-    const dayKeys: string[] = [];
-    for (let i = 6; i >= 0; i--) dayKeys.push(dayKey(daysAgo(i)));
-    const dailySum = new Array(7).fill(0);
-    const dailyCount = new Array(7).fill(0);
-    for (const r of reviews7d) {
+    const dailySum = new Array(dayKeys.length).fill(0);
+    const dailyCount = new Array(dayKeys.length).fill(0);
+    for (const r of reviewsWindow) {
+      if (r.createdAt < chartStart) continue;
       const idx = dayKeys.indexOf(dayKey(r.createdAt));
       if (idx === -1) continue;
       dailySum[idx] += r.rating;
