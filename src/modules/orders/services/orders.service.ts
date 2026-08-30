@@ -6,7 +6,8 @@ import { UpdateOrderDto } from '../dto/update-order.dto';
 
 interface Actor {
   id: string;
-  role: UserRole;
+  role?: UserRole;
+  isAdmin: boolean;
 }
 
 @Injectable()
@@ -24,8 +25,7 @@ export class OrdersService {
     order: { studentId: string; vendorId: string },
     actor: Actor,
   ) {
-    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
-    if (isAdmin) return;
+    if (actor.isAdmin) return;
 
     if (actor.role === UserRole.STUDENT && order.studentId === actor.id) {
       return;
@@ -251,10 +251,9 @@ export class OrdersService {
   async update(id: string, updateOrderDto: UpdateOrderDto, actor: Actor) {
     await this.findOne(id, actor);
 
-    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
     let data: Partial<UpdateOrderDto> = updateOrderDto;
 
-    if (!isAdmin) {
+    if (!actor.isAdmin) {
       // SÉCURITÉ : UpdateOrderDto hérite de tous les champs de CreateOrderDto
       // (vendorId, totalTickets, escrowAmount, packagingOptionId). On filtre
       // explicitement pour qu'un vendeur ne puisse changer que le statut de

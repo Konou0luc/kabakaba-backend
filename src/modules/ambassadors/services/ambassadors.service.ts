@@ -36,6 +36,11 @@ export class AmbassadorsService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
+        include: {
+          user: {
+            select: { firstName: true, lastName: true, phone: true, email: true, campus: { select: { name: true } } },
+          },
+        },
       }),
     ]);
 
@@ -53,6 +58,11 @@ export class AmbassadorsService {
   async findOne(id: string) {
     const ambassador = await this.prisma.ambassador.findUnique({
       where: { id, deletedAt: null },
+      include: {
+        user: {
+          select: { firstName: true, lastName: true, phone: true, email: true, campus: { select: { name: true } } },
+        },
+      },
     });
 
     if (!ambassador) throw new NotFoundException(`Ambassadeur avec l'identifiant ${id} introuvable`);

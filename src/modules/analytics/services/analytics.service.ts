@@ -134,17 +134,25 @@ export class AnalyticsService {
     for (const s of students) if (s.campusId) enrolledByCampus.set(s.campusId, (enrolledByCampus.get(s.campusId) ?? 0) + 1);
 
     const activeStudentIdsByCampus = new Map<string, Set<string>>();
-    const statsByCampus = new Map<string, { orders: number; completed: number; revenue: number }>();
+    const statsByCampus = new Map<string, { orders: number; completed: number; revenue: number; decided: number; accepted: number }>();
     for (const o of ordersWindow) {
       const campusId = o.student?.campusId;
       if (!campusId) continue;
       if (!activeStudentIdsByCampus.has(campusId)) activeStudentIdsByCampus.set(campusId, new Set());
       activeStudentIdsByCampus.get(campusId)!.add(o.studentId);
-      const entry = statsByCampus.get(campusId) ?? { orders: 0, completed: 0, revenue: 0 };
+      const entry = statsByCampus.get(campusId) ?? { orders: 0, completed: 0, revenue: 0, decided: 0, accepted: 0 };
       entry.orders += 1;
       if (COMPLETED_STATUSES.includes(o.status)) {
         entry.completed += 1;
         entry.revenue += Number(o.escrowAmount);
+      }
+      // Taux d'acceptation : parmi les commandes tranchées par le vendeur
+      // (acceptées ou refusées — DECIDED_STATUSES), quelle proportion a été
+      // acceptée (ACCEPTED_LINEAGE_STATUSES) ? Même définition que
+      // getVendorPerformance, agrégée par campus plutôt que par vendeur.
+      if (DECIDED_STATUSES.includes(o.status)) {
+        entry.decided += 1;
+        if (ACCEPTED_LINEAGE_STATUSES.includes(o.status)) entry.accepted += 1;
       }
       statsByCampus.set(campusId, entry);
     }
@@ -169,13 +177,14 @@ export class AnalyticsService {
     }
 
     const campusRows = campuses.map((c) => {
-      const stats = statsByCampus.get(c.id) ?? { orders: 0, completed: 0, revenue: 0 };
+      const stats = statsByCampus.get(c.id) ?? { orders: 0, completed: 0, revenue: 0, decided: 0, accepted: 0 };
       return {
         id: c.id,
         name: c.name,
         cantines: cantinesByCampus.get(c.id) ?? 0,
         orders: stats.orders,
         completionRate: stats.orders > 0 ? Math.round((stats.completed / stats.orders) * 100) : 0,
+        acceptanceRate: stats.decided > 0 ? Math.round((stats.accepted / stats.decided) * 100) : 0,
         revenue: stats.revenue,
         enrolled: enrolledByCampus.get(c.id) ?? 0,
         active: activeStudentIdsByCampus.get(c.id)?.size ?? 0,

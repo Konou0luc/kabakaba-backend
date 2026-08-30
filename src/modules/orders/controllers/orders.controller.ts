@@ -23,9 +23,12 @@ import { UpdateOrderDto } from '../dto/update-order.dto';
 import { OrderEntity } from '../entities/order.entity';
 import { FindOrdersQueryDto } from '../dto/find-orders-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { Public } from '../../../common/decorators/public.decorator';
 
 @ApiTags('Orders')
@@ -49,8 +52,9 @@ export class OrdersController {
 
   @Get()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer toutes les commandes actives (filtrées par rôle)' })
   @ApiQuery({ type: FindOrdersQueryDto })
   @ApiResponse({
@@ -61,12 +65,14 @@ export class OrdersController {
     let studentId: string | undefined;
     let vendorId: string | undefined;
     let vendorUserId: string | undefined;
-    if (req.user.role === UserRole.STUDENT) studentId = req.user.id;
-    if (req.user.role === UserRole.VENDOR) vendorUserId = req.user.id;
+    const isAdmin =
+      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+
+    if (!isAdmin && req.user.role === UserRole.STUDENT) studentId = req.user.id;
+    if (!isAdmin && req.user.role === UserRole.VENDOR) vendorUserId = req.user.id;
 
     // Le filtre vendorId de la query n'est appliqué que pour les admins :
     // un STUDENT/VENDOR reste toujours scopé à son propre périmètre.
-    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
     if (isAdmin && query.vendorId) vendorId = query.vendorId;
 
     return this.ordersService.findAll(
@@ -81,13 +87,16 @@ export class OrdersController {
 
   @Get(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer une commande active' })
   @ApiResponse({ status: 200, description: 'Retourne la commande.', type: OrderEntity })
   @ApiResponse({ status: 404, description: 'Commande introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
-    return this.ordersService.findOne(id, { id: req.user.id, role: req.user.role });
+    const isAdmin =
+      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    return this.ordersService.findOne(id, { id: req.user.id, role: req.user.role, isAdmin });
   }
 
   @Patch(':id')
@@ -101,7 +110,8 @@ export class OrdersController {
     type: OrderEntity,
   })
   update(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto, @Request() req) {
-    return this.ordersService.update(id, updateOrderDto, { id: req.user.id, role: req.user.role });
+    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    return this.ordersService.update(id, updateOrderDto, { id: req.user.id, role: req.user.role, isAdmin });
   }
 
   @Delete(':id')
@@ -114,6 +124,6 @@ export class OrdersController {
     description: 'La commande a été supprimée avec succès.',
   })
   remove(@Param('id') id: string, @Request() req) {
-    return this.ordersService.remove(id, { id: req.user.id, role: req.user.role });
+    return this.ordersService.remove(id, { id: req.user.id, role: req.user.role, isAdmin: true });
   }
 }
