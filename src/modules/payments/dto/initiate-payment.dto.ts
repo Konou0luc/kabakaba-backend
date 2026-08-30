@@ -1,12 +1,12 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { IsNotEmpty, IsPhoneNumber } from 'class-validator';
 
 export class InitiatePaymentDto {
   @ApiProperty({
     example: '+22890123456',
-    description: 'Numéro de téléphone Mobile Money',
+    description: 'Numéro de téléphone Mobile Money — format international obligatoire (+228...)',
   })
   @IsNotEmpty()
-  @IsString()
+  @IsPhoneNumber()
   phoneNumber: string;
 }
