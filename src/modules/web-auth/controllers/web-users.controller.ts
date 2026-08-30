@@ -18,8 +18,8 @@ export class WebUsersController {
   constructor(private readonly webUsersService: WebUsersService) {}
 
   @Get()
-  @ApiOperation({ summary: 'Lister les comptes WebUser actifs (Supervision seulement)' })
-  @ApiResponse({ status: 200, description: 'Retourne les comptes non supprimés.', type: [WebUserEntity] })
+  @ApiOperation({ summary: 'Lister tous les comptes WebUser, y compris désactivés (Supervision seulement)' })
+  @ApiResponse({ status: 200, description: 'Retourne tous les comptes, actifs en tête.', type: [WebUserEntity] })
   findAll() {
     return this.webUsersService.findAll();
   }

@@ -28,7 +28,7 @@ export class WebAuthController {
   @ApiResponse({ status: 401, description: 'Identifiants invalides.' })
   @ApiResponse({ status: 409, description: 'Ce compte doit d\'abord terminer sa première connexion.' })
   login(@Body() dto: WebLoginDto) {
-    return this.webAuthService.login(dto.email, dto.password);
+    return this.webAuthService.login(dto.email, dto.password, dto.expectedRole);
   }
 
   @Post('verify-2fa')
@@ -51,7 +51,7 @@ export class WebAuthController {
   @ApiResponse({ status: 401, description: 'Identifiants invalides.' })
   @ApiResponse({ status: 409, description: 'Ce compte a déjà terminé sa première connexion.' })
   firstLogin(@Body() dto: WebFirstLoginDto) {
-    return this.webAuthService.firstLogin(dto.email, dto.temporaryPassword);
+    return this.webAuthService.firstLogin(dto.email, dto.temporaryPassword, dto.expectedRole);
   }
 
   @Post('first-login/password')

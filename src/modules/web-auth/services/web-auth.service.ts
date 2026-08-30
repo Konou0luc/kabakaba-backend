@@ -6,6 +6,7 @@ import * as crypto from 'crypto';
 import { generateSecret, generateURI, verify as verifyOtp } from 'otplib';
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../../database/services/prisma.service';
+import { WebUserRole } from '@prisma/client';
 
 const SALT_ROUNDS = 10;
 const CHALLENGE_TOKEN_TTL = '5m';
@@ -123,12 +124,22 @@ export class WebAuthService {
 
   // ─── Étape 1/2 : connexion normale (identifiants → 2FA) ─────────────
 
-  async login(email: string, password: string) {
+  async login(email: string, password: string, expectedRole?: WebUserRole) {
     const webUser = await this.prisma.webUser.findUnique({ where: { email } });
     if (!webUser) throw new UnauthorizedException('Identifiants invalides');
 
     const isPasswordValid = await bcrypt.compare(password, webUser.password);
     if (!isPasswordValid) throw new UnauthorizedException('Identifiants invalides');
+
+    // Contrôle d'espace : un compte Supervision qui se présente sur
+    // l'espace Admin (ou l'inverse) reçoit EXACTEMENT le même message
+    // qu'un mot de passe invalide — jamais une indication du rôle réel du
+    // compte. Vérifié ici, avant toute autre branche (mustChangePassword,
+    // isActive), pour qu'aucune information sur l'état du compte ne fuite
+    // non plus à un compte qui frappe au mauvais endroit.
+    if (expectedRole && webUser.role !== expectedRole) {
+      throw new UnauthorizedException('Identifiants invalides');
+    }
 
     // Vérifié APRÈS le mot de passe, et AVANT isActive : un compte tout
     // juste créé (isActive=false, mustChangePassword=true) doit être
@@ -177,19 +188,24 @@ export class WebAuthService {
 
   // ─── Étapes 1 à 4 : première connexion (mot de passe temporaire) ────
 
-  async firstLogin(email: string, temporaryPassword: string) {
+  async firstLogin(email: string, temporaryPassword: string, expectedRole?: WebUserRole) {
     // Volontairement PAS de vérification isActive ici : un compte tout
     // juste créé est inactif par conception, et ne devient actif qu'à la
     // toute fin de l'onboarding (voir verifyTwoFactorSetup).
     const webUser = await this.prisma.webUser.findUnique({ where: { email } });
     if (!webUser) throw new UnauthorizedException('Identifiants invalides');
 
+    const isValid = await bcrypt.compare(temporaryPassword, webUser.password);
+    if (!isValid) throw new UnauthorizedException('Identifiants invalides');
+
+    // Même contrôle d'espace que login() — voir le commentaire là-bas.
+    if (expectedRole && webUser.role !== expectedRole) {
+      throw new UnauthorizedException('Identifiants invalides');
+    }
+
     if (!webUser.mustChangePassword) {
       throw new ConflictException('Ce compte a déjà terminé sa première connexion — utilisez la connexion normale');
     }
-
-    const isValid = await bcrypt.compare(temporaryPassword, webUser.password);
-    if (!isValid) throw new UnauthorizedException('Identifiants invalides');
 
     const onboardingToken = this.signToken(webUser.id, 'web_onboarding', ONBOARDING_TOKEN_TTL);
     return { onboardingToken };

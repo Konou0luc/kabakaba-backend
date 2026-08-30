@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
+import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { WebUserRole } from '@prisma/client';
 
 export class WebFirstLoginDto {
   @ApiProperty({ example: 'a.dossou@kabakaba.app' })
@@ -11,4 +12,13 @@ export class WebFirstLoginDto {
   @IsString()
   @IsNotEmpty()
   temporaryPassword: string;
+
+  @ApiProperty({
+    enum: WebUserRole,
+    required: false,
+    description: "Rôle attendu par l'espace visité — voir WebLoginDto pour le raisonnement complet.",
+  })
+  @IsOptional()
+  @IsEnum(WebUserRole)
+  expectedRole?: WebUserRole;
 }

@@ -45,10 +45,15 @@ export class WebUsersService {
     }
   }
 
+  /**
+   * Retourne TOUS les comptes, y compris désactivés (deletedAt non nul).
+   * Cette page sert justement à retrouver et distinguer un compte
+   * désactivé d'un compte actif — les masquer romprait cet usage. Le tri
+   * met les comptes désactivés en dernier plutôt que de les mélanger.
+   */
   async findAll() {
     const webUsers = await this.prisma.webUser.findMany({
-      where: { deletedAt: null },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ deletedAt: { sort: 'asc', nulls: 'first' } }, { createdAt: 'desc' }],
     });
     return webUsers.map((u) => this.sanitize(u));
   }
