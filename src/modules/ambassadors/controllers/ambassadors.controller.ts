@@ -21,6 +21,7 @@ import { CreateAmbassadorDto } from '../dto/create-ambassador.dto';
 import { UpdateAmbassadorDto } from '../dto/update-ambassador.dto';
 import { AmbassadorEntity } from '../entities/ambassador.entity';
 import { FindAmbassadorsQueryDto } from '../dto/find-ambassadors-query.dto';
+import { CreateSelfAmbassadorApplicationDto } from '../dto/create-self-ambassador-application.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
@@ -62,6 +63,26 @@ export class AmbassadorsController {
   })
   findAll(@Query() query: FindAmbassadorsQueryDto) {
     return this.ambassadorsService.findAll(query.page, query.limit, query.status, query.level);
+  }
+
+  @Post('apply')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @ApiOperation({ summary: 'Soumettre une candidature ambassadeur pour l\'utilisateur connecté' })
+  @ApiResponse({
+    status: 201,
+    description: 'La candidature a été enregistrée avec succès.',
+    type: AmbassadorEntity,
+  })
+  @ApiResponse({ status: 409, description: 'L\'utilisateur a déjà une candidature ou un profil ambassadeur.' })
+  createSelfApplication(
+    @GetCurrentUserId() userId: string,
+    @Body() createSelfAmbassadorApplicationDto: CreateSelfAmbassadorApplicationDto,
+  ) {
+    return this.ambassadorsService.createSelfApplication(
+      userId,
+      createSelfAmbassadorApplicationDto,
+    );
   }
 
   @Get('me')
