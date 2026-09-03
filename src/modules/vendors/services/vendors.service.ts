@@ -4,6 +4,7 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
 import { UpdateVendorDto } from '../dto/update-vendor.dto';
+import { FindVendorsForAdminQueryDto } from '../dto/find-vendors-for-admin-query.dto';
 
 const SALT_ROUNDS = 10;
 
@@ -113,6 +114,88 @@ export class VendorsService {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+
+  /**
+   * Vue admin enrichie (dashboard web, WebUserRole.ADMIN uniquement) : nom du
+   * propriétaire, créance, commandes du jour — jamais exposé aux routes
+   * publiques (PUBLIC_VENDOR_SELECT les exclut volontairement).
+   */
+  async findAllForAdmin(query: FindVendorsForAdminQueryDto) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
+    const skip = (page - 1) * limit;
+
+    const where: any = { deletedAt: null };
+    if (query.status === 'active') where.isActive = true;
+    if (query.status === 'suspended') where.isActive = false;
+    if (query.hasDebt === 'true') where.debtFcfa = { gt: 0 };
+    if (query.campusId) where.campuses = { some: { campusId: query.campusId } };
+    if (query.search) {
+      where.OR = [
+        { canteenName: { contains: query.search, mode: 'insensitive' } },
+        {
+          user: {
+            OR: [
+              { firstName: { contains: query.search, mode: 'insensitive' } },
+              { lastName: { contains: query.search, mode: 'insensitive' } },
+            ],
+          },
+        },
+      ];
+    }
+
+    const [total, vendors] = await this.prisma.$transaction([
+      this.prisma.vendor.count({ where }),
+      this.prisma.vendor.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        select: {
+          id: true,
+          canteenName: true,
+          isActive: true,
+          isOpen: true,
+          debtFcfa: true,
+          createdAt: true,
+          user: { select: { firstName: true, lastName: true } },
+          campuses: { select: { campus: { select: { id: true, name: true } } } },
+        },
+      }),
+    ]);
+
+    const vendorIds = vendors.map((v) => v.id);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    // Commandes créées aujourd'hui (jour calendaire), par vendeur — une seule
+    // requête groupée plutôt qu'un appel par vendeur affiché.
+    const todayOrdersGrouped = vendorIds.length
+      ? await this.prisma.order.groupBy({
+          by: ['vendorId'],
+          where: { vendorId: { in: vendorIds }, createdAt: { gte: todayStart } },
+          _count: { _all: true },
+        })
+      : [];
+    const todayOrdersByVendor = new Map(todayOrdersGrouped.map((g) => [g.vendorId, g._count._all]));
+
+    const data = vendors.map((v) => ({
+      id: v.id,
+      name: v.canteenName,
+      owner: [v.user?.firstName, v.user?.lastName].filter(Boolean).join(' ') || null,
+      campuses: v.campuses.map((vc) => vc.campus),
+      isActive: v.isActive,
+      isOpen: v.isOpen,
+      debtFcfa: Number(v.debtFcfa),
+      todayOrders: todayOrdersByVendor.get(v.id) ?? 0,
+      createdAt: v.createdAt,
+    }));
+
+    return {
+      data,
+      meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
     };
   }
 

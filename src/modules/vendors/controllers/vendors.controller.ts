@@ -20,12 +20,16 @@ import {
 import { VendorsService } from '../services/vendors.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
 import { UpdateVendorDto } from '../dto/update-vendor.dto';
+import { FindVendorsForAdminQueryDto } from '../dto/find-vendors-for-admin-query.dto';
 import { VendorEntity } from '../entities/vendor.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { Public } from '../../../common/decorators/public.decorator';
 
 @ApiTags('Vendors')
@@ -57,6 +61,18 @@ export class VendorsController {
   })
   findAll(@Query() paginationDto: PaginationDto) {
     return this.vendorsService.findAll(paginationDto.page, paginationDto.limit);
+  }
+
+  @Get('admin/list')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Liste des cantines enrichie (propriétaire, créance, commandes du jour) — dashboard admin web' })
+  @ApiQuery({ type: FindVendorsForAdminQueryDto })
+  @ApiResponse({ status: 200, description: 'Liste paginée des cantines avec données de gestion.' })
+  findAllForAdmin(@Query() query: FindVendorsForAdminQueryDto) {
+    return this.vendorsService.findAllForAdmin(query);
   }
 
   @Get(':id')

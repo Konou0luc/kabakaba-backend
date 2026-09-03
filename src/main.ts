@@ -137,6 +137,7 @@ export async function createNestApp() {
     origin: [
       'http://localhost:5173',
       'https://kabakaba-frontend.vercel.app',
+      'https://ka-bakaba.vercel.app',
     ],
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],

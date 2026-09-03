@@ -1,8 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { AmbassadorLevel, AmbassadorStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateAmbassadorDto } from '../dto/create-ambassador.dto';
+import { CreateSelfAmbassadorApplicationDto } from '../dto/create-self-ambassador-application.dto';
 import { UpdateAmbassadorDto } from '../dto/update-ambassador.dto';
 
 @Injectable()
@@ -12,6 +13,44 @@ export class AmbassadorsService {
   async create(createAmbassadorDto: CreateAmbassadorDto) {
     return this.prisma.ambassador.create({
       data: createAmbassadorDto,
+    });
+  }
+
+  async createSelfApplication(
+    userId: string,
+    dto: CreateSelfAmbassadorApplicationDto,
+  ) {
+    const existing = await this.prisma.ambassador.findFirst({
+      where: {
+        userId,
+        deletedAt: null,
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException('Une candidature ou un profil ambassadeur existe déjà pour cet utilisateur.');
+    }
+
+    if (dto.promoCode) {
+      const promoAlreadyUsed = await this.prisma.ambassador.findUnique({
+        where: { promoCode: dto.promoCode },
+      });
+
+      if (promoAlreadyUsed) {
+        throw new ConflictException('Ce code promo est déjà utilisé.');
+      }
+    }
+
+    return this.prisma.ambassador.create({
+      data: {
+        userId,
+        promoCode: dto.promoCode ?? null,
+        level: AmbassadorLevel.BRONZE,
+        status: AmbassadorStatus.PENDING,
+        schoolCardUrl: dto.schoolCardUrl ?? null,
+        institution: dto.institution ?? null,
+        faculty: dto.faculty ?? null,
+      },
     });
   }
 
