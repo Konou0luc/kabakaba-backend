@@ -9,6 +9,7 @@ import * as crypto from 'crypto';
 import helmet from 'helmet';
 import { getAbsoluteFSPath } from 'swagger-ui-dist';
 import { AllExceptionsFilter } from './common/filters/http-exception.filter';
+import { getAllowedOrigins } from './common/config/cors.config';
 
 /**
  * En production, /docs et /docs-json exposent la structure complète de
@@ -134,11 +135,7 @@ export async function createNestApp() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   app.enableCors({
-    origin: [
-      'http://localhost:5173',
-      'https://kabakaba-frontend.vercel.app',
-      'https://ka-bakaba.vercel.app',
-    ],
+    origin: getAllowedOrigins(),
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   });
