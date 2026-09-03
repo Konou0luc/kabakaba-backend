@@ -689,24 +689,40 @@ export class AnalyticsService {
   }
 
   // ─── Nouveau : Supervision ambassadeurs ───────────────────────────
+  // Inclut ACTIVE et SUSPENDED : la liste admin doit pouvoir afficher les
+  // deux (avec un badge de statut), contrairement à un classement public
+  // qui ne montrerait que les actifs.
   async getAmbassadorRanking(days = 30, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
 
-    const [ambassadors, affiliateCounts, commissionsWindow] = await Promise.all([
+    const [ambassadors, affiliateCounts, activeAffiliateRows, commissionsWindow] = await Promise.all([
       this.prisma.ambassador.findMany({
-        where: { deletedAt: null, status: 'ACTIVE' },
+        where: { deletedAt: null, status: { in: ['ACTIVE', 'SUSPENDED'] } },
         select: {
           id: true,
           level: true,
+          status: true,
           volume30d: true,
           promoCode: true,
-          user: { select: { firstName: true, lastName: true, campus: { select: { name: true } } } },
+          user: { select: { firstName: true, lastName: true, phone: true, campus: { select: { name: true } } } },
         },
       }),
       this.prisma.ambassadorAffiliate.groupBy({
         by: ['ambassadorId'],
         where: { deletedAt: null },
         _count: { _all: true },
+      }),
+      // Affilié "actif" = a effectué au moins une recharge réussie sur la
+      // période analysée. C'est sur les recharges (Payment), pas sur les
+      // commandes, que les commissions ambassadeur sont calculées
+      // (AmbassadorCommission.paymentId) — c'est donc le bon signal
+      // d'activité, cohérent avec la fiche détail d'un ambassadeur.
+      this.prisma.ambassadorAffiliate.findMany({
+        where: {
+          deletedAt: null,
+          student: { payments: { some: { status: 'SUCCESS', createdAt: { gte: since, lte: until } } } },
+        },
+        select: { ambassadorId: true },
       }),
       this.prisma.ambassadorCommission.findMany({
         where: { deletedAt: null, createdAt: { gte: since, lte: until } },
@@ -715,6 +731,13 @@ export class AnalyticsService {
     ]);
 
     const affiliateCountByAmbassador = new Map(affiliateCounts.map((a) => [a.ambassadorId, a._count._all]));
+    const activeAffiliateCountByAmbassador = new Map<string, number>();
+    for (const row of activeAffiliateRows) {
+      activeAffiliateCountByAmbassador.set(
+        row.ambassadorId,
+        (activeAffiliateCountByAmbassador.get(row.ambassadorId) ?? 0) + 1,
+      );
+    }
     const commissionByAmbassador = new Map<string, number>();
     for (const c of commissionsWindow) {
       commissionByAmbassador.set(c.ambassadorId, (commissionByAmbassador.get(c.ambassadorId) ?? 0) + Number(c.amount));
@@ -724,9 +747,12 @@ export class AnalyticsService {
       .map((a) => ({
         id: a.id,
         name: `${a.user?.firstName ?? ''} ${a.user?.lastName ?? ''}`.trim() || '—',
+        phone: a.user?.phone ?? null,
         campusName: a.user?.campus?.name ?? '—',
         level: a.level,
+        status: a.status,
         affiliates: affiliateCountByAmbassador.get(a.id) ?? 0,
+        activeAffiliates: activeAffiliateCountByAmbassador.get(a.id) ?? 0,
         volume: Number(a.volume30d),
         commission: commissionByAmbassador.get(a.id) ?? 0,
       }))
@@ -734,13 +760,16 @@ export class AnalyticsService {
       .map((row, i) => ({ rank: i + 1, ...row }));
 
     const levelCounts = { GOLD: 0, SILVER: 0, BRONZE: 0 };
-    for (const a of ambassadors) levelCounts[a.level] = (levelCounts[a.level] ?? 0) + 1;
+    const activeAmbassadors = ambassadors.filter((a) => a.status === 'ACTIVE');
+    for (const a of activeAmbassadors) levelCounts[a.level] = (levelCounts[a.level] ?? 0) + 1;
+    const suspendedCount = ambassadors.length - activeAmbassadors.length;
 
     const campusSet = new Set(ambassadors.map((a) => a.user?.campus?.name).filter(Boolean));
 
     return {
       summary: {
-        activeAmbassadors: ambassadors.length,
+        activeAmbassadors: activeAmbassadors.length,
+        suspendedAmbassadors: suspendedCount,
         campusCount: campusSet.size,
         totalVolume: rows.reduce((s, r) => s + r.volume, 0),
         totalCommission: rows.reduce((s, r) => s + r.commission, 0),
@@ -762,7 +791,7 @@ export class AnalyticsService {
 
     if (!ambassador) throw new NotFoundException(`Ambassadeur ${id} introuvable`);
 
-    const [affiliates, commissions, affiliateCount] = await Promise.all([
+    const [affiliates, commissions, affiliateCount, appeals, commissionByAffiliateRows] = await Promise.all([
       this.prisma.ambassadorAffiliate.findMany({
         where: { ambassadorId: id, deletedAt: null },
         include: { student: { select: { firstName: true, lastName: true, campus: { select: { name: true } } } } },
@@ -775,15 +804,36 @@ export class AnalyticsService {
         include: { payment: { select: { amountFcfa: true, createdAt: true } } },
       }),
       this.prisma.ambassadorAffiliate.count({ where: { ambassadorId: id, deletedAt: null } }),
+      this.prisma.ambassadorAppeal.findMany({
+        where: { ambassadorId: id, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+      }),
+      // Commission totale générée par chaque affilié (sur toute sa durée
+      // de vie, pas seulement la fenêtre analysée) — affiche "combien cet
+      // affilié a rapporté" dans l'onglet Affiliés.
+      this.prisma.ambassadorCommission.groupBy({
+        by: ['affiliateId'],
+        where: { ambassadorId: id, deletedAt: null, affiliateId: { not: null } },
+        _sum: { amount: true },
+      }),
     ]);
 
     const studentIds = affiliates.map((a) => a.studentId);
+    // "Recharges 30j" = recharges réussies dans la fenêtre analysée
+    // uniquement (avant ce correctif, la somme portait sur toute la durée
+    // de vie du compte, ce qui ne correspondait pas au libellé affiché).
     const rechargesByStudent = await this.prisma.payment.groupBy({
       by: ['userId'],
-      where: { userId: { in: studentIds }, status: 'SUCCESS' },
+      where: { userId: { in: studentIds }, status: 'SUCCESS', createdAt: { gte: since, lte: until } },
       _sum: { amountFcfa: true },
     });
     const rechargeSumByStudent = new Map(rechargesByStudent.map((r) => [r.userId, Number(r._sum.amountFcfa ?? 0)]));
+    const commissionSumByAffiliate = new Map(
+      commissionByAffiliateRows.map((r) => [r.affiliateId as string, Number(r._sum.amount ?? 0)]),
+    );
+    const affiliateNameById = new Map(
+      affiliates.map((a) => [a.id, `${a.student?.firstName ?? ''} ${a.student?.lastName ?? ''}`.trim() || '—']),
+    );
 
     const commissionsInWindow = commissions.filter((c) => c.createdAt >= since && c.createdAt <= until);
     const commissionThisMonth = commissionsInWindow.reduce((s, c) => s + Number(c.amount), 0);
@@ -823,19 +873,28 @@ export class AnalyticsService {
       affiliates: affiliates.map((a) => ({
         id: a.id,
         studentId: a.studentId,
-        name: `${a.student?.firstName ?? ''} ${a.student?.lastName ?? ''}`.trim() || '—',
+        name: affiliateNameById.get(a.id) ?? '—',
         campusName: a.student?.campus?.name ?? '—',
         since: a.createdAt,
         totalRecharge: rechargeSumByStudent.get(a.studentId) ?? 0,
+        commissionGenerated: commissionSumByAffiliate.get(a.id) ?? 0,
         active: (rechargeSumByStudent.get(a.studentId) ?? 0) > 0,
       })),
       commissions: commissions.map((c) => ({
         id: c.id,
         date: c.createdAt,
+        affiliateId: c.affiliateId,
+        affiliateName: c.affiliateId ? (affiliateNameById.get(c.affiliateId) ?? '—') : '—',
         rechargeAmount: c.payment ? Number(c.payment.amountFcfa) : null,
         levelApplied: c.levelApplied,
         commissionRate: c.commissionRate ? Number(c.commissionRate) : null,
         amount: Number(c.amount),
+      })),
+      appeals: appeals.map((ap) => ({
+        id: ap.id,
+        reason: ap.reason,
+        status: ap.status,
+        createdAt: ap.createdAt,
       })),
     };
   }
