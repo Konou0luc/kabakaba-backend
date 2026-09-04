@@ -51,7 +51,18 @@ export class DisputesController {
       vendorId = vendor ?? '__none__';
     }
 
-    return this.disputesService.findAll(query.page, query.limit, query.status, vendorId, studentId, query.orderId);
+    return this.disputesService.findAll(query.page, query.limit, query.status, vendorId, studentId, query.orderId, query.campusId, query.days);
+  }
+
+  @Get('stats')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'KPIs de la page Litiges (dashboard admin web)' })
+  @ApiResponse({ status: 200, description: 'Statistiques agrégées.' })
+  getStats() {
+    return this.disputesService.getStats();
   }
 
   @Get(':id')

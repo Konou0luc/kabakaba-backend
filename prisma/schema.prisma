@@ -171,19 +171,21 @@ model User {
 }
 
 model Vendor {
-  id          String    @id @default(uuid())
-  userId      String    @unique
-  canteenName String
-  logoUrl     String?
-  bannerUrl   String?
-  description String?
-  balanceFcfa Decimal   @default(0) @db.Decimal(10, 2)
-  debtFcfa    Decimal   @default(0) @db.Decimal(10, 2)
-  isActive    Boolean   @default(true)
-  isOpen      Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
+  id               String    @id @default(uuid())
+  userId           String    @unique
+  canteenName      String
+  logoUrl          String?
+  bannerUrl        String?
+  description      String?
+  balanceFcfa      Decimal   @default(0) @db.Decimal(10, 2)
+  debtFcfa         Decimal   @default(0) @db.Decimal(10, 2)
+  isActive         Boolean   @default(true)
+  isOpen           Boolean   @default(false)
+  suspendedAt      DateTime?
+  suspensionReason String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
 
   user        User             @relation(fields: [userId], references: [id])
   campuses    VendorCampus[]

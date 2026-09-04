@@ -77,7 +77,7 @@ export class AmbassadorsService {
         orderBy: { createdAt: 'desc' },
         include: {
           user: {
-            select: { firstName: true, lastName: true, phone: true, email: true, campus: { select: { name: true } } },
+            select: { firstName: true, lastName: true, phone: true, email: true, createdAt: true, campus: { select: { name: true } } },
           },
         },
       }),

@@ -18,4 +18,14 @@ export class FindTransactionsQueryDto extends PaginationDto {
   @IsOptional()
   @IsString()
   userId?: string;
+
+  @ApiProperty({ required: false, description: 'Filtrer par cantine (commandes/séquestres/remboursements liés à cette cantine, ou retraits de cette cantine)' })
+  @IsOptional()
+  @IsString()
+  vendorId?: string;
+
+  @ApiProperty({ required: false, description: "Filtrer par campus de l'utilisateur propriétaire de la transaction (approximatif pour les transactions vendeur : le compte vendeur n'a pas toujours un campus personnel renseigné)" })
+  @IsOptional()
+  @IsString()
+  campusId?: string;
 }

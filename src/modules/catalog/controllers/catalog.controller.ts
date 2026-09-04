@@ -29,9 +29,10 @@ import { MenuComponentEntity } from '../entities/menu-component.entity';
 import { PackagingOptionEntity } from '../entities/packaging-option.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
-import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../../common/guards/roles.guard';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { Public } from '../../../common/decorators/public.decorator';
 
 function actorFromRequest(req: any): CatalogActor {
@@ -49,8 +50,9 @@ export class CatalogController {
 
   @Post('menu-items')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new menu item (Admin or Vendor)' })
   @ApiResponse({
     status: 201,
@@ -92,8 +94,9 @@ export class CatalogController {
 
   @Patch('menu-items/:id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Update a menu item (Admin or Vendor)' })
   @ApiResponse({
     status: 200,
@@ -106,8 +109,9 @@ export class CatalogController {
 
   @Delete('menu-items/:id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Soft delete a menu item (Admin or Vendor)' })
   @ApiResponse({
     status: 200,
@@ -120,8 +124,9 @@ export class CatalogController {
   // Menu Components
   @Post('menu-components')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new menu component (Admin or Vendor)' })
   @ApiResponse({
     status: 201,
@@ -162,8 +167,9 @@ export class CatalogController {
 
   @Patch('menu-components/:id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Update a menu component (Admin or Vendor)' })
   @ApiResponse({
     status: 200,
@@ -180,8 +186,9 @@ export class CatalogController {
 
   @Delete('menu-components/:id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Soft delete a menu component (Admin or Vendor)' })
   @ApiResponse({
     status: 200,
@@ -194,8 +201,9 @@ export class CatalogController {
   // Packaging Options
   @Post('packaging-options')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new packaging option (Admin or Vendor)' })
   @ApiResponse({
     status: 201,
@@ -236,8 +244,9 @@ export class CatalogController {
 
   @Patch('packaging-options/:id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Update a packaging option (Admin or Vendor)' })
   @ApiResponse({
     status: 200,
@@ -254,8 +263,9 @@ export class CatalogController {
 
   @Delete('packaging-options/:id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Soft delete a packaging option (Admin or Vendor)' })
   @ApiResponse({
     status: 200,

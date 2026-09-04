@@ -189,6 +189,8 @@ export class OrdersService {
     vendorId?: string,
     status?: OrderStatus,
     vendorUserId?: string,
+    statuses?: OrderStatus[],
+    campusId?: string,
   ) {
     // Order.vendorId référence Vendor.id, pas User.id : quand un VENDOR
     // liste ses propres commandes (vendorUserId = son User.id), il faut
@@ -209,6 +211,8 @@ export class OrdersService {
       ...(studentId ? { studentId } : {}),
       ...(resolvedVendorId ? { vendorId: resolvedVendorId } : {}),
       ...(status ? { status } : {}),
+      ...(statuses && statuses.length > 0 ? { status: { in: statuses } } : {}),
+      ...(campusId ? { student: { campusId } } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.order.count({ where }),
@@ -217,6 +221,10 @@ export class OrdersService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
+        include: {
+          student: { select: { id: true, firstName: true, lastName: true, campus: { select: { id: true, name: true } } } },
+          vendor: { select: { id: true, canteenName: true } },
+        },
       }),
     ]);
 

@@ -71,7 +71,31 @@ export class TransactionsController {
       userId,
       query.type,
       query.status,
+      query.vendorId,
+      query.campusId,
     );
+  }
+
+  @Get('stats')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'KPIs de la page Transactions (dashboard admin web)' })
+  @ApiResponse({ status: 200, description: 'Statistiques agrégées.' })
+  getStats() {
+    return this.transactionsService.getStats();
+  }
+
+  @Get('debts')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Liste des créances vendeur actives (dashboard admin web)' })
+  @ApiResponse({ status: 200, description: 'Liste des créances actives.' })
+  findActiveDebts() {
+    return this.transactionsService.findActiveDebts();
   }
 
   @Get(':id')

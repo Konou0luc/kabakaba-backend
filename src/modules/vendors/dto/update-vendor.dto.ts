@@ -37,6 +37,11 @@ export class UpdateVendorDto {
   @IsBoolean()
   isOpen?: boolean;
 
+  @ApiProperty({ required: false, description: 'Motif de la suspension — requis en pratique quand isActive passe à false' })
+  @IsOptional()
+  @IsString()
+  suspensionReason?: string;
+
   @ApiProperty({
     type: [String],
     required: false,

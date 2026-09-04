@@ -58,13 +58,18 @@ export class DisputesService {
     vendorId?: string,
     studentId?: string,
     orderId?: string,
+    campusId?: string,
+    days?: number,
   ) {
     const skip = (page - 1) * limit;
+    const since = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
     const where = {
       ...(status ? { status } : {}),
       ...(vendorId ? { vendorId } : {}),
       ...(studentId ? { studentId } : {}),
       ...(orderId ? { orderId } : {}),
+      ...(campusId ? { student: { campusId } } : {}),
+      ...(since ? { createdAt: { gte: since } } : {}),
     };
 
     const [total, data] = await this.prisma.$transaction([
@@ -74,6 +79,11 @@ export class DisputesService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
+        include: {
+          student: { select: { id: true, firstName: true, lastName: true, campus: { select: { id: true, name: true } } } },
+          vendor: { select: { id: true, canteenName: true } },
+          order: { select: { id: true } },
+        },
       }),
     ]);
 
@@ -85,6 +95,38 @@ export class DisputesService {
         total,
         totalPages: Math.ceil(total / limit),
       },
+    };
+  }
+
+  // KPIs de la page Litiges (dashboard admin web).
+  async getStats() {
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const [openCount, inProgressCount, resolvedThisMonth] = await Promise.all([
+      this.prisma.dispute.count({ where: { status: 'OPEN' } }),
+      this.prisma.dispute.count({ where: { status: 'IN_PROGRESS' } }),
+      this.prisma.dispute.findMany({
+        where: { status: 'RESOLVED', resolvedAt: { gte: startOfMonth } },
+        select: { decision: true, createdAt: true, resolvedAt: true },
+      }),
+    ]);
+
+    const refundedCount = resolvedThisMonth.filter((d) => d.decision === 'REFUND').length;
+    const resolutionDelaysMs = resolvedThisMonth
+      .filter((d) => d.resolvedAt !== null)
+      .map((d) => d.resolvedAt!.getTime() - d.createdAt.getTime());
+    const avgResolutionMs = resolutionDelaysMs.length > 0
+      ? resolutionDelaysMs.reduce((s, ms) => s + ms, 0) / resolutionDelaysMs.length
+      : null;
+
+    return {
+      open: openCount,
+      inProgress: inProgressCount,
+      resolvedThisMonth: resolvedThisMonth.length,
+      refundedThisMonth: refundedCount,
+      avgResolutionMinutes: avgResolutionMs != null ? Math.round(avgResolutionMs / 60000) : null,
     };
   }
 

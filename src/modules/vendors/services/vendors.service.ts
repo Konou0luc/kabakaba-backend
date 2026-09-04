@@ -199,6 +199,41 @@ export class VendorsService {
     };
   }
 
+  // Détail complet d'une cantine pour la fiche admin (CantineFiche.jsx) :
+  // contrairement à findOne() ci-dessous (route publique, vitrine
+  // étudiante), on expose ici tout ce dont la gestion a besoin — contact
+  // du vendeur, créance, motif de suspension, campus affiliés en entier.
+  async findOneForAdmin(id: string) {
+    const vendor = await this.prisma.vendor.findUnique({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        canteenName: true,
+        logoUrl: true,
+        bannerUrl: true,
+        description: true,
+        debtFcfa: true,
+        balanceFcfa: true,
+        isActive: true,
+        isOpen: true,
+        suspendedAt: true,
+        suspensionReason: true,
+        createdAt: true,
+        user: { select: { id: true, firstName: true, lastName: true, phone: true, email: true } },
+        campuses: { select: { campus: { select: { id: true, name: true, city: true, institution: true } } } },
+      },
+    });
+
+    if (!vendor) throw new NotFoundException(`Vendor with id ${id} not found`);
+
+    return {
+      ...vendor,
+      debtFcfa: Number(vendor.debtFcfa),
+      balanceFcfa: Number(vendor.balanceFcfa),
+      campuses: vendor.campuses.map((vc) => vc.campus),
+    };
+  }
+
   async findOne(id: string) {
     const vendor = await this.prisma.vendor.findUnique({
       where: { id, deletedAt: null },
@@ -223,6 +258,19 @@ export class VendorsService {
 
     const { campusIds, ...profileFields } = updateVendorDto;
 
+    // isActive passe à false -> on horodate la suspension et on garde le
+    // motif transmis. isActive repasse à true -> on efface les deux (compte
+    // réactivé, le motif de l'ancienne suspension n'a plus lieu d'être
+    // affiché).
+    const suspensionFields: { suspendedAt?: Date | null; suspensionReason?: string | null } = {};
+    if (profileFields.isActive === false) {
+      suspensionFields.suspendedAt = new Date();
+      suspensionFields.suspensionReason = profileFields.suspensionReason ?? null;
+    } else if (profileFields.isActive === true) {
+      suspensionFields.suspendedAt = null;
+      suspensionFields.suspensionReason = null;
+    }
+
     if (campusIds) {
       const campuses = await this.prisma.campus.findMany({ where: { id: { in: campusIds } } });
       if (campuses.length !== campusIds.length) {
@@ -242,7 +290,7 @@ export class VendorsService {
 
       return tx.vendor.update({
         where: { id },
-        data: profileFields,
+        data: { ...profileFields, ...suspensionFields },
       });
     });
   }
