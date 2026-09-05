@@ -24,8 +24,6 @@ import { FindTransactionsQueryDto } from '../dto/find-transactions-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
-import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../../common/guards/roles.guard';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 
@@ -36,8 +34,9 @@ export class TransactionsController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Créer une nouvelle transaction (Admin seulement)' })
   @ApiResponse({
     status: 201,
@@ -114,8 +113,9 @@ export class TransactionsController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Mettre à jour une transaction (Admin seulement)' })
   @ApiResponse({
     status: 200,

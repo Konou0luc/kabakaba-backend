@@ -130,6 +130,162 @@ export class DisputesService {
     };
   }
 
+  /**
+   * Détail enrichi pour LitigeDetail.jsx : parties, timeline de la commande,
+   * et signaux de confiance calculés à partir de l'historique réel — pas de
+   * texte généré ("analyse automatique" façon IA), seulement des faits
+   * comptés en base. La maquette imaginait aussi une "version du vendeur"
+   * en texte libre : aucun champ de ce type n'existe sur Dispute (seul
+   * `reason`, rempli par l'auteur du litige, existe), donc ce n'est pas
+   * reconstruit ici.
+   */
+  async findContext(id: string) {
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id },
+      include: {
+        student: {
+          select: {
+            id: true, firstName: true, lastName: true, phone: true, walletBalance: true, createdAt: true,
+            isSuspended: true, suspensionReason: true, suspensionUntil: true,
+            campus: { select: { name: true } },
+          },
+        },
+        vendor: {
+          select: {
+            id: true, canteenName: true, balanceFcfa: true, isActive: true,
+            user: { select: { firstName: true, lastName: true } },
+            campuses: { select: { campus: { select: { name: true } } } },
+          },
+        },
+        order: {
+          include: {
+            statusHistory: { orderBy: { createdAt: 'asc' } },
+            review: true,
+            packagingOption: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!dispute) throw new NotFoundException(`Litige avec l'identifiant ${id} introuvable`);
+
+    const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const startOfMonth = new Date();
+    startOfMonth.setDate(1);
+    startOfMonth.setHours(0, 0, 0, 0);
+
+    const [
+      disputesThisMonth,
+      totalStudentOrders,
+      disputedOrderIdsRows,
+      suspensionCount,
+      ordersWithThisVendor,
+      vendorTotalOrders,
+      vendorRefusedOrders,
+      similarVendorDisputes,
+      vendorReadyOrders,
+      vendorReviewsAgg,
+    ] = await Promise.all([
+      this.prisma.dispute.count({
+        where: { studentId: dispute.studentId, createdAt: { gte: startOfMonth }, id: { not: id } },
+      }),
+      this.prisma.order.count({ where: { studentId: dispute.studentId, deletedAt: null } }),
+      this.prisma.dispute.findMany({ where: { studentId: dispute.studentId }, select: { orderId: true } }),
+      this.prisma.suspensionEvent.count({ where: { studentId: dispute.studentId } }),
+      this.prisma.order.count({ where: { studentId: dispute.studentId, vendorId: dispute.vendorId, deletedAt: null } }),
+      this.prisma.order.count({ where: { vendorId: dispute.vendorId, deletedAt: null } }),
+      this.prisma.order.count({
+        where: { vendorId: dispute.vendorId, deletedAt: null, status: { in: ['REFUSED', 'CANCELLED_VENDOR'] } },
+      }),
+      this.prisma.dispute.count({
+        where: { vendorId: dispute.vendorId, createdAt: { gte: sixMonthsAgo }, id: { not: id } },
+      }),
+      this.prisma.order.findMany({
+        where: { vendorId: dispute.vendorId, deletedAt: null, readyAt: { not: null }, createdAt: { gte: thirtyDaysAgo } },
+        select: { createdAt: true, readyAt: true },
+      }),
+      this.prisma.review.aggregate({
+        where: { vendorId: dispute.vendorId, deletedAt: null, createdAt: { gte: thirtyDaysAgo } },
+        _avg: { rating: true },
+        _count: true,
+      }),
+    ]);
+
+    const distinctDisputedOrders = new Set(disputedOrderIdsRows.map((r) => r.orderId)).size;
+    const incidentFreeOrders = Math.max(0, totalStudentOrders - distinctDisputedOrders);
+
+    const acceptanceRate = vendorTotalOrders > 0
+      ? Math.round(((vendorTotalOrders - vendorRefusedOrders) / vendorTotalOrders) * 100)
+      : null;
+
+    const prepDelaysMin = vendorReadyOrders.map((o) => (o.readyAt!.getTime() - o.createdAt.getTime()) / 60000);
+    const avgPrepMinutes = prepDelaysMin.length > 0
+      ? Math.round(prepDelaysMin.reduce((s, m) => s + m, 0) / prepDelaysMin.length)
+      : null;
+
+    return {
+      dispute: {
+        id: dispute.id,
+        reason: dispute.reason,
+        ticketAmount: dispute.ticketAmount,
+        status: dispute.status,
+        decision: dispute.decision,
+        decisionNote: dispute.decisionNote,
+        createdAt: dispute.createdAt,
+        resolvedAt: dispute.resolvedAt,
+      },
+      student: {
+        id: dispute.student.id,
+        name: `${dispute.student.firstName ?? ''} ${dispute.student.lastName ?? ''}`.trim(),
+        phone: dispute.student.phone,
+        campusName: dispute.student.campus?.name ?? null,
+        walletBalance: Number(dispute.student.walletBalance),
+        memberSince: dispute.student.createdAt,
+        isSuspended: dispute.student.isSuspended,
+        suspensionReason: dispute.student.suspensionReason,
+        suspensionUntil: dispute.student.suspensionUntil,
+      },
+      vendor: {
+        id: dispute.vendor.id,
+        canteenName: dispute.vendor.canteenName,
+        ownerName: `${dispute.vendor.user?.firstName ?? ''} ${dispute.vendor.user?.lastName ?? ''}`.trim(),
+        campusName: dispute.vendor.campuses[0]?.campus.name ?? null,
+        balanceFcfa: Number(dispute.vendor.balanceFcfa),
+        isActive: dispute.vendor.isActive,
+      },
+      order: {
+        id: dispute.order.id,
+        status: dispute.order.status,
+        totalTickets: dispute.order.totalTickets,
+        packagingOptionName: dispute.order.packagingOption?.name ?? null,
+        createdAt: dispute.order.createdAt,
+        readyAt: dispute.order.readyAt,
+        confirmedAt: dispute.order.confirmedAt,
+        statusHistory: dispute.order.statusHistory,
+        review: dispute.order.review
+          ? { rating: dispute.order.review.rating, comment: dispute.order.review.comment }
+          : null,
+      },
+      signals: {
+        student: {
+          disputesThisMonth,
+          incidentFreeOrders,
+          neverSuspended: suspensionCount === 0,
+          suspensionCount,
+          ordersWithThisVendor,
+          thisOrderAutoReceived: dispute.order.status === 'AUTO_RECEIVED',
+        },
+        vendor: {
+          acceptanceRate,
+          similarDisputesLast6Months: similarVendorDisputes,
+          avgPrepMinutes,
+          avgRating30d: vendorReviewsAgg._avg.rating != null ? Number(vendorReviewsAgg._avg.rating.toFixed(1)) : null,
+          reviewCount30d: vendorReviewsAgg._count,
+        },
+      },
+    };
+  }
+
   async findVendorIdByUserId(userId: string): Promise<string | null> {
     const vendor = await this.prisma.vendor.findUnique({ where: { userId } });
     return vendor?.id ?? null;

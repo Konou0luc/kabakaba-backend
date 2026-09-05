@@ -21,8 +21,6 @@ import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
-import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../../common/guards/roles.guard';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 
@@ -61,8 +59,9 @@ export class AdminController {
 
   @Post('audit-logs')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Créer un nouveau journal d\'audit (Admin seulement)' })
   @ApiResponse({
     status: 201,
@@ -75,8 +74,9 @@ export class AdminController {
 
   @Get('audit-logs')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Obtenir tous les journaux d\'audit (Admin seulement)' })
   @ApiQuery({ type: PaginationDto })
   @ApiResponse({
@@ -92,8 +92,9 @@ export class AdminController {
 
   @Get('audit-logs/:id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Obtenir un journal d\'audit (Admin seulement)' })
   @ApiResponse({
     status: 200,

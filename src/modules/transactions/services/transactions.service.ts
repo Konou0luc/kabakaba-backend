@@ -16,8 +16,11 @@ export class TransactionsService {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const ESCROWED_STATUSES: OrderStatus[] = ['PENDING', 'ACCEPTED', 'IN_PREPARATION', 'READY'];
-    const DEBITED_STATUSES: OrderStatus[] = ['RECEIVED', 'AUTO_RECEIVED'];
+    // La libération d'escrow (crédit du vendeur) se produit dès READY,
+    // pas à RECEIVED/AUTO_RECEIVED qui ne sont que des confirmations sans
+    // effet financier — voir orders.service.ts.
+    const ESCROWED_STATUSES: OrderStatus[] = ['PENDING', 'ACCEPTED', 'IN_PREPARATION'];
+    const DEBITED_STATUSES: OrderStatus[] = ['READY', 'RECEIVED', 'AUTO_RECEIVED'];
 
     const [
       transactionsToday,

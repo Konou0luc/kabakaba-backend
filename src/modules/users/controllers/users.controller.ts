@@ -28,7 +28,6 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../../common/guards/roles.guard';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { GetCurrentUserId } from '../../../common/decorators/get-current-user.decorator';
@@ -49,8 +48,9 @@ export class UsersController {
 
   @Post('staff')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Créer un compte ADMIN/VENDOR/SUPER_ADMIN (Admin/Super admin seulement)' })
   @ApiResponse({ status: 201, description: 'Compte créé avec succès.', type: UserEntity })
   createStaff(@Body() dto: CreateStaffUserDto) {
@@ -111,8 +111,9 @@ export class UsersController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Désactiver un utilisateur (soft delete — admin/super admin seulement)' })
   @ApiResponse({ status: 200, description: "L'utilisateur a été désactivé avec succès." })
   remove(@Param('id') id: string) {

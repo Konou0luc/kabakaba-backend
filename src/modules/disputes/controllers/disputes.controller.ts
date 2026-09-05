@@ -8,8 +8,6 @@ import { FindDisputesQueryDto } from '../dto/find-disputes-query.dto';
 import { DisputeEntity } from '../entities/dispute.entity';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
-import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../../common/guards/roles.guard';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 
@@ -20,8 +18,9 @@ export class DisputesController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Ouvrir un litige sur une commande' })
   @ApiResponse({ status: 201, description: 'Le litige a été créé avec succès.', type: DisputeEntity })
   @ApiResponse({ status: 403, description: 'Vous n\'êtes pas partie à cette commande.' })
@@ -63,6 +62,18 @@ export class DisputesController {
   @ApiResponse({ status: 200, description: 'Statistiques agrégées.' })
   getStats() {
     return this.disputesService.getStats();
+  }
+
+  @Get(':id/context')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: "Détail enrichi d'un litige pour la fiche admin : parties, timeline de commande, signaux de confiance" })
+  @ApiResponse({ status: 200, description: 'Contexte complet du litige.' })
+  @ApiResponse({ status: 404, description: 'Litige introuvable.' })
+  findContext(@Param('id') id: string) {
+    return this.disputesService.findContext(id);
   }
 
   @Get(':id')

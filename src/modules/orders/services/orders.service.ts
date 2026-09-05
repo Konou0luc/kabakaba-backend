@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { OrderStatus, UserRole } from '@prisma/client';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
@@ -8,6 +9,11 @@ interface Actor {
   id: string;
   role?: UserRole;
   isAdmin: boolean;
+  // 'web' = session admin dashboard (WebUser, pas de ligne User associée) ;
+  // 'mobile' ou absent = compte User réel (étudiant/vendeur/admin mobile).
+  // Distingue les deux car OrderStatusHistory.changedById référence User,
+  // jamais WebUser : y stocker un id de WebUser violerait la contrainte FK.
+  authKind?: 'mobile' | 'web';
 }
 
 @Injectable()
@@ -156,7 +162,22 @@ export class OrdersService {
       // propre barème — voir recharge-pricing.ts).
       const escrowAmount = totalTickets;
 
-      return tx.order.create({
+      // MISE EN SÉQUESTRE : avant ce correctif, aucune ligne de ce service
+      // ne vérifiait le solde de l'étudiant ni ne débitait son wallet à la
+      // commande — Order.escrowAmount n'était qu'un nombre stocké sans
+      // aucun effet financier réel. Débit conditionnel atomique (même
+      // pattern que wallet.service.ts pour les transferts) : la clause
+      // walletBalance >= totalTickets dans le where empêche toute commande
+      // au-delà du solde disponible, y compris en cas de requêtes concurrentes.
+      const debited = await tx.user.updateMany({
+        where: { id: studentId, walletBalance: { gte: totalTickets } },
+        data: { walletBalance: { decrement: totalTickets } },
+      });
+      if (debited.count === 0) {
+        throw new BadRequestException('Solde insuffisant pour cette commande');
+      }
+
+      const order = await tx.order.create({
         data: {
           studentId,
           vendorId,
@@ -179,6 +200,20 @@ export class OrdersService {
         },
         include: { items: { include: { components: true } } },
       });
+
+      await tx.transaction.create({
+        data: {
+          userId: studentId,
+          type: 'ESCROW_LOCK',
+          status: 'COMPLETED',
+          amount: escrowAmount,
+          reference: crypto.randomUUID(),
+          description: `Mise en séquestre pour la commande ${order.id}`,
+          relatedOrderId: order.id,
+        },
+      });
+
+      return order;
     });
   }
 
@@ -257,7 +292,7 @@ export class OrdersService {
   private static readonly VENDOR_UPDATABLE_FIELDS = ['status'] as const;
 
   async update(id: string, updateOrderDto: UpdateOrderDto, actor: Actor) {
-    await this.findOne(id, actor);
+    const existing = await this.findOne(id, actor);
 
     let data: Partial<UpdateOrderDto> = updateOrderDto;
 
@@ -274,9 +309,82 @@ export class OrdersService {
       }
     }
 
-    return this.prisma.order.update({
-      where: { id },
-      data,
+    const newStatus = data.status;
+
+    // Le remboursement d'une commande passe obligatoirement par la
+    // résolution d'un litige (disputes.service.ts gère déjà tout le calcul :
+    // solde vendeur insuffisant, créance, etc.) — jamais par ce PATCH
+    // générique, qui n'a aucune de ces garde-fous.
+    if (newStatus === 'REFUNDED') {
+      throw new BadRequestException(
+        "Un remboursement doit passer par la résolution d'un litige (POST /disputes puis PATCH /disputes/:id), pas par cet endpoint",
+      );
+    }
+
+    if (!newStatus || newStatus === existing.status) {
+      return this.prisma.order.update({ where: { id }, data });
+    }
+
+    // changedById référence User, jamais WebUser : un admin connecté depuis
+    // le dashboard web n'a pas de ligne User, donc pas d'auteur enregistré
+    // pour cette transition (le champ est optionnel).
+    const changedById = actor.authKind === 'web' ? null : actor.id;
+
+    return this.prisma.$transaction(async (tx) => {
+      const order = await tx.order.update({ where: { id }, data });
+
+      await tx.orderStatusHistory.create({
+        data: { orderId: id, oldStatus: existing.status, newStatus, changedById },
+      });
+
+      // LIBÉRATION D'ESCROW : au premier passage à READY (le vendeur a
+      // préparé la commande), pas à RECEIVED/AUTO_RECEIVED qui ne sont que
+      // des confirmations sans effet financier supplémentaire. Avant ce
+      // correctif, aucune ligne de code ne créditait jamais le vendeur.
+      if (newStatus === 'READY' && existing.status !== 'READY') {
+        const vendor = await tx.vendor.update({
+          where: { id: order.vendorId },
+          data: { balanceFcfa: { increment: order.escrowAmount } },
+        });
+        await tx.transaction.create({
+          data: {
+            userId: vendor.userId,
+            type: 'ESCROW_RELEASE',
+            status: 'COMPLETED',
+            amount: order.escrowAmount,
+            reference: crypto.randomUUID(),
+            description: `Libération du séquestre à la préparation de la commande ${order.id}`,
+            relatedOrderId: order.id,
+          },
+        });
+      }
+
+      // ANNULATION : le séquestre n'a jamais été consommé, il retourne
+      // intégralement à l'étudiant. Ne s'applique que si l'escrow n'avait
+      // pas déjà été libéré au vendeur (donc jamais après READY).
+      if (
+        (newStatus === 'REFUSED' || newStatus === 'CANCELLED_VENDOR') &&
+        existing.status !== 'REFUSED' &&
+        existing.status !== 'CANCELLED_VENDOR'
+      ) {
+        await tx.user.update({
+          where: { id: order.studentId },
+          data: { walletBalance: { increment: order.totalTickets } },
+        });
+        await tx.transaction.create({
+          data: {
+            userId: order.studentId,
+            type: 'REFUND',
+            status: 'COMPLETED',
+            amount: order.totalTickets,
+            reference: crypto.randomUUID(),
+            description: `Annulation de la commande ${order.id}, séquestre restitué à l'étudiant`,
+            relatedOrderId: order.id,
+          },
+        });
+      }
+
+      return order;
     });
   }
 

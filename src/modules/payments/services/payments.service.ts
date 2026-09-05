@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
@@ -168,6 +169,21 @@ export class PaymentsService {
         await tx.user.update({
           where: { id: payment.userId },
           data: { walletBalance: { increment: payment.ticketsReceived } },
+        });
+
+        // Avant ce correctif, aucune ligne de ce service ne créait de
+        // Transaction pour les recharges : le wallet était bien crédité,
+        // mais rien n'apparaissait jamais dans le grand livre (DEPOSIT).
+        await tx.transaction.create({
+          data: {
+            userId: payment.userId,
+            type: 'DEPOSIT',
+            status: 'COMPLETED',
+            amount: payment.ticketsReceived,
+            reference: crypto.randomUUID(),
+            description: `Recharge via ${payment.operator}`,
+            relatedPaymentId: payment.id,
+          },
         });
       }
 

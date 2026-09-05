@@ -103,9 +103,10 @@ export class OrdersController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
-  @ApiOperation({ summary: 'Mettre à jour une commande (Admin ou Vendeur)' })
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Mettre à jour une commande (Admin mobile/web ou Vendeur)' })
   @ApiResponse({
     status: 200,
     description: 'La commande a été mise à jour avec succès.',
@@ -113,14 +114,20 @@ export class OrdersController {
   })
   update(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto, @Request() req) {
     const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
-    return this.ordersService.update(id, updateOrderDto, { id: req.user.id, role: req.user.role, isAdmin });
+    return this.ordersService.update(id, updateOrderDto, {
+      id: req.user.id,
+      role: req.user.role,
+      isAdmin,
+      authKind: req.user.__authKind,
+    });
   }
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Supprimer une commande (Admin seulement)' })
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Supprimer une commande (Admin mobile/web)' })
   @ApiResponse({
     status: 200,
     description: 'La commande a été supprimée avec succès.',

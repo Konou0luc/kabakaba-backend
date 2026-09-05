@@ -129,7 +129,7 @@ export class SuspensionsService {
         take: limit,
         orderBy: { suspendedAt: 'desc' },
         include: {
-          student: { select: { id: true, firstName: true, lastName: true, email: true, isBanned: true } },
+          student: { select: { id: true, firstName: true, lastName: true, phone: true, isBanned: true, campus: { select: { id: true, name: true } } } },
         },
       }),
     ]);

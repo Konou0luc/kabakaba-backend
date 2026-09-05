@@ -23,9 +23,10 @@ import { UpdateNotificationDto } from '../dto/update-notification.dto';
 import { NotificationEntity } from '../entities/notification.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
-import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../../../common/guards/roles.guard';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 
 @ApiTags('Notifications')
 @Controller('notifications')
@@ -34,8 +35,9 @@ export class NotificationsController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Créer une nouvelle notification (Admin seulement)' })
   @ApiResponse({
     status: 201,
@@ -48,8 +50,9 @@ export class NotificationsController {
 
   @Get()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer toutes les notifications actives' })
   @ApiQuery({ type: PaginationDto })
   @ApiResponse({
@@ -70,8 +73,9 @@ export class NotificationsController {
 
   @Get(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer une notification active' })
   @ApiResponse({ status: 200, description: 'Retourne la notification.', type: NotificationEntity })
   @ApiResponse({ status: 404, description: 'Notification introuvable.' })
@@ -82,8 +86,9 @@ export class NotificationsController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Mettre à jour une notification (Admin ou propriétaire seulement)' })
   @ApiResponse({
     status: 200,
@@ -97,8 +102,9 @@ export class NotificationsController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Supprimer une notification (Admin seulement)' })
   @ApiResponse({
     status: 200,

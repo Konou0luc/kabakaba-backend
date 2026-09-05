@@ -27,9 +27,12 @@ import { InitiatePaymentDto } from '../dto/initiate-payment.dto';
 import { PaymentEntity } from '../entities/payment.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { GetCurrentUserId } from '../../../common/decorators/get-current-user.decorator';
 
 @ApiTags('Payments')
@@ -100,10 +103,11 @@ export class PaymentsController {
 
   @Post()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({
-    summary: 'Créer un paiement manuellement (Admin seulement — ex: ajustement, régularisation)',
+    summary: 'Créer un paiement manuellement (Admin mobile/web — ex: ajustement, régularisation)',
     description:
       "Réservé aux admins : un étudiant ne doit jamais pouvoir choisir librement ticketsReceived/amountFcfa. " +
       'Pour recharger son wallet, un étudiant passe uniquement par POST /payments/intent.',
@@ -119,8 +123,9 @@ export class PaymentsController {
 
   @Get()
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT)
+  @WebRoles(WebUserRole.ADMIN, WebUserRole.SUPERVISION)
   @ApiOperation({ summary: 'Récupérer tous les paiements actifs' })
   @ApiQuery({ type: PaginationDto })
   @ApiResponse({
@@ -140,8 +145,9 @@ export class PaymentsController {
 
   @Get(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT)
+  @WebRoles(WebUserRole.ADMIN, WebUserRole.SUPERVISION)
   @ApiOperation({ summary: 'Récupérer un paiement actif' })
   @ApiResponse({ status: 200, description: 'Retourne le paiement.', type: PaymentEntity })
   @ApiResponse({ status: 404, description: 'Paiement introuvable.' })
@@ -151,9 +157,10 @@ export class PaymentsController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Mettre à jour un paiement (Admin seulement)' })
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Mettre à jour un paiement (Admin mobile/web)' })
   @ApiResponse({
     status: 200,
     description: 'Le paiement a été mis à jour avec succès.',
@@ -165,9 +172,10 @@ export class PaymentsController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Supprimer un paiement (Admin seulement)' })
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Supprimer un paiement (Admin mobile/web)' })
   @ApiResponse({
     status: 200,
     description: 'Le paiement a été supprimé avec succès.',

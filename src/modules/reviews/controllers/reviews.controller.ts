@@ -23,9 +23,12 @@ import { UpdateReviewDto } from '../dto/update-review.dto';
 import { FindReviewsQueryDto } from '../dto/find-reviews-query.dto';
 import { ReviewEntity } from '../entities/review.entity';
 import { Roles } from '../../../common/decorators/roles.decorator';
-import { UserRole } from '@prisma/client';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
+import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
+import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
+import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { Public } from '../../../common/decorators/public.decorator';
 
 @ApiTags('Reviews')
@@ -73,9 +76,10 @@ export class ReviewsController {
 
   @Delete(':id')
   @ApiBearerAuth()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Supprimer un avis (Admin seulement)' })
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Supprimer un avis (Admin mobile/web)' })
   @ApiResponse({ status: 200, description: "L'avis a été supprimé avec succès." })
   remove(@Param('id') id: string) {
     return this.reviewsService.remove(id);
