@@ -160,6 +160,12 @@ export class AuthService {
               studentId: createdUser.id,
             },
           });
+          // CDC 10.5 — lastReferralAt sert au calcul d'inactivité de
+          // parrainage (avertissement 2 mois, suspension 3 mois).
+          await tx.ambassador.update({
+            where: { id: ambassador.id },
+            data: { lastReferralAt: new Date() },
+          });
         }
 
         return createdUser;

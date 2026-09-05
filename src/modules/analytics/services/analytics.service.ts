@@ -1,5 +1,9 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
+import {
+  COMMISSION_RATE_BY_LEVEL,
+  LEVEL_VOLUME_THRESHOLDS,
+} from '../../ambassadors/pricing/ambassador-commission';
 
 const COMPLETED_STATUSES = ['RECEIVED', 'AUTO_RECEIVED'];
 const DECIDED_STATUSES = ['RECEIVED', 'AUTO_RECEIVED', 'REFUSED', 'CANCELLED_VENDOR'];
@@ -19,12 +23,6 @@ export const RATING_LABELS: Record<number, string> = {
   3: "Ce n'est pas mal",
   4: 'Satisfait',
   5: 'Excellent',
-};
-
-const COMMISSION_RATE_BY_LEVEL: Record<string, number> = {
-  BRONZE: 0.005,
-  SILVER: 0.008,
-  GOLD: 0.012,
 };
 
 function daysAgo(n: number) {
@@ -838,7 +836,11 @@ export class AnalyticsService {
     const commissionsInWindow = commissions.filter((c) => c.createdAt >= since && c.createdAt <= until);
     const commissionThisMonth = commissionsInWindow.reduce((s, c) => s + Number(c.amount), 0);
 
-    const levelThresholds = { BRONZE: 0, SILVER: 50000, GOLD: 150000 };
+    const levelThresholds = {
+      BRONZE: 0,
+      SILVER: LEVEL_VOLUME_THRESHOLDS.SILVER,
+      GOLD: LEVEL_VOLUME_THRESHOLDS.GOLD,
+    };
     const nextLevel = ambassador.level === 'BRONZE' ? 'SILVER' : ambassador.level === 'SILVER' ? 'GOLD' : null;
 
     return {

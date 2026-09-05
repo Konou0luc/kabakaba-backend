@@ -1,0 +1,21 @@
+name: Ambassador daily (volume / level / inactivity)
+
+# CDC 10.3 / 10.5 — recalcul quotidien du volume 30 jours, des niveaux
+# (montée et descente) et suspension automatique pour inactivité de parrainage.
+
+on:
+  schedule:
+    # Tous les jours à 01:00 UTC (≈ 01:00–02:00 heure du Togo / Bénin).
+    - cron: '0 1 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  ambassador-daily:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler /internal/cron/ambassador-daily
+        run: |
+          curl -fsS --max-time 120 \
+            -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://kabakaba-backend.vercel.app/api/v1/internal/cron/ambassador-daily

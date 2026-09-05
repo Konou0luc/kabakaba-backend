@@ -1,6 +1,7 @@
 import { Controller, Logger, Post, UseGuards } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { CronAuthGuard } from '../../../common/guards/cron-auth.guard';
+import { AmbassadorsService } from '../../ambassadors/services/ambassadors.service';
 
 /**
  * Endpoints déclenchés par les workflows GitHub Actions (voir
@@ -9,9 +10,10 @@ import { CronAuthGuard } from '../../../common/guards/cron-auth.guard';
  * documenter reviendrait à publier la liste des tâches planifiées et leur
  * forme à quiconque consulte /docs.
  *
- * Chaque job métier (timeout commandes à 5 min, auto-réception à 1h,
- * recalcul quotidien des commissions ambassadeur) sera ajouté ici comme un
- * endpoint dédié, une fois cette brique validée en production.
+ * Jobs métier :
+ * - heartbeat : sonde infra
+ * - ambassador-daily : recalcul volume30d / level / suspension inactivité (CDC 10.3–10.5)
+ * - (futurs) timeout commandes 5 min, auto-réception 1 h
  */
 @ApiExcludeController()
 @Controller('internal/cron')
@@ -19,10 +21,23 @@ import { CronAuthGuard } from '../../../common/guards/cron-auth.guard';
 export class InternalCronController {
   private readonly logger = new Logger(InternalCronController.name);
 
+  constructor(private readonly ambassadorsService: AmbassadorsService) {}
+
   @Post('heartbeat')
   heartbeat() {
     const timestamp = new Date().toISOString();
     this.logger.log(`Heartbeat cron reçu à ${timestamp}`);
     return { ok: true, timestamp };
+  }
+
+  /**
+   * CDC 10.3 / 10.5 — à appeler une fois par jour (GitHub Actions schedule).
+   * Recalcule volume30d, met à jour les niveaux, avertit / suspend pour inactivité.
+   */
+  @Post('ambassador-daily')
+  async ambassadorDaily() {
+    this.logger.log('Cron ambassador-daily démarré');
+    const summary = await this.ambassadorsService.recalculateDailyStats();
+    return { ok: true, ...summary };
   }
 }
