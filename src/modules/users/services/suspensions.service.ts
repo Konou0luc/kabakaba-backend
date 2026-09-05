@@ -2,7 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { Prisma, SuspensionStatus, SuspensionTrigger } from '@prisma/client';
 
-const BAN_THRESHOLD = 5;
+const BAN_THRESHOLD = 3; // 3 suspensions / 30 j → ban définitif (règle anti-abus produit)
 const BAN_WINDOW_DAYS = 30;
 
 interface Actor {

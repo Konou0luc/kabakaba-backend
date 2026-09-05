@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
+import { SuspensionStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 
 @Injectable()
@@ -25,15 +26,46 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: { sub: string; role: string }) {
-    const user = await this.prisma.user.findUnique({
+    let user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
     });
 
-    // Un compte supprimé, suspendu ou banni ne doit pas pouvoir continuer à
-    // utiliser un access token déjà émis : sans ce contrôle, une suspension
-    // décidée par un admin ne prend effet qu'à l'expiration naturelle du
-    // token (jusqu'à 15 min) plutôt qu'immédiatement.
-    if (!user || user.deletedAt || user.isSuspended || user.isBanned) return null;
+    if (!user || user.deletedAt || user.isBanned) return null;
+
+    // Suspension temporaire expirée → levée automatique (fonds dégelés).
+    // Sans ça, un compte resterait bloqué après suspensionUntil jusqu'à
+    // une action admin manuelle.
+    if (user.isSuspended) {
+      if (user.suspensionUntil && user.suspensionUntil.getTime() <= Date.now()) {
+        await this.prisma.$transaction([
+          this.prisma.user.update({
+            where: { id: user.id },
+            data: {
+              isSuspended: false,
+              suspendedAt: null,
+              suspensionUntil: null,
+              suspensionReason: null,
+            },
+          }),
+          this.prisma.suspensionEvent.updateMany({
+            where: {
+              studentId: user.id,
+              status: SuspensionStatus.ACTIVE,
+            },
+            data: {
+              status: SuspensionStatus.EXPIRED,
+              liftedAt: new Date(),
+            },
+          }),
+        ]);
+        user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+        if (!user || user.deletedAt || user.isBanned) return null;
+      } else {
+        // Encore sous suspension : accès refusé → fonds gelés côté API
+        // (aucune commande / transfert / recharge possible).
+        return null;
+      }
+    }
 
     return { ...user, __authKind: 'mobile' as const };
   }

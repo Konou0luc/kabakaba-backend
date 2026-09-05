@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OrderStatus, UserRole } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
@@ -18,6 +18,8 @@ interface Actor {
 
 @Injectable()
 export class OrdersService {
+  private readonly logger = new Logger(OrdersService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -339,24 +341,92 @@ export class OrdersService {
 
       // LIBÉRATION D'ESCROW : au premier passage à READY (le vendeur a
       // préparé la commande), pas à RECEIVED/AUTO_RECEIVED qui ne sont que
-      // des confirmations sans effet financier supplémentaire. Avant ce
-      // correctif, aucune ligne de code ne créditait jamais le vendeur.
+      // des confirmations sans effet financier supplémentaire.
+      //
+      // CDC 4.7 — recouvrement automatique de créance : si le vendeur a une
+      // Debt non soldée, le crédit entrant sert d'abord à la résorber
+      // (FIFO sur les créances ouvertes). Seul le reliquat alimente
+      // balanceFcfa. debtFcfa est décrémenté en miroir.
       if (newStatus === 'READY' && existing.status !== 'READY') {
-        const vendor = await tx.vendor.update({
+        const credit = Number(order.escrowAmount);
+
+        const vendor = await tx.vendor.findUnique({
           where: { id: order.vendorId },
-          data: { balanceFcfa: { increment: order.escrowAmount } },
         });
+        if (!vendor) {
+          throw new NotFoundException(`Vendeur de la commande ${order.id} introuvable`);
+        }
+
+        const openDebts = await tx.debt.findMany({
+          where: {
+            vendorId: order.vendorId,
+            isRecovered: false,
+            deletedAt: null,
+            remainingAmount: { gt: 0 },
+          },
+          orderBy: { createdAt: 'asc' },
+        });
+
+        let remainingCredit = credit;
+        let totalRecovered = 0;
+
+        for (const debt of openDebts) {
+          if (remainingCredit <= 0) break;
+
+          const debtRemaining = Number(debt.remainingAmount);
+          const recovered = Math.min(remainingCredit, debtRemaining);
+          const newRemaining = debtRemaining - recovered;
+
+          await tx.debt.update({
+            where: { id: debt.id },
+            data: {
+              remainingAmount: newRemaining,
+              ...(newRemaining <= 0 ? { isRecovered: true } : {}),
+            },
+          });
+
+          remainingCredit -= recovered;
+          totalRecovered += recovered;
+        }
+
+        const currentDebtFcfa = Number(vendor.debtFcfa);
+        const newDebtFcfa = Math.max(0, currentDebtFcfa - totalRecovered);
+
+        await tx.vendor.update({
+          where: { id: order.vendorId },
+          data: {
+            balanceFcfa: { increment: remainingCredit },
+            debtFcfa: newDebtFcfa,
+          },
+        });
+
+        // Grand livre : libération intégrale du séquestre (flux commande → vendeur).
         await tx.transaction.create({
           data: {
             userId: vendor.userId,
             type: 'ESCROW_RELEASE',
             status: 'COMPLETED',
-            amount: order.escrowAmount,
+            amount: credit,
             reference: crypto.randomUUID(),
             description: `Libération du séquestre à la préparation de la commande ${order.id}`,
             relatedOrderId: order.id,
           },
         });
+
+        // Grand livre : part du crédit absorbée par les créances plateforme.
+        if (totalRecovered > 0) {
+          await tx.transaction.create({
+            data: {
+              userId: vendor.userId,
+              type: 'DEBT_RECOVERY',
+              status: 'COMPLETED',
+              amount: totalRecovered,
+              reference: crypto.randomUUID(),
+              description: `Recouvrement automatique de créance sur libération séquestre commande ${order.id}`,
+              relatedOrderId: order.id,
+            },
+          });
+        }
       }
 
       // ANNULATION : le séquestre n'a jamais été consommé, il retourne
@@ -394,5 +464,120 @@ export class OrdersService {
       where: { id },
       data: { deletedAt: new Date() },
     });
+  }
+
+  /**
+   * CDC 4.3 — commandes PENDING depuis plus de 5 minutes → CANCELLED_VENDOR
+   * + restitution du séquestre à l'étudiant. Déclenché par cron interne.
+   */
+  async processPendingTimeouts() {
+    const cutoff = new Date(Date.now() - 5 * 60 * 1000);
+    const expired = await this.prisma.order.findMany({
+      where: {
+        status: OrderStatus.PENDING,
+        deletedAt: null,
+        createdAt: { lte: cutoff },
+      },
+      select: { id: true, studentId: true, totalTickets: true },
+    });
+
+    let processed = 0;
+    for (const order of expired) {
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const claim = await tx.order.updateMany({
+            where: { id: order.id, status: OrderStatus.PENDING },
+            data: { status: OrderStatus.CANCELLED_VENDOR },
+          });
+          if (claim.count === 0) return;
+
+          await tx.orderStatusHistory.create({
+            data: {
+              orderId: order.id,
+              oldStatus: OrderStatus.PENDING,
+              newStatus: OrderStatus.CANCELLED_VENDOR,
+              changedById: null,
+            },
+          });
+
+          await tx.user.update({
+            where: { id: order.studentId },
+            data: { walletBalance: { increment: order.totalTickets } },
+          });
+
+          await tx.transaction.create({
+            data: {
+              userId: order.studentId,
+              type: 'REFUND',
+              status: 'COMPLETED',
+              amount: order.totalTickets,
+              reference: crypto.randomUUID(),
+              description: `Timeout 5 min — vendeur indisponible, séquestre restitué (commande ${order.id})`,
+              relatedOrderId: order.id,
+            },
+          });
+        });
+        processed += 1;
+      } catch (err) {
+        this.logger.error(`Timeout PENDING échoué pour ${order.id}: ${err}`);
+      }
+    }
+
+    const summary = { scanned: expired.length, processed, at: new Date().toISOString() };
+    this.logger.log(`Cron order-pending-timeout: ${JSON.stringify(summary)}`);
+    return summary;
+  }
+
+  /**
+   * CDC 4.6 — commandes READY depuis plus d'1 heure → AUTO_RECEIVED
+   * (aucun mouvement financier : le débit a déjà eu lieu à READY).
+   */
+  async processReadyAutoReceive() {
+    const cutoff = new Date(Date.now() - 60 * 60 * 1000);
+    // ready_at n'est pas forcément rempli : on s'appuie sur updatedAt du passage READY
+    // via OrderStatusHistory si disponible, sinon updatedAt de la commande.
+    const readyOrders = await this.prisma.order.findMany({
+      where: {
+        status: OrderStatus.READY,
+        deletedAt: null,
+        updatedAt: { lte: cutoff },
+      },
+      select: { id: true },
+    });
+
+    let processed = 0;
+    for (const order of readyOrders) {
+      try {
+        // Vérifie que le passage à READY date bien de plus d'1h
+        const readyEvent = await this.prisma.orderStatusHistory.findFirst({
+          where: { orderId: order.id, newStatus: OrderStatus.READY },
+          orderBy: { createdAt: 'desc' },
+        });
+        const readyAt = readyEvent?.createdAt ?? null;
+        if (readyAt && readyAt > cutoff) continue;
+
+        const claim = await this.prisma.order.updateMany({
+          where: { id: order.id, status: OrderStatus.READY },
+          data: { status: OrderStatus.AUTO_RECEIVED },
+        });
+        if (claim.count === 0) continue;
+
+        await this.prisma.orderStatusHistory.create({
+          data: {
+            orderId: order.id,
+            oldStatus: OrderStatus.READY,
+            newStatus: OrderStatus.AUTO_RECEIVED,
+            changedById: null,
+          },
+        });
+        processed += 1;
+      } catch (err) {
+        this.logger.error(`AUTO_RECEIVED échoué pour ${order.id}: ${err}`);
+      }
+    }
+
+    const summary = { scanned: readyOrders.length, processed, at: new Date().toISOString() };
+    this.logger.log(`Cron order-auto-receive: ${JSON.stringify(summary)}`);
+    return summary;
   }
 }

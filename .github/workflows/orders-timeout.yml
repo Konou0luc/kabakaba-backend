@@ -1,0 +1,21 @@
+name: Orders timeout (PENDING 5 min / READY 1 h)
+
+# CDC 4.3 / 4.6 — annulation auto des commandes sans réponse vendeur,
+# et passage AUTO_RECEIVED après 1 h en READY.
+
+on:
+  schedule:
+    # Toutes les minutes.
+    - cron: '* * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  orders-timeout:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler /internal/cron/orders-timeout
+        run: |
+          curl -fsS --max-time 60 \
+            -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://kabakaba-backend.vercel.app/api/v1/internal/cron/orders-timeout

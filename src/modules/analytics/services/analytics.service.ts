@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
+import { platformCoveredWithdrawalFee } from '../../vendors/pricing/withdrawal-fees';
 import {
   COMMISSION_RATE_BY_LEVEL,
   LEVEL_VOLUME_THRESHOLDS,
@@ -92,11 +93,6 @@ function buildDayKeys(since: Date, until: Date): string[] {
   return keys.reverse();
 }
 
-function uncoveredWithdrawalFee(amount: number, platformFee: number, operatorFee: number) {
-  if (amount < 10000) return platformFee + operatorFee;
-  if (amount < 30000) return operatorFee;
-  return 0;
-}
 
 @Injectable()
 export class AnalyticsService {
@@ -313,7 +309,7 @@ export class AnalyticsService {
     }
 
     for (const w of withdrawals) {
-      const fee = uncoveredWithdrawalFee(Number(w.amount), Number(w.platformFee), Number(w.operatorFee));
+      const fee = platformCoveredWithdrawalFee(Number(w.amount), Number(w.platformFee), Number(w.operatorFee));
       totalUncoveredFees += fee;
       for (const campusId of campusIdsByVendor.get(w.vendorId) ?? []) ensure(campusId).uncoveredFees += fee;
     }
@@ -343,7 +339,7 @@ export class AnalyticsService {
     for (const w of withdrawals) {
       const idx = dayKeys.indexOf(dayKey(w.createdAt));
       if (idx === -1) continue;
-      dailyNet[idx] -= uncoveredWithdrawalFee(Number(w.amount), Number(w.platformFee), Number(w.operatorFee));
+      dailyNet[idx] -= platformCoveredWithdrawalFee(Number(w.amount), Number(w.platformFee), Number(w.operatorFee));
     }
     for (const c of commissions) {
       const idx = dayKeys.indexOf(dayKey(c.createdAt));
