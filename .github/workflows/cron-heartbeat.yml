@@ -1,0 +1,24 @@
+name: Cron heartbeat (infra)
+
+# Vérifie que l'infrastructure cron (GitHub Actions -> endpoint interne
+# protégé par CRON_SECRET) fonctionne de bout en bout. Les futurs jobs
+# métier (timeout commandes 5 min, auto-réception 1h, recalcul quotidien
+# des commissions ambassadeur) seront ajoutés comme des jobs distincts dans
+# ce même fichier ou dans des fichiers dédiés, une fois cette brique validée.
+
+on:
+  schedule:
+    # Toutes les 5 minutes.
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler /internal/cron/heartbeat
+        run: |
+          curl -fsS --max-time 15 \
+            -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://kabakaba-backend.vercel.app/api/v1/internal/cron/heartbeat
