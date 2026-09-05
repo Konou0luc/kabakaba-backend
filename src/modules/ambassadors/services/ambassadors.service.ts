@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { AmbassadorLevel, AmbassadorStatus, NotificationType, PaymentStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
@@ -47,6 +47,29 @@ export class AmbassadorsService {
       }
     }
 
+    // CDC 10.2 : la faculté doit venir de la "liste réduite propre à son
+    // école" (FacultyList), configurée par campus via l'Admin web — jamais
+    // une saisie libre. On valide que facultyId existe, est active, et
+    // appartient bien au campus de l'étudiant (pas celui d'un autre campus).
+    const student = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { campusId: true },
+    });
+    if (!student?.campusId) {
+      throw new BadRequestException(
+        "Impossible de traiter la demande : aucun campus associé à ce compte étudiant",
+      );
+    }
+
+    const faculty = await this.prisma.facultyList.findUnique({
+      where: { id: dto.facultyId },
+    });
+    if (!faculty || !faculty.active || faculty.campusId !== student.campusId) {
+      throw new BadRequestException(
+        "Faculté/institut invalide pour le campus de l'étudiant",
+      );
+    }
+
     return this.prisma.ambassador.create({
       data: {
         userId,
@@ -55,7 +78,7 @@ export class AmbassadorsService {
         status: AmbassadorStatus.PENDING,
         schoolCardUrl: dto.schoolCardUrl ?? null,
         institution: dto.institution ?? null,
-        faculty: dto.faculty ?? null,
+        faculty: faculty.name,
       },
     });
   }

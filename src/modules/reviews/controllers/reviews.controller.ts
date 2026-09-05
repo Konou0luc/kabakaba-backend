@@ -29,7 +29,8 @@ import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
-import { Public } from '../../../common/decorators/public.decorator';
+import { WebJwtAuthGuard } from '../../../common/guards/web-jwt-auth.guard';
+import { WebRolesGuard } from '../../../common/guards/web-roles.guard';
 
 @ApiTags('Reviews')
 @Controller('reviews')
@@ -46,9 +47,14 @@ export class ReviewsController {
     return this.reviewsService.create(createReviewDto, req.user.id);
   }
 
+  // CDC 4.6 / 9.7 : "Ces avis sont visibles uniquement en interne, sur
+  // l'outil web (rôle Supervision). Ils ne sont pas affichés publiquement
+  // aux autres étudiants." — accès strictement réservé, jamais @Public().
   @Get()
-  @Public()
-  @ApiOperation({ summary: 'Récupérer tous les avis actifs — filtrable par vendeur, note, texte' })
+  @ApiBearerAuth()
+  @UseGuards(WebJwtAuthGuard, WebRolesGuard)
+  @WebRoles(WebUserRole.SUPERVISION)
+  @ApiOperation({ summary: 'Récupérer tous les avis actifs — filtrable par vendeur, note, texte (Supervision uniquement)' })
   @ApiQuery({ type: FindReviewsQueryDto })
   @ApiResponse({ status: 200, description: 'Retourne tous les avis actifs avec pagination.' })
   findAll(@Query() query: FindReviewsQueryDto) {
@@ -56,8 +62,10 @@ export class ReviewsController {
   }
 
   @Get(':id')
-  @Public()
-  @ApiOperation({ summary: 'Récupérer un avis actif' })
+  @ApiBearerAuth()
+  @UseGuards(WebJwtAuthGuard, WebRolesGuard)
+  @WebRoles(WebUserRole.SUPERVISION)
+  @ApiOperation({ summary: 'Récupérer un avis actif (Supervision uniquement)' })
   @ApiResponse({ status: 200, description: "Retourne l'avis.", type: ReviewEntity })
   @ApiResponse({ status: 404, description: 'Avis introuvable.' })
   findOne(@Param('id') id: string) {

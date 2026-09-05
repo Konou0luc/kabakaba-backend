@@ -14,7 +14,7 @@ import { SendOtpDto } from '../dto/send-otp.dto';
 import { VerifyOtpDto } from '../dto/verify-otp.dto';
 import { LoginEmailDto } from '../dto/login-email.dto';
 import * as bcrypt from 'bcrypt';
-import { UserRole } from '@prisma/client';
+import { AmbassadorStatus, UserRole } from '@prisma/client';
 
 @Injectable()
 export class AuthService {
@@ -129,12 +129,15 @@ export class AuthService {
         let ambassador: { id: string } | null = null;
 
         if (trimmedReferralCode) {
-          // SÉCURITÉ / RÈGLE MÉTIER : un code saisi mais introuvable bloque
-          // l'inscription (message d'erreur, l'étudiant doit corriger ou
-          // vider le champ) — ne jamais créer le compte silencieusement
-          // sans l'affiliation demandée.
-          ambassador = await tx.ambassador.findUnique({
-            where: { promoCode: trimmedReferralCode },
+          // SÉCURITÉ / RÈGLE MÉTIER (CDC 10.1) : le code personnel n'existe
+          // qu'à l'acceptation de la demande par l'Admin web. Un candidat
+          // peut proposer un code dès sa demande (choix produit), mais tant
+          // que sa candidature n'est pas ACTIVE, ce code ne doit affilier
+          // personne — sinon un candidat en attente (ou refusé) collecterait
+          // des affiliés avant toute validation. Filtrer sur status: ACTIVE
+          // plutôt que sur la simple existence du promoCode.
+          ambassador = await tx.ambassador.findFirst({
+            where: { promoCode: trimmedReferralCode, status: AmbassadorStatus.ACTIVE },
             select: { id: true },
           });
           if (!ambassador) {
