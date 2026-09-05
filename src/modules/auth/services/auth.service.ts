@@ -82,7 +82,7 @@ export class AuthService {
   }
 
   async verifyOtp(verifyOtpDto: VerifyOtpDto) {
-    const { phone, code, referralCode } = verifyOtpDto;
+    const { phone, code, referralCode, campusId } = verifyOtpDto;
 
     const otp = await this.prisma.otpCode.findFirst({
       where: { phone, used: false, expiresAt: { gt: new Date() } },
@@ -142,10 +142,24 @@ export class AuthService {
           }
         }
 
+        // CDC 2.1 — campus obligatoire à la première inscription.
+        if (!campusId?.trim()) {
+          throw new BadRequestException(
+            'Le campus est obligatoire à l\'inscription. Veuillez sélectionner votre campus.',
+          );
+        }
+        const campus = await tx.campus.findFirst({
+          where: { id: campusId, deletedAt: null },
+        });
+        if (!campus) {
+          throw new BadRequestException('Campus invalide ou inexistant');
+        }
+
         const createdUser = await tx.user.create({
           data: {
             phone,
             role: UserRole.STUDENT,
+            campusId: campus.id,
           },
         });
 

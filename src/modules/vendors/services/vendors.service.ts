@@ -295,6 +295,76 @@ export class VendorsService {
     });
   }
 
+  /**
+   * Profil vendeur connecté — solde, créance, ouverture (mobile vendeur).
+   */
+  async findMe(userId: string) {
+    const vendor = await this.prisma.vendor.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        userId: true,
+        canteenName: true,
+        logoUrl: true,
+        bannerUrl: true,
+        description: true,
+        balanceFcfa: true,
+        debtFcfa: true,
+        isActive: true,
+        isOpen: true,
+        suspendedAt: true,
+        suspensionReason: true,
+        createdAt: true,
+        updatedAt: true,
+        campuses: {
+          select: { campus: { select: { id: true, name: true, city: true, institution: true } } },
+        },
+      },
+    });
+    if (!vendor) {
+      throw new NotFoundException('Profil vendeur introuvable pour ce compte');
+    }
+    return {
+      ...vendor,
+      balanceFcfa: Number(vendor.balanceFcfa),
+      debtFcfa: Number(vendor.debtFcfa),
+      campuses: vendor.campuses.map((vc) => vc.campus),
+      withdrawalBlocked: Number(vendor.debtFcfa) > 0,
+    };
+  }
+
+  /**
+   * Le vendeur ne peut modifier que l'ouverture de sa cantine et les champs
+   * de présentation (pas isActive / campuses — réservés admin).
+   */
+  async updateMe(userId: string, dto: { isOpen?: boolean; description?: string; logoUrl?: string; bannerUrl?: string; canteenName?: string }) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { userId } });
+    if (!vendor || vendor.deletedAt) {
+      throw new NotFoundException('Profil vendeur introuvable pour ce compte');
+    }
+    if (!vendor.isActive) {
+      throw new ForbiddenException('Compte vendeur inactif — modification impossible');
+    }
+
+    const data: Record<string, unknown> = {};
+    if (dto.isOpen !== undefined) data.isOpen = dto.isOpen;
+    if (dto.description !== undefined) data.description = dto.description;
+    if (dto.logoUrl !== undefined) data.logoUrl = dto.logoUrl;
+    if (dto.bannerUrl !== undefined) data.bannerUrl = dto.bannerUrl;
+    if (dto.canteenName !== undefined) data.canteenName = dto.canteenName;
+
+    const updated = await this.prisma.vendor.update({
+      where: { id: vendor.id },
+      data,
+    });
+    return {
+      ...updated,
+      balanceFcfa: Number(updated.balanceFcfa),
+      debtFcfa: Number(updated.debtFcfa),
+      withdrawalBlocked: Number(updated.debtFcfa) > 0,
+    };
+  }
+
   async remove(id: string) {
     await this.findOne(id);
     return this.prisma.vendor.update({

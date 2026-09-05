@@ -20,6 +20,7 @@ import {
 import { OrdersService } from '../services/orders.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
+import { RefundOrderDto } from '../dto/refund-order.dto';
 import { OrderEntity } from '../entities/order.entity';
 import { FindOrdersQueryDto } from '../dto/find-orders-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -120,6 +121,38 @@ export class OrdersController {
       isAdmin,
       authKind: req.user.__authKind,
     });
+  }
+
+  @Post(':id/cancel')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.STUDENT)
+  @ApiOperation({
+    summary: 'Annuler sa commande (étudiant) — uniquement PENDING',
+    description:
+      'Restitue le séquestre et enregistre l\'événement anti-abus (avertissement / suspension 24h / ban).',
+  })
+  @ApiResponse({ status: 200, description: 'Commande annulée + info anti-abus' })
+  cancelByStudent(@Param('id') id: string, @Request() req) {
+    return this.ordersService.cancelByStudent(id, req.user.id);
+  }
+
+  @Post(':id/refund')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.VENDOR)
+  @ApiOperation({
+    summary: 'Remboursement post-READY (vendeur mobile) — CDC 4.7',
+    description:
+      'Motif obligatoire. Débite le solde vendeur ou crée une créance si insuffisant.',
+  })
+  @ApiResponse({ status: 200, description: 'Remboursement effectué' })
+  refundByVendor(
+    @Param('id') id: string,
+    @Body() dto: RefundOrderDto,
+    @Request() req,
+  ) {
+    return this.ordersService.refundByVendor(id, req.user.id, dto);
   }
 
   @Delete(':id')

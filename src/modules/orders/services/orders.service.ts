@@ -4,6 +4,8 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
+import { RefundOrderDto } from '../dto/refund-order.dto';
+import { AbuseService } from '../../abuse/services/abuse.service';
 
 interface Actor {
   id: string;
@@ -20,7 +22,10 @@ interface Actor {
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly abuseService: AbuseService,
+  ) {}
 
   /**
    * Un STUDENT ne peut accéder qu'à ses propres commandes, un VENDOR qu'aux
@@ -579,5 +584,181 @@ export class OrdersService {
     const summary = { scanned: readyOrders.length, processed, at: new Date().toISOString() };
     this.logger.log(`Cron order-auto-receive: ${JSON.stringify(summary)}`);
     return summary;
+  }
+
+  /**
+   * Annulation par l'étudiant — uniquement en PENDING (avant acceptation vendeur).
+   * Restitue le séquestre + enregistre l'anti-abus.
+   */
+  async cancelByStudent(orderId: string, studentId: string) {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, deletedAt: null },
+    });
+    if (!order) throw new NotFoundException(`Commande ${orderId} introuvable`);
+    if (order.studentId !== studentId) {
+      throw new ForbiddenException('Vous ne pouvez annuler que vos propres commandes');
+    }
+    if (order.status !== OrderStatus.PENDING) {
+      throw new BadRequestException(
+        'Seules les commandes en attente (PENDING) peuvent être annulées par l\'étudiant',
+      );
+    }
+
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const claim = await tx.order.updateMany({
+        where: { id: orderId, status: OrderStatus.PENDING },
+        data: { status: OrderStatus.CANCELLED_STUDENT },
+      });
+      if (claim.count === 0) {
+        throw new BadRequestException('La commande n\'est plus en attente');
+      }
+
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId,
+          oldStatus: OrderStatus.PENDING,
+          newStatus: OrderStatus.CANCELLED_STUDENT,
+          changedById: studentId,
+        },
+      });
+
+      await tx.user.update({
+        where: { id: studentId },
+        data: { walletBalance: { increment: order.totalTickets } },
+      });
+
+      await tx.transaction.create({
+        data: {
+          userId: studentId,
+          type: 'REFUND',
+          status: 'COMPLETED',
+          amount: order.totalTickets,
+          reference: crypto.randomUUID(),
+          description: `Annulation étudiant — séquestre restitué (commande ${orderId})`,
+          relatedOrderId: orderId,
+        },
+      });
+
+      return tx.order.findUnique({ where: { id: orderId } });
+    });
+
+    const abuse = await this.abuseService.trackStudentCancellation(studentId);
+
+    return { order: updated, abuse };
+  }
+
+  /**
+   * CDC 4.7 — remboursement post-READY déclenché par le vendeur (mobile).
+   * Solde suffisant → débit vendeur + crédit étudiant.
+   * Solde insuffisant → avance plateforme + Debt + debtFcfa.
+   */
+  async refundByVendor(orderId: string, vendorUserId: string, dto: { reason: string }) {
+    const reason = dto.reason?.trim();
+    if (!reason || reason.length < 3) {
+      throw new BadRequestException('Motif de remboursement obligatoire');
+    }
+
+    const vendor = await this.prisma.vendor.findUnique({ where: { userId: vendorUserId } });
+    if (!vendor) throw new NotFoundException('Profil vendeur introuvable');
+
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, deletedAt: null },
+    });
+    if (!order) throw new NotFoundException(`Commande ${orderId} introuvable`);
+    if (order.vendorId !== vendor.id) {
+      throw new ForbiddenException('Cette commande ne appartient pas à votre cantine');
+    }
+    if (order.status !== OrderStatus.READY && order.status !== OrderStatus.RECEIVED && order.status !== OrderStatus.AUTO_RECEIVED) {
+      throw new BadRequestException(
+        'Un remboursement vendeur n\'est possible qu\'après l\'état READY (commande prête ou reçue)',
+      );
+    }
+
+    const refundAmount = order.totalTickets;
+
+    return this.prisma.$transaction(async (tx) => {
+      const claim = await tx.order.updateMany({
+        where: {
+          id: orderId,
+          status: { in: [OrderStatus.READY, OrderStatus.RECEIVED, OrderStatus.AUTO_RECEIVED] },
+        },
+        data: { status: OrderStatus.REFUNDED },
+      });
+      if (claim.count === 0) {
+        throw new BadRequestException('Commande déjà remboursée ou statut incompatible');
+      }
+
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId,
+          oldStatus: order.status,
+          newStatus: OrderStatus.REFUNDED,
+          changedById: vendorUserId,
+        },
+      });
+
+      const freshVendor = await tx.vendor.findUnique({ where: { id: vendor.id } });
+      const vendorBalance = Number(freshVendor!.balanceFcfa);
+      const debitFromVendor = Math.min(vendorBalance, refundAmount);
+      const platformAdvance = refundAmount - debitFromVendor;
+
+      await tx.vendor.update({
+        where: { id: vendor.id },
+        data: {
+          balanceFcfa: { decrement: debitFromVendor },
+          ...(platformAdvance > 0 ? { debtFcfa: { increment: platformAdvance } } : {}),
+        },
+      });
+
+      if (platformAdvance > 0) {
+        await tx.debt.create({
+          data: {
+            vendorId: vendor.id,
+            amount: platformAdvance,
+            remainingAmount: platformAdvance,
+            reason: `Avance plateforme — remboursement vendeur commande ${orderId} : ${reason}`,
+          },
+        });
+      }
+
+      await tx.user.update({
+        where: { id: order.studentId },
+        data: { walletBalance: { increment: refundAmount } },
+      });
+
+      await tx.transaction.create({
+        data: {
+          userId: order.studentId,
+          type: 'REFUND',
+          status: 'COMPLETED',
+          amount: refundAmount,
+          reference: crypto.randomUUID(),
+          description: `Remboursement vendeur post-READY (commande ${orderId}) : ${reason}`,
+          relatedOrderId: orderId,
+        },
+      });
+
+      if (debitFromVendor > 0) {
+        await tx.transaction.create({
+          data: {
+            userId: vendor.userId,
+            type: 'PAYMENT',
+            status: 'COMPLETED',
+            amount: debitFromVendor,
+            reference: crypto.randomUUID(),
+            description: `Débit remboursement commande ${orderId}`,
+            relatedOrderId: orderId,
+          },
+        });
+      }
+
+      return {
+        order: await tx.order.findUnique({ where: { id: orderId } }),
+        refundAmount,
+        debitFromVendor,
+        platformAdvance,
+        reason,
+      };
+    });
   }
 }

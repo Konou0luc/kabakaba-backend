@@ -74,6 +74,35 @@ export class VendorsController {
     return this.vendorsService.findAllForAdmin(query);
   }
 
+  @Get('me')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.VENDOR)
+  @ApiOperation({
+    summary: 'Profil de la cantine du vendeur connecté (solde, créance, ouvert/fermé)',
+  })
+  @ApiResponse({ status: 200, description: 'Profil vendeur enrichi.' })
+  findMe(@Request() req) {
+    return this.vendorsService.findMe(req.user.id);
+  }
+
+  @Patch('me')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.VENDOR)
+  @ApiOperation({
+    summary: 'Mettre à jour sa cantine (isOpen, description, logo…) — vendeur mobile',
+  })
+  updateMe(@Body() body: UpdateVendorDto, @Request() req) {
+    return this.vendorsService.updateMe(req.user.id, {
+      isOpen: body.isOpen,
+      description: body.description,
+      logoUrl: body.logoUrl,
+      bannerUrl: body.bannerUrl,
+      canteenName: body.canteenName,
+    });
+  }
+
   @Get('admin/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
