@@ -82,7 +82,7 @@ export class AuthService {
   }
 
   async verifyOtp(verifyOtpDto: VerifyOtpDto) {
-    const { phone, code } = verifyOtpDto;
+    const { phone, code, referralCode } = verifyOtpDto;
 
     const otp = await this.prisma.otpCode.findFirst({
       where: { phone, used: false, expiresAt: { gt: new Date() } },
@@ -117,11 +117,52 @@ export class AuthService {
     let user = await this.usersService.findByPhone(phone);
 
     if (!user) {
-      user = await this.prisma.user.create({
-        data: {
-          phone,
-          role: UserRole.STUDENT,
-        },
+      // CDC 2.1 [NOUVEAU v1.1] : le code de parrainage n'a de sens qu'à la
+      // toute première inscription — un compte déjà existant qui se
+      // reconnecte ignore silencieusement ce champ (voir plus bas, hors de
+      // ce bloc). Trim d'abord : un champ laissé vide côté mobile arrive
+      // souvent comme "" plutôt qu'absent, et ne doit pas être traité comme
+      // un code invalide.
+      const trimmedReferralCode = referralCode?.trim();
+
+      user = await this.prisma.$transaction(async (tx) => {
+        let ambassador: { id: string } | null = null;
+
+        if (trimmedReferralCode) {
+          // SÉCURITÉ / RÈGLE MÉTIER : un code saisi mais introuvable bloque
+          // l'inscription (message d'erreur, l'étudiant doit corriger ou
+          // vider le champ) — ne jamais créer le compte silencieusement
+          // sans l'affiliation demandée.
+          ambassador = await tx.ambassador.findUnique({
+            where: { promoCode: trimmedReferralCode },
+            select: { id: true },
+          });
+          if (!ambassador) {
+            throw new BadRequestException('Code de parrainage invalide ou inexistant');
+          }
+        }
+
+        const createdUser = await tx.user.create({
+          data: {
+            phone,
+            role: UserRole.STUDENT,
+          },
+        });
+
+        if (ambassador) {
+          // Affiliation définitive : aucun endpoint n'existe pour modifier
+          // ou supprimer une AmbassadorAffiliate une fois créée (voir CDC
+          // 2.1 — "il n'est plus possible d'ajouter, modifier ou retirer un
+          // code de parrainage après coup").
+          await tx.ambassadorAffiliate.create({
+            data: {
+              ambassadorId: ambassador.id,
+              studentId: createdUser.id,
+            },
+          });
+        }
+
+        return createdUser;
       });
     }
 
