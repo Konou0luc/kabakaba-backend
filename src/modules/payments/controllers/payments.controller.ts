@@ -22,7 +22,7 @@ import {
 import { PaymentsService } from '../services/payments.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
-import { CreatePaymentIntentDto } from '../dto/create-payment-intent.dto';
+import { CreatePaymentIntentDto, PreviewRechargeDto } from '../dto/create-payment-intent.dto';
 import { InitiatePaymentDto } from '../dto/initiate-payment.dto';
 import { PaymentEntity } from '../entities/payment.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
@@ -42,12 +42,28 @@ export class PaymentsController {
     private readonly paymentsService: PaymentsService,
   ) {}
 
+  @Post('preview')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STUDENT)
+  @ApiOperation({
+    summary: 'Récap recharge (sans paiement) — montant FCFA → tickets',
+    description:
+      "L'étudiant saisit le montant qu'il va payer. Les frais sont inclus ; " +
+      'on renvoie les tickets qui seront crédités. Ex. 2200 FCFA → 2000 tickets.',
+  })
+  previewRecharge(@Body() dto: PreviewRechargeDto) {
+    return this.paymentsService.previewRecharge(dto.amountFcfa);
+  }
+
   @Post('intent')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.STUDENT)
   @ApiOperation({
-    summary: 'Créer une intention de paiement (Étudiant seulement)',
+    summary: 'Créer une intention de paiement (Étudiant)',
+    description:
+      'Préférer amountFcfa (montant payé, frais inclus). ticketsReceived reste accepté (legacy).',
   })
   @ApiResponse({
     status: 201,
@@ -58,8 +74,11 @@ export class PaymentsController {
     @GetCurrentUserId() userId: string,
   ) {
     return this.paymentsService.createPaymentIntent(
-      createPaymentIntentDto.ticketsReceived,
-      createPaymentIntentDto.operator,
+      {
+        amountFcfa: createPaymentIntentDto.amountFcfa,
+        ticketsReceived: createPaymentIntentDto.ticketsReceived,
+        operator: createPaymentIntentDto.operator,
+      },
       userId,
     );
   }

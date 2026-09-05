@@ -18,6 +18,7 @@ const SELF_UPDATABLE_FIELDS = [
   'lastName',
   'avatarUrl',
   'password',
+  'campusId', // CDC 2.1 — changement de campus depuis les paramètres
   'notifyOrders',
   'notifyAmbassador',
   'notifyPromotions',

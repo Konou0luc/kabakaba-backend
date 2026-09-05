@@ -8,7 +8,10 @@ import { UserRole, WithdrawalStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateWithdrawalDto } from '../dto/create-withdrawal.dto';
-import { computeWithdrawalFees } from '../pricing/withdrawal-fees';
+import {
+  computeWithdrawalFees,
+  MobileOperator,
+} from '../pricing/withdrawal-fees';
 
 interface Actor {
   id: string;
@@ -21,17 +24,40 @@ export class WithdrawalsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * CDC 5.3 — demande de retrait vendeur.
-   * - Bloqué si créance active (debtFcfa > 0)
-   * - Frais calculés serveur selon seuils 10k / 30k
-   * - Débit atomique balanceFcfa (pattern gte, comme wallet.service)
-   * - Withdrawal créé en PENDING (décaissement Mobile Money manuel côté Admin)
+   * Récapitulatif sans débit — écran mobile avant confirmation.
+   */
+  preview(amount: number, operator: MobileOperator) {
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new BadRequestException('Montant de retrait invalide');
+    }
+    const fees = computeWithdrawalFees(amount, operator);
+    return {
+      tier: fees.tier,
+      operator: fees.operator,
+      amountRequested: fees.amountRequested,
+      fedapayFee: fees.fedapayFee,
+      cashOutFee: fees.cashOutFee,
+      payoutAmountToSend: fees.payoutAmountToSend,
+      debitedFromBalance: fees.debitedFromBalance,
+      vendorBorneFedapayFee: fees.vendorBorneFedapayFee,
+      platformCost: fees.platformCost,
+      lines: fees.summaryLines,
+    };
+  }
+
+  /**
+   * Demande de retrait vendeur.
+   * - Bloqué si créance active
+   * - Frais : barèmes FedaPay + Flooz/Mixx + paliers Kabakaba 10k / 30k
+   * - Débit atomique balanceFcfa
+   * - Withdrawal PENDING (payout FedaPay à brancher / traité ensuite)
    */
   async request(dto: CreateWithdrawalDto, actor: Actor) {
     const amount = Number(dto.amount);
     if (!Number.isFinite(amount) || amount <= 0) {
       throw new BadRequestException('Montant de retrait invalide');
     }
+    const operator = (dto.operator || 'MIXX') as MobileOperator;
 
     const vendor = await this.prisma.vendor.findUnique({
       where: { userId: actor.id },
@@ -50,11 +76,10 @@ export class WithdrawalsService {
       );
     }
 
-    const fees = computeWithdrawalFees(amount);
-    const totalDebit = amount + fees.vendorBorneTotal;
+    const fees = computeWithdrawalFees(amount, operator);
+    const totalDebit = fees.debitedFromBalance;
 
     return this.prisma.$transaction(async (tx) => {
-      // Débit conditionnel atomique — même pattern que wallet.service.ts
       const debit = await tx.vendor.updateMany({
         where: {
           id: vendor.id,
@@ -68,16 +93,17 @@ export class WithdrawalsService {
 
       if (debit.count === 0) {
         throw new BadRequestException(
-          `Solde insuffisant. Requis : ${totalDebit} FCFA (montant ${amount} + frais ${fees.vendorBorneTotal}).`,
+          `Solde insuffisant. Requis : ${totalDebit} FCFA.`,
         );
       }
 
+      // operatorFee = frais FedaPay ; platformFee = frais cash ajoutés (palier ≥30k)
       const withdrawal = await tx.withdrawal.create({
         data: {
           vendorId: vendor.id,
           amount,
-          platformFee: fees.platformFee,
-          operatorFee: fees.operatorFee,
+          platformFee: fees.cashOutFee,
+          operatorFee: fees.fedapayFee,
           status: WithdrawalStatus.PENDING,
         },
       });
@@ -89,23 +115,27 @@ export class WithdrawalsService {
           status: 'COMPLETED',
           amount: totalDebit,
           reference: crypto.randomUUID(),
-          description: `Demande de retrait ${amount} FCFA (frais vendeur ${fees.vendorBorneTotal} FCFA) — ${withdrawal.id}`,
+          description:
+            `Retrait ${amount} FCFA via ${operator} → payout ${fees.payoutAmountToSend} FCFA ` +
+            `(FedaPay ${fees.fedapayFee}, cash ${fees.cashOutFee}) — ${withdrawal.id}`,
         },
       });
 
       return {
         withdrawal,
-        fees: {
-          platformFee: fees.platformFee,
-          operatorFee: fees.operatorFee,
-          vendorBorneTotal: fees.vendorBorneTotal,
-          platformCoveredTotal: fees.platformCoveredTotal,
-          totalDebited: totalDebit,
+        recap: {
+          tier: fees.tier,
+          operator: fees.operator,
+          amountRequested: fees.amountRequested,
+          fedapayFee: fees.fedapayFee,
+          cashOutFee: fees.cashOutFee,
+          payoutAmountToSend: fees.payoutAmountToSend,
+          debitedFromBalance: fees.debitedFromBalance,
+          vendorBorneFedapayFee: fees.vendorBorneFedapayFee,
+          platformCost: fees.platformCost,
+          lines: fees.summaryLines,
         },
-        message:
-          fees.vendorBorneTotal > 0
-            ? `Retrait enregistré. Frais à votre charge : ${fees.vendorBorneTotal} FCFA. Total débité : ${totalDebit} FCFA. Traitement manuel par l'équipe.`
-            : `Retrait enregistré. Aucun frais à votre charge. Total débité : ${totalDebit} FCFA. Traitement manuel par l'équipe.`,
+        message: fees.summaryLines.join(' '),
       };
     });
   }
@@ -168,16 +198,21 @@ export class WithdrawalsService {
   }
 
   /**
-   * Passage PENDING → COMPLETED / FAILED réservé Admin (décaissement manuel).
-   * COMPLETED : pas de mouvement de solde supplémentaire (déjà débité à la demande).
-   * FAILED : recrédite amount + frais vendeur sur balanceFcfa.
+   * Admin : PROCESSING | COMPLETED | FAILED.
+   * FAILED : recrédite le montant débité (amount + frais vendeur éventuels).
+   * COMPLETED : le payout FedaPay a été envoyé pour `payoutAmountToSend`
+   * (à calculer à nouveau via computeWithdrawalFees si besoin côté admin).
    */
   async updateStatus(id: string, status: WithdrawalStatus, actor: Actor) {
     if (!actor.isAdmin && actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUPER_ADMIN) {
       throw new ForbiddenException('Action réservée aux administrateurs');
     }
 
-    if (status !== WithdrawalStatus.COMPLETED && status !== WithdrawalStatus.FAILED && status !== WithdrawalStatus.PROCESSING) {
+    if (
+      status !== WithdrawalStatus.COMPLETED &&
+      status !== WithdrawalStatus.FAILED &&
+      status !== WithdrawalStatus.PROCESSING
+    ) {
       throw new BadRequestException('Statut cible non autorisé');
     }
 
@@ -186,13 +221,31 @@ export class WithdrawalsService {
       if (!existing || existing.deletedAt) {
         throw new NotFoundException('Retrait introuvable');
       }
-      if (existing.status === WithdrawalStatus.COMPLETED || existing.status === WithdrawalStatus.FAILED) {
+      if (
+        existing.status === WithdrawalStatus.COMPLETED ||
+        existing.status === WithdrawalStatus.FAILED
+      ) {
         throw new BadRequestException(`Retrait déjà terminé (${existing.status})`);
       }
 
       if (status === WithdrawalStatus.FAILED) {
-        const fees = computeWithdrawalFees(Number(existing.amount), Number(existing.platformFee), Number(existing.operatorFee));
-        const refund = Number(existing.amount) + fees.vendorBorneTotal;
+        // On avait débité amount + vendorBorneFedapay (stocké : si operatorFee
+        // et tier < 10k, le surplus = operatorFee).
+        // Approximation sûre : si platformFee==0 et on est en logique <10k,
+        // le débit était amount + operatorFee ; sinon amount.
+        const amount = Number(existing.amount);
+        const fedapayFee = Number(existing.operatorFee);
+        const cashOut = Number(existing.platformFee);
+        // Si cashOut > 0 → palier haut → débit = amount
+        // Si amount < 10000 → débit = amount + fedapayFee
+        // sinon débit = amount
+        const refund =
+          cashOut > 0
+            ? amount
+            : amount < 10_000
+              ? amount + fedapayFee
+              : amount;
+
         await tx.vendor.update({
           where: { id: existing.vendorId },
           data: { balanceFcfa: { increment: refund } },

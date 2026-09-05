@@ -6,7 +6,10 @@ import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { FedapayService } from './fedapay.service';
 import { UsersService } from '../../users/services/users.service';
 import { AmbassadorStatus, PaymentStatus, UserRole } from '@prisma/client';
-import { computeRechargeAmountFcfa } from '../pricing/recharge-pricing';
+import {
+  computeRechargeAmountFcfa,
+  quoteRechargeFromAmountFcfa,
+} from '../pricing/recharge-pricing';
 import {
   COMMISSION_RATE_BY_LEVEL,
   computeCommissionTickets,
@@ -27,18 +30,49 @@ export class PaymentsService {
     private readonly usersService: UsersService,
   ) {}
 
+  /**
+   * Récap mobile : montant FCFA saisi → tickets + frais inclus (sans créer de paiement).
+   */
+  previewRecharge(amountFcfa: number) {
+    return quoteRechargeFromAmountFcfa(amountFcfa);
+  }
+
+  /**
+   * Crée l’intention de paiement.
+   * - Mode recommandé : amountFcfa (ce que l’étudiant paie, frais inclus)
+   * - Mode legacy : ticketsReceived (on recalcule le montant à payer)
+   */
   async createPaymentIntent(
-    ticketsReceived: number,
-    operator: string,
+    params: { amountFcfa?: number; ticketsReceived?: number; operator: string },
     userId: string,
   ) {
     const user = await this.usersService.findOne(userId);
     if (!user) throw new NotFoundException('Utilisateur introuvable');
 
-    // SÉCURITÉ : le montant à payer est calculé UNIQUEMENT côté serveur à
-    // partir du barème officiel — jamais fourni par le client. Voir
-    // src/modules/payments/pricing/recharge-pricing.ts.
-    const amount = computeRechargeAmountFcfa(ticketsReceived);
+    let amount: number;
+    let ticketsReceived: number;
+    let feeFcfa: number;
+    let quoteLines: string[];
+
+    if (params.amountFcfa != null) {
+      // UX mobile : l’étudiant saisit ce qu’il paie ; tickets dérivés serveur.
+      const quote = quoteRechargeFromAmountFcfa(params.amountFcfa);
+      amount = quote.amountFcfa;
+      ticketsReceived = quote.ticketsReceived;
+      feeFcfa = quote.feeFcfa;
+      quoteLines = quote.summaryLines;
+    } else if (params.ticketsReceived != null) {
+      ticketsReceived = params.ticketsReceived;
+      amount = computeRechargeAmountFcfa(ticketsReceived);
+      feeFcfa = amount - ticketsReceived;
+      quoteLines = [
+        `Vous payez : ${amount} FCFA`,
+        `Frais de service (inclus) : ${feeFcfa} FCFA`,
+        `Tickets crédités : ${ticketsReceived}`,
+      ];
+    } else {
+      throw new BadRequestException('Indiquez amountFcfa ou ticketsReceived');
+    }
 
     const fedapayTransaction = await this.fedapayService.createTransaction(
       amount,
@@ -49,13 +83,13 @@ export class PaymentsService {
         email: user.email || undefined,
         phone: user.phone || undefined,
       },
-      { userId, ticketsReceived },
+      { userId, ticketsReceived, feeFcfa },
     );
 
     const payment = await this.prisma.payment.create({
       data: {
         userId,
-        operator: operator as any,
+        operator: params.operator as any,
         amountFcfa: amount,
         ticketsReceived,
         fedapayReference: fedapayTransaction.transaction.id || '',
@@ -63,7 +97,16 @@ export class PaymentsService {
       },
     });
 
-    return { payment, fedapayTransaction };
+    return {
+      payment,
+      fedapayTransaction,
+      recap: {
+        amountFcfa: amount,
+        ticketsReceived,
+        feeFcfa,
+        lines: quoteLines,
+      },
+    };
   }
 
   async initiatePayment(paymentId: string, phoneNumber: string, actor: Actor) {

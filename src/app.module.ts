@@ -26,6 +26,7 @@ import { DisputesModule } from './modules/disputes/disputes.module';
 import { PartnerApplicationsModule } from './modules/partner-applications/partner-applications.module';
 import { WebAuthModule } from './modules/web-auth/web-auth.module';
 import { InternalCronModule } from './modules/internal-cron/internal-cron.module';
+import { DevicesModule } from './modules/devices/devices.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { InternalCronModule } from './modules/internal-cron/internal-cron.module
     PartnerApplicationsModule,
     WebAuthModule,
     InternalCronModule,
+    DevicesModule,
   ],
   controllers: [AppController],
   providers: [

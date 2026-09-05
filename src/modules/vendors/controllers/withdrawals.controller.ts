@@ -31,12 +31,23 @@ import { WithdrawalsService } from '../services/withdrawals.service';
 export class WithdrawalsController {
   constructor(private readonly withdrawalsService: WithdrawalsService) {}
 
+  @Post('preview')
+  @Roles(UserRole.VENDOR)
+  @ApiOperation({
+    summary: 'Récapitulatif de retrait (sans débit)',
+    description:
+      'Calcule frais FedaPay + cash Flooz/Mixx selon paliers 10k/30k. Afficher avant confirmation.',
+  })
+  preview(@Body() dto: CreateWithdrawalDto) {
+    return this.withdrawalsService.preview(dto.amount, dto.operator as any);
+  }
+
   @Post()
   @Roles(UserRole.VENDOR)
   @ApiOperation({
-    summary: 'Demander un retrait (vendeur mobile) — CDC 5.3',
+    summary: 'Demander un retrait (vendeur mobile)',
     description:
-      'Bloqué si créance active. Frais calculés serveur selon seuils 10k/30k. Décaissement Mobile Money traité manuellement par Admin.',
+      'Bloqué si créance. Frais barèmes réels FedaPay / Flooz / Mixx. Payout FedaPay ensuite.',
   })
   @ApiResponse({ status: 201, description: 'Retrait créé en PENDING' })
   request(@Body() dto: CreateWithdrawalDto, @Request() req: any) {
@@ -86,7 +97,7 @@ export class WithdrawalsController {
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({
-    summary: 'Mettre à jour le statut d’un retrait (traitement manuel)',
+    summary: 'Mettre à jour le statut d’un retrait',
     description: 'PROCESSING | COMPLETED | FAILED. FAILED recrédite le solde vendeur.',
   })
   updateStatus(

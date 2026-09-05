@@ -1,4 +1,5 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateNotificationDto } from '../dto/create-notification.dto';
 import { UpdateNotificationDto } from '../dto/update-notification.dto';
@@ -10,12 +11,42 @@ interface Actor {
 
 @Injectable()
 export class NotificationsService {
+  private readonly logger = new Logger(NotificationsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   async create(createNotificationDto: CreateNotificationDto) {
     return this.prisma.notification.create({
       data: createNotificationDto,
     });
+  }
+
+  /**
+   * Notification in-app + intention push (tokens via POST /devices).
+   * L’envoi FCM/APNs se branche ici dès que les credentials cloud sont prêts.
+   */
+  async notifyUser(
+    userId: string,
+    title: string,
+    message: string,
+    type: NotificationType = NotificationType.INFO,
+  ) {
+    const notification = await this.prisma.notification.create({
+      data: { userId, title, message, type },
+    });
+
+    const devices = await this.prisma.device.findMany({
+      where: { userId, deletedAt: null },
+      select: { deviceToken: true, platform: true },
+    });
+
+    if (devices.length > 0) {
+      this.logger.log(
+        `Push pending user=${userId} devices=${devices.length} [${devices.map((d) => d.platform).join(',')}] ${title}`,
+      );
+    }
+
+    return notification;
   }
 
   async findAll(page: number = 1, limit: number = 10, userId?: string) {
@@ -49,15 +80,10 @@ export class NotificationsService {
     const notification = await this.prisma.notification.findUnique({
       where: { id, deletedAt: null },
     });
-
-    if (!notification) throw new NotFoundException(`Notification avec l'identifiant ${id} introuvable`);
-
-    // SÉCURITÉ : un utilisateur non-admin ne peut consulter/modifier que
-    // SES propres notifications.
+    if (!notification) throw new NotFoundException(`Notification ${id} introuvable`);
     if (actor && !actor.isAdmin && notification.userId !== actor.id) {
       throw new ForbiddenException("Vous n'avez pas accès à cette notification");
     }
-
     return notification;
   }
 
