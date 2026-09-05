@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DisputeStatus, DisputeDecision, TransactionType, TransactionStatus, UserRole } from '@prisma/client';
+import { DisputeStatus, DisputeDecision, OrderStatus, TransactionType, TransactionStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateDisputeDto } from '../dto/create-dispute.dto';
 import { UpdateDisputeDto } from '../dto/update-dispute.dto';
@@ -355,6 +355,40 @@ export class DisputesService {
     return this.prisma.$transaction(async (tx) => {
       const order = await tx.order.findUnique({ where: { id: existing.orderId } });
       if (!order) throw new NotFoundException(`Commande liée au litige introuvable`);
+
+      // SÉCURITÉ FINANCIÈRE : verrou anti-double-remboursement. Un
+      // remboursement (via ce litige OU via orders.service.ts::refundByVendor,
+      // déclenché directement par le vendeur mobile) ne doit pouvoir arriver
+      // qu'une seule fois par commande. On ne fait confiance ni à l'absence
+      // de décision sur CE litige (un autre canal a pu déjà rembourser la
+      // commande), ni à une lecture préalable du statut : le verrou est cet
+      // updateMany conditionnel, exécuté dans la même transaction que le
+      // crédit qui suit — count === 0 signifie qu'un autre remboursement a
+      // gagné la course ou que la commande n'est de toute façon plus dans un
+      // état où de l'argent reste "chez le vendeur" à rembourser (une
+      // commande REFUSED/CANCELLED a déjà rendu ses tickets automatiquement
+      // à l'étudiant ; y créditer à nouveau serait un double remboursement).
+      const claim = await tx.order.updateMany({
+        where: {
+          id: order.id,
+          status: { in: [OrderStatus.READY, OrderStatus.RECEIVED, OrderStatus.AUTO_RECEIVED] },
+        },
+        data: { status: OrderStatus.REFUNDED },
+      });
+      if (claim.count === 0) {
+        throw new ConflictException(
+          `Commande ${order.id} déjà remboursée ou dans un statut incompatible (${order.status}) — aucun mouvement d'argent effectué`,
+        );
+      }
+
+      await tx.orderStatusHistory.create({
+        data: {
+          orderId: order.id,
+          oldStatus: order.status,
+          newStatus: OrderStatus.REFUNDED,
+          changedById: null,
+        },
+      });
 
       const refundAmount = existing.ticketAmount ?? order.totalTickets;
 

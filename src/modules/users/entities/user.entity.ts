@@ -27,9 +27,6 @@ export class UserEntity extends BaseEntity {
   @ApiProperty({ example: 1000, description: 'Solde du portefeuille en tickets' })
   walletBalance: number;
 
-  @ApiProperty({ example: 0, description: 'Solde en séquestre en tickets' })
-  escrowBalance: number;
-
   @ApiProperty({ description: 'Indique si l\'utilisateur est suspendu' })
   isSuspended: boolean;
 

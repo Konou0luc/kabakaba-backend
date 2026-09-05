@@ -129,7 +129,6 @@ model User {
   role               UserRole  @default(STUDENT)
   campusId           String?
   walletBalance      Int       @default(0)
-  escrowBalance      Int       @default(0)
   isSuspended        Boolean   @default(false)
   suspendedAt        DateTime?
   suspensionUntil    DateTime?
