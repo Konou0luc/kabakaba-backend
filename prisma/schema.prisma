@@ -392,6 +392,13 @@ model Withdrawal {
   amount      Decimal          @db.Decimal(10, 2)
   platformFee Decimal          @db.Decimal(10, 2)
   operatorFee Decimal          @db.Decimal(10, 2)
+  // Montant exact décrémenté de vendor.balanceFcfa à la création de ce
+  // retrait (amount + éventuels frais à la charge du vendeur selon le
+  // palier — voir withdrawal-fees.ts::computeWithdrawalFees.debitedFromBalance).
+  // Stocké explicitement pour que updateStatus(FAILED) recrédite le montant
+  // réel plutôt que de le reconstruire par déduction à partir du barème de
+  // frais, qui peut évoluer.
+  debitedAmount Decimal        @db.Decimal(10, 2)
   status      WithdrawalStatus @default(PENDING)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt

@@ -98,12 +98,15 @@ export class WithdrawalsService {
       }
 
       // operatorFee = frais FedaPay ; platformFee = frais cash ajoutés (palier ≥30k)
+      // debitedAmount = montant exact décrémenté ci-dessus, stocké explicitement
+      // pour que updateStatus(FAILED) recrédite sans avoir à le recalculer.
       const withdrawal = await tx.withdrawal.create({
         data: {
           vendorId: vendor.id,
           amount,
           platformFee: fees.cashOutFee,
           operatorFee: fees.fedapayFee,
+          debitedAmount: totalDebit,
           status: WithdrawalStatus.PENDING,
         },
       });
@@ -229,22 +232,10 @@ export class WithdrawalsService {
       }
 
       if (status === WithdrawalStatus.FAILED) {
-        // On avait débité amount + vendorBorneFedapay (stocké : si operatorFee
-        // et tier < 10k, le surplus = operatorFee).
-        // Approximation sûre : si platformFee==0 et on est en logique <10k,
-        // le débit était amount + operatorFee ; sinon amount.
-        const amount = Number(existing.amount);
-        const fedapayFee = Number(existing.operatorFee);
-        const cashOut = Number(existing.platformFee);
-        // Si cashOut > 0 → palier haut → débit = amount
-        // Si amount < 10000 → débit = amount + fedapayFee
-        // sinon débit = amount
-        const refund =
-          cashOut > 0
-            ? amount
-            : amount < 10_000
-              ? amount + fedapayFee
-              : amount;
+        // Montant réellement débité à la création — stocké explicitement
+        // (debitedAmount), plus de reconstruction heuristique à partir des
+        // paliers de frais.
+        const refund = Number(existing.debitedAmount);
 
         await tx.vendor.update({
           where: { id: existing.vendorId },
