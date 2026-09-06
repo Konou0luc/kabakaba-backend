@@ -85,7 +85,7 @@ export class DisputesController {
   @ApiResponse({ status: 200, description: 'Retourne le litige.', type: DisputeEntity })
   @ApiResponse({ status: 404, description: 'Litige introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
-    return this.disputesService.findOne(id, req.user.id, req.user.role);
+    return this.disputesService.findOne(id, { id: req.user.id, kind: req.user.__authKind, role: req.user.role });
   }
 
   @Patch(':id')

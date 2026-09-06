@@ -74,9 +74,11 @@ export class UsersController {
   @ApiResponse({ status: 403, description: "Vous n'avez pas accès à ce profil." })
   @ApiResponse({ status: 404, description: 'Utilisateur introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
-    const isPrivileged =
-      req.user.__authKind === 'web' ||
-      req.user.role === UserRole.ADMIN;
+    const isWeb = req.user.__authKind === 'web';
+    const isPrivileged = isWeb && (
+      req.user.role === WebUserRole.ADMIN ||
+      req.user.role === WebUserRole.SUPERVISION
+    );
     return this.usersService.findOne(id, { id: req.user.id, isPrivileged });
   }
 

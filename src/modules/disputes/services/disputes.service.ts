@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DisputeStatus, DisputeDecision, OrderStatus, TransactionType, TransactionStatus, UserRole } from '@prisma/client';
+import { DisputeStatus, DisputeDecision, OrderStatus, TransactionType, TransactionStatus, UserRole, WebUserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateDisputeDto } from '../dto/create-dispute.dto';
 import { UpdateDisputeDto } from '../dto/update-dispute.dto';
@@ -156,7 +156,7 @@ export class DisputesService {
       include: {
         student: {
           select: {
-            id: true, firstName: true, lastName: true, phone: true, walletBalance: true, createdAt: true,
+            id: true, firstName: true, lastName: true, createdAt: true,
             isSuspended: true, suspensionReason: true, suspensionUntil: true,
             campus: { select: { name: true } },
           },
@@ -248,9 +248,7 @@ export class DisputesService {
       student: {
         id: dispute.student.id,
         name: `${dispute.student.firstName ?? ''} ${dispute.student.lastName ?? ''}`.trim(),
-        phone: dispute.student.phone,
         campusName: dispute.student.campus?.name ?? null,
-        walletBalance: Number(dispute.student.walletBalance),
         memberSince: dispute.student.createdAt,
         isSuspended: dispute.student.isSuspended,
         suspensionReason: dispute.student.suspensionReason,
@@ -302,19 +300,35 @@ export class DisputesService {
     return vendor?.id ?? null;
   }
 
-  async findOne(id: string, requesterId?: string, requesterRole?: UserRole) {
+  async findOne(
+    id: string,
+    actor?: { id: string; kind: 'mobile' | 'web'; role?: UserRole | WebUserRole },
+  ) {
     const dispute = await this.prisma.dispute.findUnique({ where: { id } });
     if (!dispute) throw new NotFoundException(`Litige avec l'identifiant ${id} introuvable`);
 
-    if (requesterRole === UserRole.STUDENT && dispute.studentId !== requesterId) {
+    if (!actor) throw new ForbiddenException('Accès refusé à ce litige');
+
+    if (actor.kind === 'web') {
+      if (actor.role !== WebUserRole.ADMIN && actor.role !== WebUserRole.SUPERVISION) {
+        throw new ForbiddenException('Accès refusé à ce litige');
+      }
+      return dispute;
+    }
+
+    if (actor.role === UserRole.STUDENT && dispute.studentId !== actor.id) {
       throw new ForbiddenException('Accès refusé à ce litige');
     }
 
-    if (requesterRole === UserRole.VENDOR) {
-      const vendor = await this.prisma.vendor.findUnique({ where: { userId: requesterId } });
+    if (actor.role === UserRole.VENDOR) {
+      const vendor = await this.prisma.vendor.findUnique({ where: { userId: actor.id } });
       if (!vendor || vendor.id !== dispute.vendorId) {
         throw new ForbiddenException('Accès refusé à ce litige');
       }
+    }
+
+    if (actor.role !== UserRole.STUDENT && actor.role !== UserRole.VENDOR) {
+      throw new ForbiddenException('Accès refusé à ce litige');
     }
 
     return dispute;
