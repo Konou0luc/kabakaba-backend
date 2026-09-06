@@ -19,7 +19,7 @@ export class DisputesController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Ouvrir un litige sur une commande' })
   @ApiResponse({ status: 201, description: 'Le litige a été créé avec succès.', type: DisputeEntity })
@@ -32,13 +32,13 @@ export class DisputesController {
   @Get()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer les litiges (filtrés par rôle)' })
   @ApiQuery({ type: FindDisputesQueryDto })
   @ApiResponse({ status: 200, description: 'Retourne les litiges avec pagination.' })
   async findAll(@Query() query: FindDisputesQueryDto, @Request() req) {
-    const isMobileAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    const isMobileAdmin = req.user.role === UserRole.ADMIN;
     const isWebUser = req.user.__authKind === 'web';
 
     let studentId = isMobileAdmin || isWebUser ? query.studentId : undefined;
@@ -56,7 +56,7 @@ export class DisputesController {
   @Get('stats')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'KPIs de la page Litiges (dashboard admin web)' })
   @ApiResponse({ status: 200, description: 'Statistiques agrégées.' })
@@ -67,7 +67,7 @@ export class DisputesController {
   @Get(':id/context')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: "Détail enrichi d'un litige pour la fiche admin : parties, timeline de commande, signaux de confiance" })
   @ApiResponse({ status: 200, description: 'Contexte complet du litige.' })
@@ -79,7 +79,7 @@ export class DisputesController {
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer un litige' })
   @ApiResponse({ status: 200, description: 'Retourne le litige.', type: DisputeEntity })
@@ -91,7 +91,7 @@ export class DisputesController {
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Traiter un litige : statut, décision, note (Admin seulement)' })
   @ApiResponse({ status: 200, description: 'Le litige a été mis à jour avec succès.', type: DisputeEntity })

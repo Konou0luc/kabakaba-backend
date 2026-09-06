@@ -1,7 +1,6 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateUserDto } from '../dto/create-user.dto';
-import { CreateStaffUserDto } from '../dto/create-staff-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '@prisma/client';
@@ -54,30 +53,6 @@ export class UsersService {
         password: hashedPassword,
         role: UserRole.STUDENT,
       },
-    });
-
-    return sanitize(user);
-  }
-
-  // Création privilégiée — appelée uniquement depuis un endpoint gardé
-  // ADMIN/SUPER_ADMIN.
-  async createStaff(
-    dto: CreateStaffUserDto,
-    actor: Pick<Actor, 'id' | 'kind' | 'role'>,
-  ) {
-    // Défense en profondeur : la garde du contrôleur limite déjà cette route
-    // à SUPER_ADMIN, mais le service doit aussi refuser toute création
-    // privilégiée si elle est appelée depuis un autre chemin.
-    if (actor.kind !== 'mobile' || actor.role !== UserRole.SUPER_ADMIN) {
-      throw new ForbiddenException(
-        'Seul un SUPER_ADMIN mobile peut créer un compte staff',
-      );
-    }
-
-    const hashedPassword = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
-
-    const user = await this.prisma.user.create({
-      data: { ...dto, password: hashedPassword },
     });
 
     return sanitize(user);
@@ -137,8 +112,7 @@ export class UsersService {
     if (!current) throw new NotFoundException(`Utilisateur avec l'identifiant ${id} introuvable`);
 
     const isSelf = actor.id === id;
-    const isMobilePrivileged =
-      actor.kind === 'mobile' && (actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN);
+    const isMobilePrivileged = false;
     const isWebAdmin = actor.kind === 'web' && actor.role === 'ADMIN';
     const isWebSupervision = actor.kind === 'web' && actor.role === 'SUPERVISION';
 
@@ -154,7 +128,7 @@ export class UsersService {
 
     let payload: Record<string, any>;
     if (isMobilePrivileged) {
-      // Admin/Super admin côté app mobile : accès complet (support utilisateur).
+      // Aucun rôle admin n'est émis pour l'application mobile.
       payload = { ...updateUserDto };
     } else if (isWebAdmin) {
       // SÉCURITÉ : même un admin web ne touche JAMAIS à l'identité ni aux

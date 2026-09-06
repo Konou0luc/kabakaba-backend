@@ -35,8 +35,8 @@ export class TransactionsController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Créer une transaction manuelle (SUPER_ADMIN mobile uniquement)' })
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Créer une transaction manuelle (ADMIN web uniquement)' })
   @ApiResponse({
     status: 201,
     description: 'La transaction a été créée avec succès.',
@@ -53,7 +53,7 @@ export class TransactionsController {
   @Get()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT, UserRole.VENDOR)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer toutes les transactions' })
   @ApiQuery({ type: FindTransactionsQueryDto })
@@ -63,7 +63,7 @@ export class TransactionsController {
   })
   findAll(@Query() query: FindTransactionsQueryDto, @Request() req) {
     const isAdmin =
-      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN;
     // Un utilisateur non-admin reste toujours scopé à ses propres transactions ;
     // le filtre userId de la query n'est pris en compte que pour les admins/dashboard.
     const userId = isAdmin ? query.userId : req.user.id;
@@ -83,7 +83,7 @@ export class TransactionsController {
   @Get('stats')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'KPIs de la page Transactions (dashboard admin web)' })
   @ApiResponse({ status: 200, description: 'Statistiques agrégées.' })
@@ -94,7 +94,7 @@ export class TransactionsController {
   @Get('debts')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Liste des créances vendeur actives (dashboard admin web)' })
   @ApiResponse({ status: 200, description: 'Liste des créances actives.' })
@@ -105,21 +105,21 @@ export class TransactionsController {
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT, UserRole.VENDOR)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer une transaction' })
   @ApiResponse({ status: 200, description: 'Retourne la transaction.', type: TransactionEntity })
   @ApiResponse({ status: 404, description: 'Transaction introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
     const isAdmin =
-      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN;
     return this.transactionsService.findOne(id, { id: req.user.id, isAdmin });
   }
 
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Mettre à jour une transaction (Admin seulement)' })
   @ApiResponse({

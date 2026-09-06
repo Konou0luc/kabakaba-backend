@@ -11,7 +11,7 @@ import { DevicesService } from '../services/devices.service';
 @Controller('devices')
 @ApiBearerAuth()
 @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-@Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN, UserRole.SUPER_ADMIN)
+@Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN)
 export class DevicesController {
   constructor(private readonly devicesService: DevicesService) {}
 

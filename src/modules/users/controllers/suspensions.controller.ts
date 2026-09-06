@@ -16,7 +16,7 @@ export class SuspensionsController {
   @Get()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Historique complet des suspensions (actives, levées, bannissements) — Admin/dashboard web' })
   @ApiQuery({ type: FindSuspensionEventsQueryDto })

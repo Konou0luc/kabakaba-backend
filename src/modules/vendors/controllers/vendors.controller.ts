@@ -38,9 +38,9 @@ export class VendorsController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Créer une cantine : crée le compte vendeur (User) et le profil (Vendor) en une seule opération (Admin mobile/web)' })
+  @ApiOperation({ summary: 'Créer une cantine : crée le compte vendeur (User) et le profil (Vendor) en une seule opération (Admin web)' })
   @ApiResponse({
     status: 201,
     description: 'The vendor has been successfully created.',
@@ -65,7 +65,7 @@ export class VendorsController {
   @Get('admin/list')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Liste des cantines enrichie (propriétaire, créance, commandes du jour) — dashboard admin web' })
   @ApiQuery({ type: FindVendorsForAdminQueryDto })
@@ -106,7 +106,7 @@ export class VendorsController {
   @Get('admin/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Détail complet d\'une cantine pour la fiche admin (contact vendeur, créance, suspension, campus) — dashboard admin web' })
   @ApiResponse({ status: 200, description: 'Détail complet de la cantine.' })
@@ -127,24 +127,24 @@ export class VendorsController {
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Update a vendor (Admin mobile/web, ou profil vendeur limité sur sa propre cantine)' })
+  @ApiOperation({ summary: 'Update a vendor (Admin web, ou profil vendeur limité sur sa propre cantine)' })
   @ApiResponse({
     status: 200,
     description: 'The vendor has been successfully updated.',
     type: VendorEntity,
   })
   update(@Param('id') id: string, @Body() updateVendorDto: UpdateVendorDto, @Request() req) {
-    return this.vendorsService.update(id, updateVendorDto, { id: req.user.id, role: req.user.role });
+    return this.vendorsService.update(id, updateVendorDto, { id: req.user.id, role: req.user.role, kind: req.user.__authKind === 'web' ? 'web' : 'mobile' });
   }
 
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Soft delete a vendor (Admin mobile/web)' })
+  @ApiOperation({ summary: 'Soft delete a vendor (Admin web)' })
   @ApiResponse({
     status: 200,
     description: 'The vendor has been successfully soft deleted.',

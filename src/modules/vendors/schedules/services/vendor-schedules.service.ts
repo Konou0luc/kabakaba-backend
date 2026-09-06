@@ -19,7 +19,7 @@ export class VendorSchedulesService {
     // Le guard (Roles/WebRoles) a déjà vérifié que l'appelant a un rôle
     // autorisé sur cette route. Seul un compte VENDOR doit en plus être
     // propriétaire de CETTE cantine précise ; les autres rôles autorisés ici
-    // (admin mobile, admin/supervision web) ont un accès de gestion global.
+    // (admin web, admin/supervision web) ont un accès de gestion global.
     if (actor.role === UserRole.VENDOR && vendor.userId !== actor.id) {
       throw new ForbiddenException("Vous n'avez pas accès à cette cantine");
     }

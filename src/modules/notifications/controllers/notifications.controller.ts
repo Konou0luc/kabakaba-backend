@@ -36,7 +36,7 @@ export class NotificationsController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Créer une nouvelle notification (Admin seulement)' })
   @ApiResponse({
@@ -51,7 +51,7 @@ export class NotificationsController {
   @Get()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer toutes les notifications actives' })
   @ApiQuery({ type: PaginationDto })
@@ -61,7 +61,7 @@ export class NotificationsController {
   })
   findAll(@Query() paginationDto: PaginationDto, @Request() req) {
     let userId: string | undefined;
-    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.SUPER_ADMIN) {
+    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.ADMIN) {
       userId = req.user.id;
     }
     return this.notificationsService.findAll(
@@ -74,20 +74,20 @@ export class NotificationsController {
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer une notification active' })
   @ApiResponse({ status: 200, description: 'Retourne la notification.', type: NotificationEntity })
   @ApiResponse({ status: 404, description: 'Notification introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
-    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    const isAdmin = req.user.role === UserRole.ADMIN;
     return this.notificationsService.findOne(id, { id: req.user.id, isAdmin });
   }
 
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Mettre à jour une notification (Admin ou propriétaire seulement)' })
   @ApiResponse({
@@ -96,14 +96,14 @@ export class NotificationsController {
     type: NotificationEntity,
   })
   update(@Param('id') id: string, @Body() updateNotificationDto: UpdateNotificationDto, @Request() req) {
-    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    const isAdmin = req.user.role === UserRole.ADMIN;
     return this.notificationsService.update(id, updateNotificationDto, { id: req.user.id, isAdmin });
   }
 
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Supprimer une notification (Admin seulement)' })
   @ApiResponse({

@@ -12,7 +12,7 @@ import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard'
 @Controller('admin/analytics')
 @ApiBearerAuth()
 @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-@Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+@Roles(UserRole.ADMIN)
 @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}

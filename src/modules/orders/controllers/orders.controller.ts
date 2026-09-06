@@ -54,7 +54,7 @@ export class OrdersController {
   @Get()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT, UserRole.VENDOR)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer toutes les commandes actives (filtrées par rôle)' })
   @ApiQuery({ type: FindOrdersQueryDto })
@@ -67,7 +67,7 @@ export class OrdersController {
     let vendorId: string | undefined;
     let vendorUserId: string | undefined;
     const isAdmin =
-      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN;
 
     if (!isAdmin && req.user.role === UserRole.STUDENT) studentId = req.user.id;
     if (!isAdmin && req.user.role === UserRole.VENDOR) vendorUserId = req.user.id;
@@ -93,30 +93,30 @@ export class OrdersController {
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT, UserRole.VENDOR)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer une commande active' })
   @ApiResponse({ status: 200, description: 'Retourne la commande.', type: OrderEntity })
   @ApiResponse({ status: 404, description: 'Commande introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
     const isAdmin =
-      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN;
     return this.ordersService.findOne(id, { id: req.user.id, role: req.user.role, isAdmin });
   }
 
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Mettre à jour une commande (Admin mobile/web ou Vendeur)' })
+  @ApiOperation({ summary: 'Mettre à jour une commande (Admin web ou Vendeur)' })
   @ApiResponse({
     status: 200,
     description: 'La commande a été mise à jour avec succès.',
     type: OrderEntity,
   })
   update(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto, @Request() req) {
-    const isAdmin = req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN;
+    const isAdmin = req.user.role === UserRole.ADMIN;
     return this.ordersService.update(id, updateOrderDto, {
       id: req.user.id,
       role: req.user.role,
@@ -160,9 +160,9 @@ export class OrdersController {
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Supprimer une commande (Admin mobile/web)' })
+  @ApiOperation({ summary: 'Supprimer une commande (Admin web)' })
   @ApiResponse({
     status: 200,
     description: 'La commande a été supprimée avec succès.',

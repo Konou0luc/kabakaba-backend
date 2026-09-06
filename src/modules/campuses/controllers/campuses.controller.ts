@@ -36,7 +36,7 @@ export class CampusesController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new campus (Admin only)' })
   @ApiResponse({
@@ -72,7 +72,7 @@ export class CampusesController {
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Update a campus (Admin only)' })
   @ApiResponse({
@@ -87,7 +87,7 @@ export class CampusesController {
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Soft delete a campus (Admin only)' })
   @ApiResponse({

@@ -39,7 +39,7 @@ function actorFromRequest(req: any): CatalogActor {
   return {
     id: req.user.id,
     role: req.user.role,
-    isAdmin: req.user.role === UserRole.ADMIN || req.user.role === UserRole.SUPER_ADMIN,
+    isAdmin: req.user.role === UserRole.ADMIN,
   };
 }
 
@@ -51,7 +51,7 @@ export class CatalogController {
   @Post('menu-items')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new menu item (Admin or Vendor)' })
   @ApiResponse({
@@ -95,7 +95,7 @@ export class CatalogController {
   @Patch('menu-items/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Update a menu item (Admin or Vendor)' })
   @ApiResponse({
@@ -110,7 +110,7 @@ export class CatalogController {
   @Delete('menu-items/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Soft delete a menu item (Admin or Vendor)' })
   @ApiResponse({
@@ -125,7 +125,7 @@ export class CatalogController {
   @Post('menu-components')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new menu component (Admin or Vendor)' })
   @ApiResponse({
@@ -168,7 +168,7 @@ export class CatalogController {
   @Patch('menu-components/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Update a menu component (Admin or Vendor)' })
   @ApiResponse({
@@ -187,7 +187,7 @@ export class CatalogController {
   @Delete('menu-components/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Soft delete a menu component (Admin or Vendor)' })
   @ApiResponse({
@@ -202,7 +202,7 @@ export class CatalogController {
   @Post('packaging-options')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Create a new packaging option (Admin or Vendor)' })
   @ApiResponse({
@@ -245,7 +245,7 @@ export class CatalogController {
   @Patch('packaging-options/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Update a packaging option (Admin or Vendor)' })
   @ApiResponse({
@@ -264,7 +264,7 @@ export class CatalogController {
   @Delete('packaging-options/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Soft delete a packaging option (Admin or Vendor)' })
   @ApiResponse({

@@ -27,8 +27,14 @@ export class CombinedRolesGuard implements CanActivate {
     if (!user) return false;
 
     if (user.__authKind === 'web') {
-      if (!requiredWebRoles) return false; // route non ouverte au dashboard
-      return requiredWebRoles.some((role) => user.role === role);
+      if (requiredWebRoles) {
+        return requiredWebRoles.some((role) => user.role === role);
+      }
+      // Compatibilité des routes historiques : UserRole.ADMIN ne représente
+      // jamais un rôle mobile actif. Pour un token Web, il correspond à
+      // WebUserRole.ADMIN.
+      return user.role === WebUserRole.ADMIN &&
+        Boolean(requiredUserRoles?.includes(UserRole.ADMIN));
     }
 
     if (!requiredUserRoles) return true;

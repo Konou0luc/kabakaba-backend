@@ -20,7 +20,6 @@ import {
 } from '@nestjs/swagger';
 import { UsersService } from '../services/users.service';
 import { CreateUserDto } from '../dto/create-user.dto';
-import { CreateStaffUserDto } from '../dto/create-staff-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { UserEntity } from '../entities/user.entity';
 import { FindUsersQueryDto } from '../dto/find-users-query.dto';
@@ -46,24 +45,10 @@ export class UsersController {
     return this.usersService.create(createUserDto);
   }
 
-  @Post('staff')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.SUPER_ADMIN)
-  @ApiOperation({ summary: 'Créer un compte ADMIN/VENDOR/SUPER_ADMIN (Super admin mobile seulement)' })
-  @ApiResponse({ status: 201, description: 'Compte créé avec succès.', type: UserEntity })
-  createStaff(@Body() dto: CreateStaffUserDto, @Request() req) {
-    return this.usersService.createStaff(dto, {
-      id: req.user.id,
-      kind: req.user.__authKind === 'web' ? 'web' : 'mobile',
-      role: req.user.role,
-    });
-  }
-
   @Get()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Récupérer tous les utilisateurs (admin/super admin/dashboard web)' })
   @ApiQuery({ type: FindUsersQueryDto })
@@ -91,15 +76,14 @@ export class UsersController {
   findOne(@Param('id') id: string, @Request() req) {
     const isPrivileged =
       req.user.__authKind === 'web' ||
-      req.user.role === UserRole.ADMIN ||
-      req.user.role === UserRole.SUPER_ADMIN;
+      req.user.role === UserRole.ADMIN;
     return this.usersService.findOne(id, { id: req.user.id, isPrivileged });
   }
 
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT, UserRole.VENDOR)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT, UserRole.VENDOR)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Mettre à jour un utilisateur — son propre profil, ou tout profil pour un admin/dashboard' })
   @ApiResponse({ status: 200, description: "L'utilisateur a été mis à jour avec succès.", type: UserEntity })
@@ -115,7 +99,7 @@ export class UsersController {
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Désactiver un utilisateur (soft delete — admin/super admin seulement)' })
   @ApiResponse({ status: 200, description: "L'utilisateur a été désactivé avec succès." })

@@ -111,11 +111,11 @@ export class TransactionsService {
     actor: { id: string; kind: 'mobile' | 'web'; role?: string },
   ) {
     // Le ledger est financier et doit rester append-only. Une création
-    // manuelle est donc réservée au SUPER_ADMIN mobile et impose un montant
+    // manuelle est donc réservée au ADMIN web et impose un montant
     // strictement positif. Les flux métier normaux doivent écrire eux-mêmes
     // leurs transactions depuis leurs services respectifs.
-    if (actor.kind !== 'mobile' || actor.role !== UserRole.SUPER_ADMIN) {
-      throw new ForbiddenException('Création manuelle réservée au SUPER_ADMIN mobile');
+    if (actor.kind !== 'web' || actor.role !== 'ADMIN') {
+      throw new ForbiddenException('Création manuelle réservée aux administrateurs web');
     }
     if (!Number.isFinite(Number(createTransactionDto.amount)) || Number(createTransactionDto.amount) <= 0) {
       throw new BadRequestException('Le montant doit être strictement positif');

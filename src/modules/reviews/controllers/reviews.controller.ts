@@ -85,9 +85,9 @@ export class ReviewsController {
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Supprimer un avis (Admin mobile/web)' })
+  @ApiOperation({ summary: 'Supprimer un avis (Admin web)' })
   @ApiResponse({ status: 200, description: "L'avis a été supprimé avec succès." })
   remove(@Param('id') id: string) {
     return this.reviewsService.remove(id);

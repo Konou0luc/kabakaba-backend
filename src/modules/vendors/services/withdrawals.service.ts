@@ -244,7 +244,7 @@ export class WithdrawalsService {
    * (à calculer à nouveau via computeWithdrawalFees si besoin côté admin).
    */
   async updateStatus(id: string, status: WithdrawalStatus, actor: Actor) {
-    if (!actor.isAdmin && actor.role !== UserRole.ADMIN && actor.role !== UserRole.SUPER_ADMIN) {
+    if (!actor.isAdmin && actor.role !== UserRole.ADMIN) {
       throw new ForbiddenException('Action réservée aux administrateurs');
     }
 

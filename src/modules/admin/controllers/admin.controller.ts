@@ -33,7 +33,7 @@ export class AdminController {
   @Get('stats')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Obtenir les statistiques du tableau de bord de supervision (Admin/dashboard web)' })
   @ApiResponse({
@@ -47,7 +47,7 @@ export class AdminController {
   @Get('events/today')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
   @ApiOperation({ summary: "Événements système survenus aujourd'hui (centre de notifications)" })
   @ApiResponse({
@@ -61,7 +61,7 @@ export class AdminController {
   @Post('audit-logs')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Créer un nouveau journal d\'audit (Admin seulement)' })
   @ApiResponse({
@@ -80,7 +80,7 @@ export class AdminController {
   @Get('audit-logs')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Obtenir tous les journaux d\'audit (Admin seulement)' })
   @ApiQuery({ type: PaginationDto })
@@ -98,7 +98,7 @@ export class AdminController {
   @Get('audit-logs/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.SUPER_ADMIN, UserRole.ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({ summary: 'Obtenir un journal d\'audit (Admin seulement)' })
   @ApiResponse({

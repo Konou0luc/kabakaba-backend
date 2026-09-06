@@ -17,7 +17,8 @@ import {
 
 interface Actor {
   id: string;
-  role: UserRole;
+  kind: 'mobile' | 'web';
+  role: UserRole | string;
 }
 
 @Injectable()
@@ -112,7 +113,7 @@ export class PaymentsService {
   async initiatePayment(paymentId: string, phoneNumber: string, actor: Actor) {
     const payment = await this.getPaymentOrThrow(paymentId);
 
-    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+    const isAdmin = actor.kind === 'web' && actor.role === 'ADMIN';
     if (!isAdmin && payment.userId !== actor.id) {
       throw new ForbiddenException("Vous n'avez pas accès à ce paiement");
     }
@@ -360,7 +361,7 @@ export class PaymentsService {
   async findOne(id: string, actor: Actor) {
     const payment = await this.getPaymentOrThrow(id);
 
-    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+    const isAdmin = actor.kind === 'web' && actor.role === 'ADMIN';
     if (!isAdmin && payment.userId !== actor.id) {
       throw new ForbiddenException("Vous n'avez pas accès à ce paiement");
     }
@@ -369,7 +370,7 @@ export class PaymentsService {
   }
 
   async update(id: string, updatePaymentDto: UpdatePaymentDto) {
-    // Accessible uniquement à ADMIN/SUPER_ADMIN au niveau du contrôleur :
+    // Accessible uniquement à ADMIN au niveau du contrôleur :
     // pas de contrôle d'ownership à appliquer ici.
     await this.getPaymentOrThrow(id);
     return this.prisma.payment.update({

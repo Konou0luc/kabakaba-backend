@@ -75,7 +75,7 @@ export class WithdrawalsController {
   }
 
   @Get('stats')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN, WebUserRole.SUPERVISION)
   @ApiOperation({ summary: 'Statistiques des retraits par statut (Admin / Supervision)' })
   getStats() {
@@ -83,7 +83,7 @@ export class WithdrawalsController {
   }
 
   @Get()
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN, WebUserRole.SUPERVISION)
   @ApiOperation({ summary: 'Liste des retraits (Admin / Supervision)' })
   @ApiQuery({ name: 'page', required: false })
@@ -108,7 +108,7 @@ export class WithdrawalsController {
   }
 
   @Patch(':id/status')
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({
     summary: 'Mettre à jour le statut d’un retrait',

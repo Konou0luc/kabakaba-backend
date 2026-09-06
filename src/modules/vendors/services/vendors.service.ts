@@ -10,7 +10,8 @@ const SALT_ROUNDS = 10;
 
 interface Actor {
   id: string;
-  role: UserRole;
+  kind: 'mobile' | 'web';
+  role: UserRole | string;
 }
 
 // SÉCURITÉ : projection publique — ne renvoie JAMAIS userId, balanceFcfa,
@@ -248,7 +249,7 @@ export class VendorsService {
   async update(id: string, updateVendorDto: UpdateVendorDto, actor: Actor) {
     await this.findOne(id);
 
-    const isAdmin = actor.role === UserRole.ADMIN || actor.role === UserRole.SUPER_ADMIN;
+    const isAdmin = actor.kind === 'web' && actor.role === 'ADMIN';
     if (!isAdmin) {
       const ownVendor = await this.prisma.vendor.findUnique({ where: { userId: actor.id } });
       if (!ownVendor || ownVendor.id !== id) {

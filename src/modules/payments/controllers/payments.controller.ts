@@ -102,7 +102,7 @@ export class PaymentsController {
     return this.paymentsService.initiatePayment(
       paymentId,
       initiatePaymentDto.phoneNumber,
-      { id: req.user.id, role: req.user.role },
+      { id: req.user.id, role: req.user.role, kind: req.user.__authKind === 'web' ? 'web' : 'mobile' },
     );
   }
 
@@ -123,10 +123,10 @@ export class PaymentsController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({
-    summary: 'Créer un paiement manuellement (Admin mobile/web — ex: ajustement, régularisation)',
+    summary: 'Créer un paiement manuellement (Admin web — ex: ajustement, régularisation)',
     description:
       "Réservé aux admins : un étudiant ne doit jamais pouvoir choisir librement ticketsReceived/amountFcfa. " +
       'Pour recharger son wallet, un étudiant passe uniquement par POST /payments/intent.',
@@ -143,7 +143,7 @@ export class PaymentsController {
   @Get()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT)
   @WebRoles(WebUserRole.ADMIN, WebUserRole.SUPERVISION)
   @ApiOperation({ summary: 'Récupérer tous les paiements actifs' })
   @ApiQuery({ type: PaginationDto })
@@ -165,21 +165,21 @@ export class PaymentsController {
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.STUDENT)
+  @Roles(UserRole.ADMIN, UserRole.STUDENT)
   @WebRoles(WebUserRole.ADMIN, WebUserRole.SUPERVISION)
   @ApiOperation({ summary: 'Récupérer un paiement actif' })
   @ApiResponse({ status: 200, description: 'Retourne le paiement.', type: PaymentEntity })
   @ApiResponse({ status: 404, description: 'Paiement introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
-    return this.paymentsService.findOne(id, { id: req.user.id, role: req.user.role });
+    return this.paymentsService.findOne(id, { id: req.user.id, role: req.user.role, kind: req.user.__authKind === 'web' ? 'web' : 'mobile' });
   }
 
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Mettre à jour un paiement (Admin mobile/web)' })
+  @ApiOperation({ summary: 'Mettre à jour un paiement (Admin web)' })
   @ApiResponse({
     status: 200,
     description: 'Le paiement a été mis à jour avec succès.',
@@ -192,9 +192,9 @@ export class PaymentsController {
   @Delete(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Supprimer un paiement (Admin mobile/web)' })
+  @ApiOperation({ summary: 'Supprimer un paiement (Admin web)' })
   @ApiResponse({
     status: 200,
     description: 'Le paiement a été supprimé avec succès.',

@@ -3,6 +3,7 @@ import {
   UnauthorizedException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -340,6 +341,12 @@ export class AuthService {
   }
 
   private async getTokens(userId: string, role: UserRole) {
+    // ADMIN sont des rôles du back-office Web uniquement.
+    // Aucun compte mobile ne doit pouvoir recevoir de JWT mobile avec ces rôles.
+    if (role === UserRole.ADMIN) {
+      throw new ForbiddenException("Les comptes ADMIN utilisent exclusivement l'authentification Web");
+    }
+
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(
         { sub: userId, role },

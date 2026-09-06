@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
-import { SuspensionStatus } from '@prisma/client';
+import { SuspensionStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 
 @Injectable()
@@ -32,6 +32,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     if (!user || user.deletedAt || user.isBanned) return null;
 
+    // Les rôles ADMIN appartiennent exclusivement au back-office Web.
+    // Refus explicite même si un ancien JWT mobile ou un token forgé avec la bonne
+    // signature tente de les utiliser.
+    if (user.role === UserRole.ADMIN) return null;
+
     // Suspension temporaire expirée → levée automatique (fonds dégelés).
     // Sans ça, un compte resterait bloqué après suspensionUntil jusqu'à
     // une action admin manuelle.
@@ -60,6 +65,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         ]);
         user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
         if (!user || user.deletedAt || user.isBanned) return null;
+
+    // Les rôles ADMIN appartiennent exclusivement au back-office Web.
+    // Refus explicite même si un ancien JWT mobile ou un token forgé avec la bonne
+    // signature tente de les utiliser.
+    if (user.role === UserRole.ADMIN) return null;
       } else {
         // Encore sous suspension : accès refusé → fonds gelés côté API
         // (aucune commande / transfert / recharge possible).

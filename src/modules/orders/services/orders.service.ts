@@ -12,7 +12,7 @@ interface Actor {
   role?: UserRole;
   isAdmin: boolean;
   // 'web' = session admin dashboard (WebUser, pas de ligne User associée) ;
-  // 'mobile' ou absent = compte User réel (étudiant/vendeur/admin mobile).
+  // 'mobile' ou absent = compte User réel (étudiant/vendeur).
   // Distingue les deux car OrderStatusHistory.changedById référence User,
   // jamais WebUser : y stocker un id de WebUser violerait la contrainte FK.
   authKind?: 'mobile' | 'web';
@@ -39,7 +39,7 @@ export class OrdersService {
 
   /**
    * Un STUDENT ne peut accéder qu'à ses propres commandes, un VENDOR qu'aux
-   * commandes de sa cantine. ADMIN/SUPER_ADMIN passent sans restriction.
+   * commandes de sa cantine. ADMIN passent sans restriction.
    *
    * order.vendorId référence Vendor.id, distinct de User.id (actor.id) :
    * on doit résoudre le profil Vendor du User connecté avant de comparer.
@@ -371,7 +371,7 @@ export class OrdersService {
 
     // Le vendeur ne pilote que le cycle opérationnel de sa propre commande.
     // Une annulation PENDING/une intervention administrative reste possible
-    // pour ADMIN/SUPER_ADMIN, mais elle ne permet jamais de revenir en arrière.
+    // pour ADMIN, mais elle ne permet jamais de revenir en arrière.
     if (!actor.isAdmin && actor.role === UserRole.VENDOR) {
       const vendorAllowed: readonly OrderStatus[] = [
         OrderStatus.ACCEPTED,
