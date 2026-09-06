@@ -71,7 +71,7 @@ export class WebUsersController {
   @ApiOperation({ summary: 'Annuler une demande de suppression en attente' })
   @ApiResponse({ status: 200, description: 'Demande annulée.' })
   @ApiResponse({ status: 409, description: 'Demande déjà traitée.' })
-  cancelDeletion(@Param('requestId') requestId: string) {
-    return this.webUsersService.cancelDeletion(requestId);
+  cancelDeletion(@Param('requestId') requestId: string, @Request() req) {
+    return this.webUsersService.cancelDeletion(requestId, req.user.id);
   }
 }

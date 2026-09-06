@@ -20,12 +20,7 @@ export class DistributedThrottlerStorage implements ThrottlerStorage {
     limit: number,
     blockDuration: number,
     throttlerName: string,
-  ): Promise<{
-    totalHits: number;
-    timeToExpire: number;
-    isBlocked: boolean;
-    timeToBlockExpire: number;
-  }> {
+  ): Promise<{ totalHits: number; timeToExpire: number; isBlocked: boolean; timeToBlockExpire: number }> {
     const now = Date.now();
     const ttlMs = Math.max(1, ttl);
     const blockMs = Math.max(1, blockDuration);

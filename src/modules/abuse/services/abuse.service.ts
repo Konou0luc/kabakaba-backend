@@ -22,7 +22,11 @@ export class AbuseService {
 
   async create(createAbuseDto: CreateAbuseDto) {
     return this.prisma.abuseLog.create({
-      data: createAbuseDto,
+      data: {
+        studentId: createAbuseDto.studentId,
+        count: 1,
+        warningSent: false,
+      },
     });
   }
 

@@ -22,6 +22,9 @@ export class WebUsersService {
    * connexion entièrement terminée (mot de passe + 2FA vérifiés).
    */
   async provision(dto: ProvisionWebUserDto) {
+    if (![WebUserRole.SUPERVISION, WebUserRole.ADMIN].includes(dto.role)) {
+      throw new ForbiddenException('Rôle de compte non autorisé');
+    }
     const hashedPassword = await bcrypt.hash(dto.temporaryPassword, SALT_ROUNDS);
     try {
       const webUser = await this.prisma.webUser.create({
@@ -260,11 +263,18 @@ export class WebUsersService {
     return this.getDeletionRequestProgress(requestId);
   }
 
-  async cancelDeletion(requestId: string) {
-    const request = await this.prisma.webUserDeletionRequest.findUnique({ where: { id: requestId } });
+  async cancelDeletion(requestId: string, actorId: string) {
+    const [request, actor] = await Promise.all([
+      this.prisma.webUserDeletionRequest.findUnique({ where: { id: requestId } }),
+      this.prisma.webUser.findUnique({ where: { id: actorId }, select: { id: true, role: true, isActive: true, deletedAt: true } }),
+    ]);
     if (!request) throw new NotFoundException(`Demande ${requestId} introuvable`);
+    if (!actor || !actor.isActive || actor.deletedAt) throw new ForbiddenException('Compte non autorisé');
     if (request.status !== WebUserDeletionStatus.PENDING) {
       throw new ConflictException(`Cette demande a déjà été traitée (${request.status})`);
+    }
+    if (request.initiatedByWebUserId !== actorId && actor.role !== WebUserRole.ADMIN) {
+      throw new ForbiddenException('Seul l’initiateur ou un administrateur peut annuler cette demande');
     }
 
     return this.prisma.webUserDeletionRequest.update({

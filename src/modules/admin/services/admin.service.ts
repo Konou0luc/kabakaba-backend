@@ -1,8 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateAuditLogDto } from '../dto/create-audit-log.dto';
 import { SuspensionsService } from '../../users/services/suspensions.service';
-import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class AdminService {

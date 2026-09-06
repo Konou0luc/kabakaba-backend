@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, Request, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserRole, WebUserRole } from '@prisma/client';
@@ -26,8 +26,12 @@ export class PartnerApplicationsController {
   @ApiOperation({ summary: 'Soumettre une candidature partenaire (aucun compte requis)' })
   @ApiResponse({
     status: 201,
-    description: 'La candidature a été soumise avec succès.',
-    type: PartnerApplicationEntity,
+    description: 'La candidature a été reçue. Aucune donnée personnelle ou identifiant interne n’est renvoyé.',
+    schema: {
+      example: {
+        message: 'Votre candidature a été reçue. Notre équipe vous contactera si nécessaire.',
+      },
+    },
   })
   create(@Body() createPartnerApplicationDto: CreatePartnerApplicationDto) {
     return this.partnerApplicationsService.create(createPartnerApplicationDto);
@@ -69,7 +73,8 @@ export class PartnerApplicationsController {
     type: PartnerApplicationEntity,
   })
   @ApiResponse({ status: 404, description: 'Candidature introuvable.' })
-  update(@Param('id') id: string, @Body() updatePartnerApplicationDto: UpdatePartnerApplicationDto) {
-    return this.partnerApplicationsService.update(id, updatePartnerApplicationDto);
+  update(@Param('id') id: string, @Body() updatePartnerApplicationDto: UpdatePartnerApplicationDto, @Request() req: any) {
+    const treatedByWebUserId = req.user.__authKind === 'web' ? req.user.id : undefined;
+    return this.partnerApplicationsService.update(id, updatePartnerApplicationDto, treatedByWebUserId);
   }
 }

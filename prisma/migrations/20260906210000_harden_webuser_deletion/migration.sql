@@ -1,0 +1,3 @@
+-- No schema changes required. This migration records the hardening release:
+-- authorization for deletion-request cancellation and immutable role constraints
+-- are enforced at the application layer.
