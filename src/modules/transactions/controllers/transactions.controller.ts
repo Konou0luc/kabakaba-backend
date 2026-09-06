@@ -35,16 +35,19 @@ export class TransactionsController {
   @Post()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Créer une nouvelle transaction (Admin seulement)' })
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Créer une transaction manuelle (SUPER_ADMIN mobile uniquement)' })
   @ApiResponse({
     status: 201,
     description: 'La transaction a été créée avec succès.',
     type: TransactionEntity,
   })
   create(@Body() createTransactionDto: CreateTransactionDto, @Request() req) {
-    return this.transactionsService.create(createTransactionDto, req.user.id);
+    return this.transactionsService.create(createTransactionDto, {
+      id: req.user.id,
+      kind: req.user.__authKind === 'web' ? 'web' : 'mobile',
+      role: req.user.role,
+    });
   }
 
   @Get()

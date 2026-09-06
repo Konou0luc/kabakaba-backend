@@ -2,13 +2,6 @@ import { Injectable } from '@nestjs/common';
 import { ThrottlerStorage } from '@nestjs/throttler';
 import { PrismaService } from '../../database/services/prisma.service';
 
-interface DistributedThrottlerStorageRecord {
-  totalHits: number;
-  timeToExpire: number;
-  isBlocked: boolean;
-  timeToBlockExpire: number;
-}
-
 /**
  * Storage distribué PostgreSQL pour @nestjs/throttler.
  *
@@ -27,13 +20,20 @@ export class DistributedThrottlerStorage implements ThrottlerStorage {
     limit: number,
     blockDuration: number,
     throttlerName: string,
-  ): Promise<DistributedThrottlerStorageRecord> {
+  ): Promise<{
+    totalHits: number;
+    timeToExpire: number;
+    isBlocked: boolean;
+    timeToBlockExpire: number;
+  }> {
     const now = Date.now();
     const ttlMs = Math.max(1, ttl);
     const blockMs = Math.max(1, blockDuration);
     const windowStartMs = Math.floor(now / ttlMs) * ttlMs;
     const windowStart = new Date(windowStartMs);
     const expiresAt = new Date(windowStartMs + ttlMs);
+    const cleanupKey = `${key}:${throttlerName}`;
+
     // La clé primaire inclut la fenêtre temporelle : aucune course entre
     // deux fenêtres et un UPSERT atomique suffit pour compter les requêtes.
     const rows = await this.prisma.$queryRaw<Array<{
@@ -76,11 +76,9 @@ export class DistributedThrottlerStorage implements ThrottlerStorage {
       `;
     }
 
-    // @nestjs/throttler expects these two values in seconds, while the
-    // incoming ttl/blockDuration arguments are milliseconds.
-    const timeToExpire = Math.max(0, Math.ceil((expiresAt.getTime() - now) / 1000));
+    const timeToExpire = Math.max(0, expiresAt.getTime() - now);
     const timeToBlockExpire = blockedUntil
-      ? Math.max(0, Math.ceil((blockedUntil.getTime() - now) / 1000))
+      ? Math.max(0, blockedUntil.getTime() - now)
       : 0;
 
     return {

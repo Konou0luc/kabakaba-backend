@@ -210,10 +210,12 @@ export class UsersService {
     if (passwordChanged) {
       payload.password = await bcrypt.hash(payload.password, 10);
     }
+    const roleChanged = payload.role !== undefined && payload.role !== current.role;
+    const securityStateChanged = passwordChanged || roleChanged;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const result = await tx.user.update({ where: { id }, data: payload });
-      if (passwordChanged) {
+      if (securityStateChanged) {
         await tx.refreshToken.updateMany({
           where: { userId: id, revoked: false },
           data: { revoked: true },

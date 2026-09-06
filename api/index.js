@@ -8,7 +8,7 @@ function applyCors(req, res) {
   if (origin && getAllowedOrigins().includes(origin)) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,PUT,DELETE,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Request-Id');
     res.setHeader('Vary', 'Origin');
   }
 }
@@ -42,7 +42,7 @@ module.exports = async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({
         error: 'Internal server error',
-        message: error?.message ?? String(error),
+        message: 'Une erreur interne est survenue',
       });
     }
   }

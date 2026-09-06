@@ -620,7 +620,7 @@ model RateLimitBucket {
 
 model AuditLog {
   id        String    @id @default(uuid())
-  adminId   String
+  adminId   String?
   action    String
   entity    String
   entityId  String
@@ -628,7 +628,7 @@ model AuditLog {
   createdAt DateTime  @default(now())
   deletedAt DateTime?
 
-  admin     User     @relation(fields: [adminId], references: [id])
+  admin     User?    @relation(fields: [adminId], references: [id])
   webUserId String?
   webUser   WebUser? @relation(fields: [webUserId], references: [id])
 }

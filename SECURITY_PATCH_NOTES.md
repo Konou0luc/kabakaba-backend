@@ -77,10 +77,27 @@ Générer une clé aléatoire forte et la définir dans Vercel / l'environnement
 
 Ne jamais committer cette clé dans Git. La même clé doit être conservée pour toute la durée de vie des secrets TOTP existants. Une rotation de clé nécessite une procédure de re-chiffrement dédiée.
 
-## SEC-05 build compatibility patch
+## SEC-11 → SEC-15 patch (2026-09-06)
+- SEC-11: Vercel catch no longer returns internal exception messages.
+- SEC-12: audit actor is derived from authenticated request; client cannot submit adminId. AuditLog.adminId is nullable so webUserId can be used for web admins.
+- SEC-13: manual transaction creation restricted to SUPER_ADMIN mobile, positive amount required; transaction PATCH is now immutable/forbidden.
+- SEC-14: OTP verification now uses atomic conditional updates for failed attempts and one-time consumption.
+- SEC-15: refresh tokens are revoked after password changes, role changes, and suspensions/bans.
 
-Fixed the distributed throttler storage to be compatible with `@nestjs/throttler` 6.x:
-- no longer imports the non-public/non-exported `ThrottlerStorageRecord` symbol;
-- uses a local structural return type matching the Throttler storage contract;
-- returns `timeToExpire` and `timeToBlockExpire` in seconds as expected by NestJS Throttler;
-- removed an unused local variable from the storage implementation.
+### Migration required
+Apply Prisma migration:
+`20260906195500_make_audit_actor_optional`
+
+Command in deployment environment:
+`npx prisma migrate deploy`
+
+
+## SEC-16 → SEC-19
+
+- SEC-16: Swagger UI assets are served locally from the installed `swagger-ui-dist` package; removed CDN runtime dependency.
+- SEC-17: CORS now explicitly allows `X-Request-Id`; production remains fail-closed when `CORS_ALLOWED_ORIGINS` is absent.
+- SEC-18: server-generated UUID request IDs are now used for response/log correlation; client-provided IDs no longer overwrite server IDs.
+- SEC-19: Swagger assets are local, removing the runtime jsDelivr supply-chain dependency.
+
+### Production action
+Set `CORS_ALLOWED_ORIGINS` to the exact frontend origin(s) in production. No new secret is required for SEC-16/18/19.

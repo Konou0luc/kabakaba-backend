@@ -73,6 +73,11 @@ export class SuspensionsService {
           suspendedByWebUserId: actor?.kind === 'web' ? actor.id : null,
         },
       }),
+      // Toute suspension/bannissement invalide les sessions mobiles existantes.
+      this.prisma.refreshToken.updateMany({
+        where: { userId: studentId, revoked: false },
+        data: { revoked: true },
+      }),
     ]);
 
     return { event, banned: shouldBan, recentSuspensionCount: totalAfterThisOne };

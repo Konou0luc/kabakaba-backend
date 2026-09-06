@@ -6,6 +6,7 @@ import {
   Param,
   Query,
   UseGuards,
+  Request,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -68,8 +69,12 @@ export class AdminController {
     description: 'Journal d\'audit créé avec succès',
     type: AuditLogEntity,
   })
-  createAuditLog(@Body() createAuditLogDto: CreateAuditLogDto) {
-    return this.adminService.createAuditLog(createAuditLogDto);
+  createAuditLog(@Body() createAuditLogDto: CreateAuditLogDto, @Request() req) {
+    return this.adminService.createAuditLog(createAuditLogDto, {
+      id: req.user.id,
+      kind: req.user.__authKind === 'web' ? 'web' : 'mobile',
+      role: req.user.role,
+    });
   }
 
   @Get('audit-logs')

@@ -103,17 +103,28 @@ export class AuthService {
 
     const isValid = await bcrypt.compare(code, otp.code);
     if (!isValid) {
-      await this.prisma.otpCode.update({
-        where: { id: otp.id },
-        data: { attempts: otp.attempts + 1 },
+      // Incrément atomique et conditionnel : deux requêtes concurrentes ne
+      // peuvent pas réutiliser un même état d'OTP ni dépasser le plafond par
+      // une lecture obsolète de `attempts`.
+      const claimedFailure = await this.prisma.otpCode.updateMany({
+        where: { id: otp.id, used: false, expiresAt: { gt: new Date() }, attempts: { lt: 5 } },
+        data: { attempts: { increment: 1 } },
       });
+      if (claimedFailure.count === 0) {
+        throw new BadRequestException('Trop de tentatives, veuillez demander un nouveau code OTP');
+      }
       throw new BadRequestException('Code OTP invalide ou expiré');
     }
 
-    await this.prisma.otpCode.update({
-      where: { id: otp.id },
+    // Consommation atomique : une seule requête concurrente peut marquer
+    // l'OTP comme utilisé et obtenir l'authentification.
+    const claimed = await this.prisma.otpCode.updateMany({
+      where: { id: otp.id, used: false, expiresAt: { gt: new Date() }, attempts: { lt: 5 } },
       data: { used: true },
     });
+    if (claimed.count === 0) {
+      throw new BadRequestException('Code OTP invalide ou expiré');
+    }
 
     let user = await this.usersService.findByPhone(phone);
 

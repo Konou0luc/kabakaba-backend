@@ -1,5 +1,5 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { TransactionType, TransactionStatus, OrderStatus } from '@prisma/client';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { TransactionType, TransactionStatus, OrderStatus, UserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateTransactionDto } from '../dto/create-transaction.dto';
 import { UpdateTransactionDto } from '../dto/update-transaction.dto';
@@ -106,11 +106,33 @@ export class TransactionsService {
     }));
   }
 
-  async create(createTransactionDto: CreateTransactionDto, userId: string) {
+  async create(
+    createTransactionDto: CreateTransactionDto,
+    actor: { id: string; kind: 'mobile' | 'web'; role?: string },
+  ) {
+    // Le ledger est financier et doit rester append-only. Une création
+    // manuelle est donc réservée au SUPER_ADMIN mobile et impose un montant
+    // strictement positif. Les flux métier normaux doivent écrire eux-mêmes
+    // leurs transactions depuis leurs services respectifs.
+    if (actor.kind !== 'mobile' || actor.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException('Création manuelle réservée au SUPER_ADMIN mobile');
+    }
+    if (!Number.isFinite(Number(createTransactionDto.amount)) || Number(createTransactionDto.amount) <= 0) {
+      throw new BadRequestException('Le montant doit être strictement positif');
+    }
+
     return this.prisma.transaction.create({
       data: {
-        ...createTransactionDto,
-        userId,
+        type: createTransactionDto.type,
+        status: createTransactionDto.status ?? TransactionStatus.COMPLETED,
+        amount: Number(createTransactionDto.amount),
+        reference: createTransactionDto.reference,
+        description: createTransactionDto.description,
+        senderId: createTransactionDto.senderId,
+        receiverId: createTransactionDto.receiverId,
+        relatedOrderId: createTransactionDto.relatedOrderId,
+        relatedPaymentId: createTransactionDto.relatedPaymentId,
+        userId: actor.id,
       },
     });
   }
@@ -189,11 +211,9 @@ export class TransactionsService {
   }
 
   // In most cases, transactions shouldn't be updated/deleted, but we'll include for completeness
-  async update(id: string, updateTransactionDto: UpdateTransactionDto) {
-    await this.findOne(id);
-    return this.prisma.transaction.update({
-      where: { id },
-      data: updateTransactionDto,
-    });
+  async update(_id: string, _updateTransactionDto: UpdateTransactionDto) {
+    // Les écritures financières sont immuables. Une correction doit passer
+    // par une nouvelle écriture compensatoire dans le flux métier concerné.
+    throw new ForbiddenException('Les transactions financières sont immuables');
   }
 }

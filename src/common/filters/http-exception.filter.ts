@@ -18,9 +18,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
     const request = ctx.getRequest<Request>();
-    const requestId = typeof request.headers['x-request-id'] === 'string'
-      ? request.headers['x-request-id'].slice(0, 100)
-      : crypto.randomUUID();
+    // Ne jamais faire confiance au request-id fourni par le client pour
+    // l'identité de corrélation côté serveur. On génère systématiquement
+    // un identifiant imprévisible et on l'expose dans la réponse/logs.
+    const requestId = crypto.randomUUID();
+    response.setHeader('X-Request-Id', requestId);
 
     const status = exception instanceof HttpException
       ? exception.getStatus()

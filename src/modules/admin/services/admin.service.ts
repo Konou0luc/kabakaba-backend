@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateAuditLogDto } from '../dto/create-audit-log.dto';
 import { SuspensionsService } from '../../users/services/suspensions.service';
+import { Prisma } from '@prisma/client';
 
 @Injectable()
 export class AdminService {
@@ -10,9 +11,22 @@ export class AdminService {
     private readonly suspensionsService: SuspensionsService,
   ) {}
 
-  async createAuditLog(createAuditLogDto: CreateAuditLogDto) {
+  async createAuditLog(
+    createAuditLogDto: CreateAuditLogDto,
+    actor: { id: string; kind: 'mobile' | 'web'; role?: string },
+  ) {
+    // L'identité de l'acteur est toujours dérivée du jeton authentifié.
+    // Le client ne peut ni usurper un autre admin ni écrire un faux acteur.
     return this.prisma.auditLog.create({
-      data: createAuditLogDto,
+      data: {
+        action: createAuditLogDto.action,
+        entity: createAuditLogDto.entity,
+        entityId: createAuditLogDto.entityId,
+        metadata: createAuditLogDto.metadata as Prisma.InputJsonValue,
+        ...(actor.kind === 'web'
+          ? { webUserId: actor.id }
+          : { adminId: actor.id }),
+      },
     });
   }
 
