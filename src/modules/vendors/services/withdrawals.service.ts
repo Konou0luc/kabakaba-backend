@@ -115,9 +115,13 @@ export class WithdrawalsService {
         data: {
           userId: vendor.userId,
           type: 'WITHDRAWAL',
-          status: 'COMPLETED',
+          // PENDING, pas COMPLETED : le retrait vient d'être créé, pas versé.
+          // Le vrai statut vit sur Withdrawal — cette Transaction est mise à
+          // jour en miroir dans updateStatus() ci-dessous, retrouvée via
+          // reference = withdrawal.id (pas un UUID random déconnecté).
+          status: 'PENDING',
           amount: totalDebit,
-          reference: crypto.randomUUID(),
+          reference: withdrawal.id,
           description:
             `Retrait ${amount} FCFA via ${operator} → payout ${fees.payoutAmountToSend} FCFA ` +
             `(FedaPay ${fees.fedapayFee}, cash ${fees.cashOutFee}) — ${withdrawal.id}`,
@@ -255,6 +259,17 @@ export class WithdrawalsService {
           });
         }
       }
+
+      // Miroir : la Transaction WITHDRAWAL créée dans request() reste
+      // retrouvable via reference = withdrawal.id (voir commentaire
+      // là-bas) — on la met à jour pour qu'elle reflète le vrai statut au
+      // lieu de rester figée. TransactionStatus n'a pas de valeur
+      // PROCESSING : le plus proche sémantiquement est PENDING ("pas encore
+      // terminé").
+      await tx.transaction.updateMany({
+        where: { reference: existing.id, type: 'WITHDRAWAL' },
+        data: { status: status === WithdrawalStatus.PROCESSING ? 'PENDING' : status },
+      });
 
       return tx.withdrawal.update({
         where: { id },
