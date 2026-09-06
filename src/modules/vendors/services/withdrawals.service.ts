@@ -171,6 +171,30 @@ export class WithdrawalsService {
     };
   }
 
+  // Agrégat par statut pour les KPI cards de la page Retraits (Admin) —
+  // count + somme de debitedAmount (montant réellement débité du solde
+  // vendeur, cf. commentaire sur ce champ plus haut), pas amount seul.
+  async getStats() {
+    const grouped = await this.prisma.withdrawal.groupBy({
+      by: ['status'],
+      where: { deletedAt: null },
+      _count: true,
+      _sum: { debitedAmount: true },
+    });
+
+    const byStatus = Object.fromEntries(
+      grouped.map((g) => [g.status, { count: g._count, total: Number(g._sum.debitedAmount ?? 0) }]),
+    );
+
+    const zero = { count: 0, total: 0 };
+    return {
+      pending: byStatus.PENDING ?? zero,
+      processing: byStatus.PROCESSING ?? zero,
+      completed: byStatus.COMPLETED ?? zero,
+      failed: byStatus.FAILED ?? zero,
+    };
+  }
+
   async findAll(page = 1, limit = 10, status?: WithdrawalStatus) {
     const skip = (page - 1) * limit;
     const where = {

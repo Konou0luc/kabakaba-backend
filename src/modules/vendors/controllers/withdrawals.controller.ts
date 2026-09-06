@@ -74,6 +74,14 @@ export class WithdrawalsController {
     );
   }
 
+  @Get('stats')
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @WebRoles(WebUserRole.ADMIN, WebUserRole.SUPERVISION)
+  @ApiOperation({ summary: 'Statistiques des retraits par statut (Admin / Supervision)' })
+  getStats() {
+    return this.withdrawalsService.getStats();
+  }
+
   @Get()
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
   @WebRoles(WebUserRole.ADMIN, WebUserRole.SUPERVISION)
