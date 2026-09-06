@@ -157,7 +157,13 @@ export class WebAuthService {
     return { sub: payload.sub };
   }
 
-  private async verifySessionChallengeToken(token: string) {
+  /**
+   * Vérifie la signature/le propos du JWT et que la ligne WebAuthChallenge
+   * correspondante existe encore, SANS la consommer. Utilisé pour pouvoir
+   * valider le code TOTP d'abord et ne marquer le jeton consommé qu'en cas
+   * de succès — voir consumeSessionChallengeToken() et son commentaire.
+   */
+  private async peekSessionChallengeToken(token: string) {
     let payload: { sub: string; purpose: string; jti?: string };
     try {
       payload = await this.jwtService.verifyAsync(token, { secret: this.accessSecret });
@@ -167,7 +173,7 @@ export class WebAuthService {
     if (payload.purpose !== 'web_2fa_challenge' || !payload.jti) {
       throw new UnauthorizedException('Jeton invalide pour cette opération');
     }
-    const consumed = await this.prisma.webAuthChallenge.updateMany({
+    const challenge = await this.prisma.webAuthChallenge.findFirst({
       where: {
         id: payload.jti,
         webUserId: payload.sub,
@@ -175,12 +181,38 @@ export class WebAuthService {
         consumedAt: null,
         expiresAt: { gt: new Date() },
       },
+    });
+    if (!challenge) {
+      throw new UnauthorizedException('Jeton invalide, expiré ou déjà consommé');
+    }
+    return { sub: payload.sub, jti: payload.jti };
+  }
+
+  /**
+   * Marque la ligne WebAuthChallenge consommée — à appeler UNIQUEMENT après
+   * validation réussie du code TOTP (voir verify2fa). Consommer le jeton
+   * avant de vérifier le code grillerait la tentative dès la moindre faute
+   * de frappe : le challengeToken redevenant inutilisable, l'utilisateur
+   * devrait reprendre toute la connexion depuis l'email/mot de passe pour
+   * une simple faute de frappe sur 6 chiffres.
+   */
+  private async consumeSessionChallengeToken(jti: string, webUserId: string) {
+    const consumed = await this.prisma.webAuthChallenge.updateMany({
+      where: {
+        id: jti,
+        webUserId,
+        purpose: 'web_2fa_challenge',
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+      },
       data: { consumedAt: new Date() },
     });
     if (consumed.count !== 1) {
+      // Course avec une autre requête (ex: double-clic) qui a consommé le
+      // jeton entre le peek et ce point : on refuse plutôt que d'émettre
+      // deux sessions valides pour un seul challenge.
       throw new UnauthorizedException('Jeton invalide, expiré ou déjà consommé');
     }
-    return { sub: payload.sub };
   }
 
   /**
@@ -305,7 +337,7 @@ export class WebAuthService {
   }
 
   async verify2fa(challengeToken: string, code: string) {
-    const { sub } = await this.verifySessionChallengeToken(challengeToken);
+    const { sub, jti } = await this.peekSessionChallengeToken(challengeToken);
     const webUser = await this.prisma.webUser.findUnique({ where: { id: sub } });
     if (!webUser || !webUser.isActive || !webUser.twoFaEnabled || !webUser.twoFaSecret) {
       throw new UnauthorizedException();
@@ -317,6 +349,11 @@ export class WebAuthService {
       code,
     );
     if (!codeIsValid) throw new UnauthorizedException('Code invalide');
+
+    // Le jeton n'est consommé qu'ici, une fois le code confirmé valide —
+    // sinon une simple faute de frappe grillerait le challengeToken et
+    // forcerait à tout reprendre depuis l'email/mot de passe.
+    await this.consumeSessionChallengeToken(jti, webUser.id);
 
     const updated = await this.prisma.webUser.update({
       where: { id: webUser.id },
