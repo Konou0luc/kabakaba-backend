@@ -134,6 +134,27 @@ function buildSwaggerHtml(swaggerUrl: string) {
 export async function createNestApp() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
+  // Express génère par défaut un ETag faible pour chaque réponse JSON et
+  // répond 304 sur les requêtes conditionnelles (If-None-Match) — y compris
+  // pour ce dashboard admin où les données changent en permanence. Ce 304
+  // court-circuite la réponse AVANT que les en-têtes CORS ajoutés dans
+  // api/index.js (Access-Control-Allow-Credentials notamment) ne soient
+  // garantis présents sur la réponse finale, ce qui casse le fetch côté
+  // navigateur dès que credentials: 'include' est utilisé (401 API9-like
+  // silencieux : "Access-Control-Allow-Credentials header ... must be
+  // 'true'"). Aucune donnée ici ne bénéficie d'un cache conditionnel côté
+  // client — on désactive l'ETag plutôt que de risquer ce genre de 304.
+  app.getHttpAdapter().getInstance().disable('etag');
+
+  // Ceinture et bretelles vis-à-vis du point ci-dessus : même sans ETag,
+  // un cache intermédiaire (proxy, CDN Vercel) pourrait mettre en cache une
+  // réponse JSON authentifiée. Aucune route de cette API ne doit être mise
+  // en cache — ce sont des données propres à l'utilisateur/l'admin connecté.
+  app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.setHeader('Cache-Control', 'no-store');
+    next();
+  });
+
   app.enableCors({
     origin: getAllowedOrigins(),
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
