@@ -504,4 +504,9 @@ export class WebAuthService {
 
     return { success: true };
   }
+  async logout(webUserId: string) {
+    await this.prisma.webUser.update({ where: { id: webUserId }, data: { tokenVersion: { increment: 1 } } });
+    return { message: 'Déconnexion réussie' };
+  }
+
 }

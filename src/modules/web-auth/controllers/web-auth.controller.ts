@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Request, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Request, Response, UseGuards } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { WebAuthService } from '../services/web-auth.service';
@@ -12,6 +12,7 @@ import { ConfirmPasswordResetDto } from '../dto/confirm-password-reset.dto';
 import { WebUserEntity } from '../entities/web-user.entity';
 import { extractBearerToken } from '../../../common/utils/extract-bearer-token';
 import { WebJwtAuthGuard } from '../../../common/guards/web-jwt-auth.guard';
+import { clearWebSessionCookies, issueWebSessionCookies } from '../../../common/utils/web-session-cookie';
 
 @ApiTags('Web Auth (dashboard admin/supervision)')
 @Controller('web-auth')
@@ -37,8 +38,13 @@ export class WebAuthController {
   @ApiOperation({ summary: 'Étape 2/2 de connexion : code Google Authenticator (ou clé de secours) → session' })
   @ApiResponse({ status: 200, description: 'Connexion réussie, jeton de session renvoyé.' })
   @ApiResponse({ status: 401, description: 'Code invalide ou jeton de challenge expiré.' })
-  verify2fa(@Body() dto: WebVerify2faDto) {
-    return this.webAuthService.verify2fa(dto.challengeToken, dto.code);
+  verify2fa(@Body() dto: WebVerify2faDto, @Response({ passthrough: true }) res) {
+    const result = this.webAuthService.verify2fa(dto.challengeToken, dto.code);
+    return result.then((session) => {
+      issueWebSessionCookies(res, session.accessToken);
+      const { accessToken, ...safe } = session;
+      return safe;
+    });
   }
 
   // ─── Première connexion : mot de passe temporaire → onboarding ──
@@ -81,9 +87,17 @@ export class WebAuthController {
   @ApiOperation({ summary: 'Étape 4/4 onboarding : vérifie le code TOTP → active le 2FA et ouvre la session (Bearer = onboardingToken)' })
   @ApiResponse({ status: 200, description: 'Onboarding terminé, session ouverte, clé de secours affichée une seule fois.' })
   @ApiResponse({ status: 401, description: 'Code invalide.' })
-  verifyTwoFactorSetup(@Headers('authorization') authorization: string, @Body() dto: WebVerify2faSetupDto) {
+  verifyTwoFactorSetup(@Headers('authorization') authorization: string, @Body() dto: WebVerify2faSetupDto, @Response({ passthrough: true }) res) {
     const onboardingToken = extractBearerToken(authorization);
-    return this.webAuthService.verifyTwoFactorSetup(onboardingToken, dto.code);
+    const result = this.webAuthService.verifyTwoFactorSetup(onboardingToken, dto.code);
+    return result.then((session) => {
+      if (session.accessToken) {
+        issueWebSessionCookies(res, session.accessToken);
+        const { accessToken, ...safe } = session;
+        return safe;
+      }
+      return session;
+    });
   }
 
   // ─── Réinitialisation de mot de passe (TOTP ou clé de secours) ──────
@@ -114,6 +128,14 @@ export class WebAuthController {
   }
 
   // ─── Session ──────────────────────────────────────────────────────
+
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(WebJwtAuthGuard)
+  logout(@Request() req, @Response({ passthrough: true }) res) {
+    clearWebSessionCookies(res);
+    return this.webAuthService.logout(req.user.id);
+  }
 
   @Get('me')
   @ApiBearerAuth()
