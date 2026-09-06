@@ -21,7 +21,7 @@ export class CreateVendorPersonDto {
 
   @ApiProperty({ example: '+22890000000', description: 'Téléphone de contact du vendeur' })
   @IsNotEmpty()
-  @IsPhoneNumber()
+  @IsPhoneNumber('TG')
   phone: string;
 
   @ApiProperty({ example: 'vendeur@kabakaba.app', description: 'Email de connexion du vendeur' })
