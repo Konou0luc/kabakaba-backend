@@ -195,11 +195,20 @@ export class WithdrawalsService {
     };
   }
 
-  async findAll(page = 1, limit = 10, status?: WithdrawalStatus) {
+  async findAll(page = 1, limit = 10, status?: WithdrawalStatus, from?: string, to?: string) {
     const skip = (page - 1) * limit;
+    // Même logique que resolveRange() dans analytics.service.ts : bornes
+    // incluses, `to` étendu à la fin de journée.
+    let createdAt: { gte?: Date; lte?: Date } | undefined;
+    if (from || to) {
+      const until = to ? new Date(to) : new Date();
+      until.setHours(23, 59, 59, 999);
+      createdAt = { ...(from ? { gte: new Date(from) } : {}), lte: until };
+    }
     const where = {
       deletedAt: null,
       ...(status ? { status } : {}),
+      ...(createdAt ? { createdAt } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.withdrawal.count({ where }),

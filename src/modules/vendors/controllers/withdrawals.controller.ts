@@ -89,15 +89,21 @@ export class WithdrawalsController {
   @ApiQuery({ name: 'page', required: false })
   @ApiQuery({ name: 'limit', required: false })
   @ApiQuery({ name: 'status', required: false, enum: WithdrawalStatus })
+  @ApiQuery({ name: 'from', required: false, description: 'Date de début (ISO 8601), pour une plage personnalisée' })
+  @ApiQuery({ name: 'to', required: false, description: 'Date de fin (ISO 8601), pour une plage personnalisée' })
   findAll(
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: WithdrawalStatus,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
   ) {
     return this.withdrawalsService.findAll(
       page ? parseInt(page, 10) : 1,
       limit ? parseInt(limit, 10) : 10,
       status,
+      from,
+      to,
     );
   }
 
