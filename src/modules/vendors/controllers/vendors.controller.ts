@@ -129,7 +129,7 @@ export class VendorsController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Update a vendor (Admin mobile/web, ou Vendeur sur sa propre cantine)' })
+  @ApiOperation({ summary: 'Update a vendor (Admin mobile/web, ou profil vendeur limité sur sa propre cantine)' })
   @ApiResponse({
     status: 200,
     description: 'The vendor has been successfully updated.',

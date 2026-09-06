@@ -15,6 +15,7 @@ import { VerifyOtpDto } from '../dto/verify-otp.dto';
 import { LoginEmailDto } from '../dto/login-email.dto';
 import * as bcrypt from 'bcrypt';
 import { AmbassadorStatus, UserRole } from '@prisma/client';
+import { safeErrorMessage } from '../../../common/utils/safe-log';
 
 @Injectable()
 export class AuthService {
@@ -73,7 +74,7 @@ export class AuthService {
         `Votre code de vérification Kabakaba est: ${code}`,
       );
     } catch (error) {
-      console.error(`Erreur lors de l'envoi du SMS OTP: ${error.message}`);
+      console.error(`Erreur lors de l'envoi du SMS OTP: ${safeErrorMessage(error)}`);
     }
 
     return {
@@ -233,10 +234,17 @@ export class AuthService {
     if (!isCurrentValid) throw new UnauthorizedException('Mot de passe actuel incorrect');
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { password: hashedPassword, mustChangePassword: false },
-    });
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { password: hashedPassword, mustChangePassword: false },
+      }),
+      // Invalidation globale des refresh tokens après changement de mot de passe.
+      this.prisma.refreshToken.updateMany({
+        where: { userId, revoked: false },
+        data: { revoked: true },
+      }),
+    ]);
 
     return { success: true };
   }

@@ -18,7 +18,6 @@ const SELF_UPDATABLE_FIELDS = [
   'lastName',
   'avatarUrl',
   'password',
-  'campusId', // CDC 2.1 — changement de campus depuis les paramètres
   'notifyOrders',
   'notifyAmbassador',
   'notifyPromotions',
@@ -62,7 +61,19 @@ export class UsersService {
 
   // Création privilégiée — appelée uniquement depuis un endpoint gardé
   // ADMIN/SUPER_ADMIN.
-  async createStaff(dto: CreateStaffUserDto) {
+  async createStaff(
+    dto: CreateStaffUserDto,
+    actor: Pick<Actor, 'id' | 'kind' | 'role'>,
+  ) {
+    // Défense en profondeur : la garde du contrôleur limite déjà cette route
+    // à SUPER_ADMIN, mais le service doit aussi refuser toute création
+    // privilégiée si elle est appelée depuis un autre chemin.
+    if (actor.kind !== 'mobile' || actor.role !== UserRole.SUPER_ADMIN) {
+      throw new ForbiddenException(
+        'Seul un SUPER_ADMIN mobile peut créer un compte staff',
+      );
+    }
+
     const hashedPassword = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
 
     const user = await this.prisma.user.create({
@@ -184,11 +195,32 @@ export class UsersService {
     delete payload.suspensionUntil;
     delete payload.suspensionReason;
 
-    if (payload.password) {
+    if (payload.campusId !== undefined) {
+      if (isSelf && current.role !== UserRole.STUDENT) {
+        throw new ForbiddenException('Seul un étudiant peut modifier son campus');
+      }
+      const campus = await this.prisma.campus.findFirst({
+        where: { id: payload.campusId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!campus) throw new NotFoundException('Campus invalide ou inexistant');
+    }
+
+    const passwordChanged = typeof payload.password === 'string' && payload.password.length > 0;
+    if (passwordChanged) {
       payload.password = await bcrypt.hash(payload.password, 10);
     }
 
-    const updated = await this.prisma.user.update({ where: { id }, data: payload });
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const result = await tx.user.update({ where: { id }, data: payload });
+      if (passwordChanged) {
+        await tx.refreshToken.updateMany({
+          where: { userId: id, revoked: false },
+          data: { revoked: true },
+        });
+      }
+      return result;
+    });
     return sanitize(updated);
   }
 

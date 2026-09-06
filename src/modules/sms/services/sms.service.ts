@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { maskPhone, safeErrorMessage } from '../../../common/utils/safe-log';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
@@ -32,18 +33,18 @@ export class SmsService {
         mobileNumbers: recipient,
       };
 
-      this.logger.debug(`Envoi SMS à ${recipient} via URL: ${url}`);
+      this.logger.debug(`Envoi SMS à ${maskPhone(recipient)} via fournisseur SMS`);
 
       const response = await firstValueFrom(
         this.httpService.post(url, payload),
       );
 
-      this.logger.log(`SMS envoyé avec succès à ${recipient}: ${JSON.stringify(response.data)}`);
+      this.logger.log(`SMS envoyé avec succès à ${maskPhone(recipient)}`);
       return response.data;
     } catch (error) {
       this.logger.error(
-        `Erreur lors de l'envoi du SMS à ${recipient}: ${error.message}`,
-        error.response?.data || error.stack,
+        `Erreur lors de l'envoi du SMS à ${maskPhone(recipient)}: ${safeErrorMessage(error)}`,
+        error.stack,
       );
       throw error;
     }
@@ -68,8 +69,8 @@ export class SmsService {
       return response.data;
     } catch (error) {
       this.logger.error(
-        `Erreur lors de l'envoi du SMS bulk: ${error.message}`,
-        error.response?.data || error.stack,
+        `Erreur lors de l'envoi du SMS bulk: ${safeErrorMessage(error)}`,
+        error.stack,
       );
       throw error;
     }
@@ -87,12 +88,12 @@ export class SmsService {
         this.httpService.post(url, payload),
       );
 
-      this.logger.log(`Solde AfriqSMS récupéré avec succès: ${JSON.stringify(response.data)}`);
+      this.logger.log('Solde AfriqSMS récupéré avec succès');
       return response.data;
     } catch (error) {
       this.logger.error(
-        `Erreur lors de la récupération du solde: ${error.message}`,
-        error.response?.data || error.stack,
+        `Erreur lors de la récupération du solde: ${safeErrorMessage(error)}`,
+        error.stack,
       );
       throw error;
     }

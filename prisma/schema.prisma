@@ -270,6 +270,7 @@ model Order {
   packagingOptionId String?
   reason            String?
   readyAt           DateTime?
+  escrowReleasedAt  DateTime?
   confirmedAt       DateTime?
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
@@ -603,6 +604,20 @@ model RefreshToken {
   @@index([familyId])
 }
 
+model RateLimitBucket {
+  key           String
+  throttlerName String
+  windowStart   DateTime
+  totalHits     Int       @default(0)
+  blockedUntil  DateTime?
+  expiresAt     DateTime
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@id([key, throttlerName, windowStart])
+  @@index([expiresAt])
+}
+
 model AuditLog {
   id        String    @id @default(uuid())
   adminId   String
@@ -667,6 +682,7 @@ model WebUser {
 
   deletionApprovals          WebUserDeletionApproval[]
   backupCodes                WebUserBackupCode[]
+  authChallenges             WebAuthChallenge[]
 
   @@index([email])
   @@index([role])
@@ -675,6 +691,22 @@ model WebUser {
 /// Codes de secours 2FA — générés par lot de 10 (crypto.randomBytes) lors
 /// de l'activation du 2FA. Un seul usage par code (usedAt marque la
 /// consommation). Remplace l'ancien champ unique WebUser.twoFaBackupCode.
+model WebAuthChallenge {
+  id         String    @id
+  webUserId  String
+  purpose    String
+  step       Int       @default(1)
+  expiresAt  DateTime
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  webUser WebUser @relation(fields: [webUserId], references: [id])
+
+  @@index([webUserId])
+  @@index([expiresAt])
+  @@index([purpose, consumedAt])
+}
+
 model WebUserBackupCode {
   id        String    @id @default(uuid())
   webUserId String

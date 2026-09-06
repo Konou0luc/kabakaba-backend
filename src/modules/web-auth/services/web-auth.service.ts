@@ -7,6 +7,7 @@ import { generateSecret, generateURI, verify as verifyOtp } from 'otplib';
 import * as QRCode from 'qrcode';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { WebUserRole } from '@prisma/client';
+import { decryptSecret, encryptSecret } from '../../../common/utils/secret-crypto';
 
 const SALT_ROUNDS = 10;
 const CHALLENGE_TOKEN_TTL = '5m';
@@ -31,24 +32,155 @@ export class WebAuthService {
     return secret;
   }
 
-  private signToken(sub: string, purpose: TokenPurpose, expiresIn: string, extra: Record<string, unknown> = {}) {
+  private signToken(
+    sub: string,
+    purpose: TokenPurpose,
+    expiresIn: string,
+    extra: Record<string, unknown> = {},
+  ) {
     return this.jwtService.sign(
       { sub, purpose, ...extra },
       { secret: this.accessSecret, expiresIn: expiresIn as any },
     );
   }
 
-  private async verifyToken(token: string, expectedPurpose: TokenPurpose) {
-    let payload: { sub: string; purpose: string };
+  /**
+   * Les jetons temporaires ne sont plus auto-porteurs uniquement : leur JTI
+   * est enregistré en base et leur consommation est atomique. Cela permet
+   * de rendre les challenges réellement non réutilisables, y compris en cas
+   * de requêtes concurrentes.
+   */
+  private async issueFlowToken(
+    webUserId: string,
+    purpose: Exclude<TokenPurpose, 'web_session'>,
+    expiresIn: string,
+    step: number,
+  ) {
+    const jti = crypto.randomUUID();
+    const expiresAt = new Date(Date.now() + this.parseTtlMs(expiresIn));
+
+    await this.prisma.webAuthChallenge.create({
+      data: {
+        id: jti,
+        webUserId,
+        purpose,
+        step,
+        expiresAt,
+      },
+    });
+
+    return this.signToken(webUserId, purpose, expiresIn, { jti, step });
+  }
+
+  private parseTtlMs(ttl: string) {
+    const match = /^(\d+)([smhd])$/.exec(ttl);
+    if (!match) throw new Error(`TTL invalide: ${ttl}`);
+    const value = Number(match[1]);
+    const unitMs: Record<string, number> = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+    return value * unitMs[match[2]];
+  }
+
+  private async validateFlowToken(
+    token: string,
+    expectedPurpose: Exclude<TokenPurpose, 'web_session'>,
+    expectedStep: number,
+  ) {
+    let payload: { sub: string; purpose: string; jti?: string; step?: number };
     try {
       payload = await this.jwtService.verifyAsync(token, { secret: this.accessSecret });
     } catch {
       throw new UnauthorizedException('Jeton invalide ou expiré');
     }
-    if (payload.purpose !== expectedPurpose) {
+
+    if (
+      payload.purpose !== expectedPurpose ||
+      !payload.jti ||
+      payload.step !== expectedStep
+    ) {
       throw new UnauthorizedException('Jeton invalide pour cette opération');
     }
-    return payload;
+
+    const challenge = await this.prisma.webAuthChallenge.findFirst({
+      where: {
+        id: payload.jti,
+        webUserId: payload.sub,
+        purpose: expectedPurpose,
+        step: expectedStep,
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+    });
+
+    if (!challenge) {
+      throw new UnauthorizedException('Jeton invalide, expiré ou déjà consommé');
+    }
+
+    return { sub: payload.sub, jti: payload.jti };
+  }
+
+  private async consumeFlowToken(
+    token: string,
+    expectedPurpose: Exclude<TokenPurpose, 'web_session'>,
+    expectedStep: number,
+  ) {
+    let payload: { sub: string; purpose: string; jti?: string; step?: number };
+    try {
+      payload = await this.jwtService.verifyAsync(token, { secret: this.accessSecret });
+    } catch {
+      throw new UnauthorizedException('Jeton invalide ou expiré');
+    }
+
+    if (
+      payload.purpose !== expectedPurpose ||
+      !payload.jti ||
+      payload.step !== expectedStep
+    ) {
+      throw new UnauthorizedException('Jeton invalide pour cette opération');
+    }
+
+    const consumed = await this.prisma.webAuthChallenge.updateMany({
+      where: {
+        id: payload.jti,
+        webUserId: payload.sub,
+        purpose: expectedPurpose,
+        step: expectedStep,
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: { consumedAt: new Date() },
+    });
+
+    if (consumed.count !== 1) {
+      throw new UnauthorizedException('Jeton invalide, expiré ou déjà consommé');
+    }
+
+    return { sub: payload.sub };
+  }
+
+  private async verifySessionChallengeToken(token: string) {
+    let payload: { sub: string; purpose: string; jti?: string };
+    try {
+      payload = await this.jwtService.verifyAsync(token, { secret: this.accessSecret });
+    } catch {
+      throw new UnauthorizedException('Jeton invalide ou expiré');
+    }
+    if (payload.purpose !== 'web_2fa_challenge' || !payload.jti) {
+      throw new UnauthorizedException('Jeton invalide pour cette opération');
+    }
+    const consumed = await this.prisma.webAuthChallenge.updateMany({
+      where: {
+        id: payload.jti,
+        webUserId: payload.sub,
+        purpose: 'web_2fa_challenge',
+        consumedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      data: { consumedAt: new Date() },
+    });
+    if (consumed.count !== 1) {
+      throw new UnauthorizedException('Jeton invalide, expiré ou déjà consommé');
+    }
+    return { sub: payload.sub };
   }
 
   /**
@@ -92,6 +224,22 @@ export class WebAuthService {
    * contre ses codes de secours actifs (usedAt = null). Marque le code de
    * secours utilisé comme consommé. Retourne { valid, backupCodeUsed }.
    */
+  private async getTotpSecret(storedSecret: string): Promise<string> {
+    const decoded = decryptSecret(storedSecret);
+    if (!decoded.wasEncrypted) {
+      // Compatibilité avec les comptes existants : le secret en clair est
+      // utilisé une dernière fois puis immédiatement migré en chiffré.
+      const encrypted = encryptSecret(decoded.value);
+      // L'appel est best-effort : une erreur de migration ne doit pas rendre
+      // le code TOTP inutilisable, mais la clé d'encryption est obligatoire.
+      await this.prisma.webUser.updateMany({
+        where: { twoFaSecret: storedSecret },
+        data: { twoFaSecret: encrypted },
+      });
+    }
+    return decoded.value;
+  }
+
   private async verifyTotpOrBackupCode(webUserId: string, secret: string, code: string) {
     const { valid: codeIsValid } = await verifyOtp({ secret, token: code });
     if (codeIsValid) return { valid: true, backupCodeUsed: false };
@@ -152,12 +300,12 @@ export class WebAuthService {
 
     if (!webUser.isActive) throw new UnauthorizedException('Identifiants invalides');
 
-    const challengeToken = this.signToken(webUser.id, 'web_2fa_challenge', CHALLENGE_TOKEN_TTL);
+    const challengeToken = await this.issueFlowToken(webUser.id, 'web_2fa_challenge', CHALLENGE_TOKEN_TTL, 1);
     return { challengeToken };
   }
 
   async verify2fa(challengeToken: string, code: string) {
-    const { sub } = await this.verifyToken(challengeToken, 'web_2fa_challenge');
+    const { sub } = await this.verifySessionChallengeToken(challengeToken);
     const webUser = await this.prisma.webUser.findUnique({ where: { id: sub } });
     if (!webUser || !webUser.isActive || !webUser.twoFaEnabled || !webUser.twoFaSecret) {
       throw new UnauthorizedException();
@@ -165,7 +313,7 @@ export class WebAuthService {
 
     const { valid: codeIsValid, backupCodeUsed } = await this.verifyTotpOrBackupCode(
       webUser.id,
-      webUser.twoFaSecret,
+      await this.getTotpSecret(webUser.twoFaSecret),
       code,
     );
     if (!codeIsValid) throw new UnauthorizedException('Code invalide');
@@ -207,12 +355,12 @@ export class WebAuthService {
       throw new ConflictException('Ce compte a déjà terminé sa première connexion — utilisez la connexion normale');
     }
 
-    const onboardingToken = this.signToken(webUser.id, 'web_onboarding', ONBOARDING_TOKEN_TTL);
+    const onboardingToken = await this.issueFlowToken(webUser.id, 'web_onboarding', ONBOARDING_TOKEN_TTL, 1);
     return { onboardingToken };
   }
 
   async setOnboardingPassword(onboardingToken: string, newPassword: string) {
-    const { sub } = await this.verifyToken(onboardingToken, 'web_onboarding');
+    const { sub } = await this.consumeFlowToken(onboardingToken, 'web_onboarding', 1);
 
     const webUser = await this.prisma.webUser.findUnique({ where: { id: sub } });
     if (!webUser) throw new UnauthorizedException('Jeton invalide ou expiré');
@@ -223,11 +371,12 @@ export class WebAuthService {
 
     const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
     await this.prisma.webUser.update({ where: { id: sub }, data: { password: hashedPassword } });
-    return { success: true };
+    const nextOnboardingToken = await this.issueFlowToken(sub, 'web_onboarding', ONBOARDING_TOKEN_TTL, 2);
+    return { success: true, onboardingToken: nextOnboardingToken };
   }
 
   async setupTwoFactor(onboardingToken: string) {
-    const { sub } = await this.verifyToken(onboardingToken, 'web_onboarding');
+    const { sub } = await this.consumeFlowToken(onboardingToken, 'web_onboarding', 2);
     const webUser = await this.prisma.webUser.findUnique({ where: { id: sub } });
     if (!webUser) throw new NotFoundException();
 
@@ -235,24 +384,32 @@ export class WebAuthService {
     const otpauthUrl = generateURI({ issuer: 'kabakaba Admin', label: webUser.email, secret });
     const qrCodeDataUrl = await QRCode.toDataURL(otpauthUrl);
 
-    await this.prisma.webUser.update({ where: { id: sub }, data: { twoFaSecret: secret } });
+    await this.prisma.webUser.update({ where: { id: sub }, data: { twoFaSecret: encryptSecret(secret) } });
+
+    const nextOnboardingToken = await this.issueFlowToken(sub, 'web_onboarding', ONBOARDING_TOKEN_TTL, 3);
 
     return {
       qrCodeDataUrl,
       manualKey: secret,
       otpauthUrl,
+      onboardingToken: nextOnboardingToken,
     };
   }
 
   async verifyTwoFactorSetup(onboardingToken: string, code: string) {
-    const { sub } = await this.verifyToken(onboardingToken, 'web_onboarding');
+    const { sub } = await this.validateFlowToken(onboardingToken, 'web_onboarding', 3);
     const webUser = await this.prisma.webUser.findUnique({ where: { id: sub } });
     if (!webUser || !webUser.twoFaSecret) {
       throw new UnauthorizedException("Configurez d'abord le 2FA avant de vérifier le code");
     }
 
-    const { valid: isValid } = await verifyOtp({ secret: webUser.twoFaSecret, token: code });
+    const { valid: isValid } = await verifyOtp({ secret: await this.getTotpSecret(webUser.twoFaSecret), token: code });
     if (!isValid) throw new UnauthorizedException('Code invalide');
+
+    // La validation TOTP précède la consommation du jeton : un code TOTP
+    // erroné ne brûle pas le challenge. La consommation reste atomique ;
+    // une seule requête concurrente pourra donc finaliser l'onboarding.
+    await this.consumeFlowToken(onboardingToken, 'web_onboarding', 3);
 
     const backupCodes = this.generateBackupCodes(BACKUP_CODE_COUNT);
     const hashedBackupCodes = await Promise.all(
@@ -309,12 +466,12 @@ export class WebAuthService {
 
     const { valid: codeIsValid, backupCodeUsed } = await this.verifyTotpOrBackupCode(
       webUser.id,
-      webUser.twoFaSecret,
+      await this.getTotpSecret(webUser.twoFaSecret),
       code,
     );
     if (!codeIsValid) throw genericError;
 
-    const resetSessionToken = this.signToken(webUser.id, 'web_password_reset', PASSWORD_RESET_SESSION_TTL);
+    const resetSessionToken = await this.issueFlowToken(webUser.id, 'web_password_reset', PASSWORD_RESET_SESSION_TTL, 1);
 
     return {
       resetSessionToken,
@@ -325,7 +482,7 @@ export class WebAuthService {
   }
 
   async confirmPasswordReset(resetSessionToken: string, newPassword: string) {
-    const { sub } = await this.verifyToken(resetSessionToken, 'web_password_reset');
+    const { sub } = await this.consumeFlowToken(resetSessionToken, 'web_password_reset', 1);
 
     const webUser = await this.prisma.webUser.findUnique({ where: { id: sub } });
     if (!webUser) throw new UnauthorizedException('Jeton invalide ou expiré');

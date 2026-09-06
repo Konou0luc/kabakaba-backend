@@ -256,22 +256,28 @@ export class VendorsService {
       }
     }
 
-    const { campusIds, ...profileFields } = updateVendorDto;
+    const { campusIds, isActive, suspensionReason, ...profileFields } = updateVendorDto;
 
-    // isActive passe à false -> on horodate la suspension et on garde le
-    // motif transmis. isActive repasse à true -> on efface les deux (compte
-    // réactivé, le motif de l'ancienne suspension n'a plus lieu d'être
-    // affiché).
+    // La suspension et les affiliations campus sont des attributs
+    // administratifs. Un vendeur ne doit jamais pouvoir les modifier, même
+    // sur sa propre cantine : sinon il pourrait réactiver une cantine
+    // suspendue ou contourner une décision administrative.
+    if (!isAdmin && (isActive !== undefined || suspensionReason !== undefined || campusIds !== undefined)) {
+      throw new ForbiddenException(
+        'Seuls les administrateurs peuvent modifier le statut, la suspension ou les campus affiliés',
+      );
+    }
+
     const suspensionFields: { suspendedAt?: Date | null; suspensionReason?: string | null } = {};
-    if (profileFields.isActive === false) {
+    if (isAdmin && isActive === false) {
       suspensionFields.suspendedAt = new Date();
-      suspensionFields.suspensionReason = profileFields.suspensionReason ?? null;
-    } else if (profileFields.isActive === true) {
+      suspensionFields.suspensionReason = suspensionReason ?? null;
+    } else if (isAdmin && isActive === true) {
       suspensionFields.suspendedAt = null;
       suspensionFields.suspensionReason = null;
     }
 
-    if (campusIds) {
+    if (isAdmin && campusIds) {
       const campuses = await this.prisma.campus.findMany({ where: { id: { in: campusIds } } });
       if (campuses.length !== campusIds.length) {
         const foundIds = new Set(campuses.map((c) => c.id));
@@ -281,7 +287,7 @@ export class VendorsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
-      if (campusIds) {
+      if (isAdmin && campusIds) {
         await tx.vendorCampus.deleteMany({ where: { vendorId: id } });
         await tx.vendorCampus.createMany({
           data: campusIds.map((campusId) => ({ vendorId: id, campusId })),
@@ -290,7 +296,7 @@ export class VendorsService {
 
       return tx.vendor.update({
         where: { id },
-        data: { ...profileFields, ...suspensionFields },
+        data: { ...profileFields, ...(isAdmin ? { isActive, ...suspensionFields } : {}) },
       });
     });
   }

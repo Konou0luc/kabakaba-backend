@@ -5,7 +5,7 @@ import { CreateUserDto } from './create-user.dto';
 
 /**
  * Utilisé uniquement par l'endpoint gardé POST /users/staff
- * (ADMIN/SUPER_ADMIN seulement) — c'est le seul endroit où `role`
+ * (SUPER_ADMIN mobile seulement) — c'est le seul endroit où `role`
  * peut être choisi par l'appelant.
  */
 export class CreateStaffUserDto extends CreateUserDto {

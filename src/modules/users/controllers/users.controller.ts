@@ -49,12 +49,15 @@ export class UsersController {
   @Post('staff')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Créer un compte ADMIN/VENDOR/SUPER_ADMIN (Admin/Super admin seulement)' })
+  @Roles(UserRole.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Créer un compte ADMIN/VENDOR/SUPER_ADMIN (Super admin mobile seulement)' })
   @ApiResponse({ status: 201, description: 'Compte créé avec succès.', type: UserEntity })
-  createStaff(@Body() dto: CreateStaffUserDto) {
-    return this.usersService.createStaff(dto);
+  createStaff(@Body() dto: CreateStaffUserDto, @Request() req) {
+    return this.usersService.createStaff(dto, {
+      id: req.user.id,
+      kind: req.user.__authKind === 'web' ? 'web' : 'mobile',
+      role: req.user.role,
+    });
   }
 
   @Get()

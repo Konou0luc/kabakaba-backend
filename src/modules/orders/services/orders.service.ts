@@ -313,66 +313,144 @@ export class OrdersService {
     return order;
   }
 
-  // Champs qu'un VENDOR peut modifier sur une commande. Les champs métier
-  // sensibles (vendorId, totalTickets, escrowAmount, packagingOptionId) ne
-  // sont modifiables que par un admin.
-  private static readonly VENDOR_UPDATABLE_FIELDS = ['status'] as const;
+  // Une commande est un objet financier : son propriétaire, son vendeur,
+  // son contenu et ses montants sont immuables après création. Le PATCH
+  // d'administration ne peut donc modifier que le statut et le motif.
+  private static readonly ORDER_UPDATE_FIELDS = ['status', 'reason'] as const;
+
+  /**
+   * Machine à états serveur. Le client ne peut jamais sauter une étape et
+   * une commande déjà entrée dans un état terminal ne peut pas être ramenée
+   * en arrière pour provoquer un second mouvement financier.
+   */
+  private static readonly ALLOWED_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
+    [OrderStatus.PENDING]: [
+      OrderStatus.ACCEPTED,
+      OrderStatus.REFUSED,
+      OrderStatus.CANCELLED_VENDOR,
+    ],
+    [OrderStatus.ACCEPTED]: [
+      OrderStatus.IN_PREPARATION,
+      OrderStatus.CANCELLED_VENDOR,
+    ],
+    [OrderStatus.IN_PREPARATION]: [
+      OrderStatus.READY,
+      OrderStatus.CANCELLED_VENDOR,
+    ],
+    [OrderStatus.READY]: [OrderStatus.RECEIVED, OrderStatus.AUTO_RECEIVED],
+    [OrderStatus.RECEIVED]: [],
+    [OrderStatus.AUTO_RECEIVED]: [],
+    [OrderStatus.REFUSED]: [],
+    [OrderStatus.CANCELLED_VENDOR]: [],
+    [OrderStatus.CANCELLED_STUDENT]: [],
+    [OrderStatus.REFUNDED]: [],
+  };
+
+  private assertAllowedTransition(
+    oldStatus: OrderStatus,
+    newStatus: OrderStatus,
+    actor: Actor,
+  ) {
+    if (oldStatus === newStatus) return;
+
+    // REFUNDED est volontairement exclu du PATCH générique : les remboursements
+    // passent par refundByVendor() ou le service de litiges, avec leurs propres
+    // garde-fous financiers.
+    if (newStatus === OrderStatus.REFUNDED) {
+      throw new BadRequestException(
+        "Un remboursement doit passer par le flux de remboursement dédié, pas par cet endpoint",
+      );
+    }
+
+    const allowed = OrdersService.ALLOWED_TRANSITIONS[oldStatus] ?? [];
+    if (!allowed.includes(newStatus)) {
+      throw new BadRequestException(
+        `Transition de commande interdite : ${oldStatus} → ${newStatus}`,
+      );
+    }
+
+    // Le vendeur ne pilote que le cycle opérationnel de sa propre commande.
+    // Une annulation PENDING/une intervention administrative reste possible
+    // pour ADMIN/SUPER_ADMIN, mais elle ne permet jamais de revenir en arrière.
+    if (!actor.isAdmin && actor.role === UserRole.VENDOR) {
+      const vendorAllowed: readonly OrderStatus[] = [
+        OrderStatus.ACCEPTED,
+        OrderStatus.REFUSED,
+        OrderStatus.CANCELLED_VENDOR,
+        OrderStatus.IN_PREPARATION,
+        OrderStatus.READY,
+      ];
+      if (!vendorAllowed.includes(newStatus)) {
+        throw new ForbiddenException('Cette transition n’est pas autorisée pour un vendeur');
+      }
+    }
+  }
 
   async update(id: string, updateOrderDto: UpdateOrderDto, actor: Actor) {
     const existing = await this.findOne(id, actor);
 
-    let data: Partial<UpdateOrderDto> = updateOrderDto;
-
-    if (!actor.isAdmin) {
-      // SÉCURITÉ : UpdateOrderDto hérite de tous les champs de CreateOrderDto
-      // (vendorId, totalTickets, escrowAmount, packagingOptionId). On filtre
-      // explicitement pour qu'un vendeur ne puisse changer que le statut de
-      // SA commande, jamais son montant ou son propriétaire.
-      data = {};
-      for (const field of OrdersService.VENDOR_UPDATABLE_FIELDS) {
-        if (updateOrderDto[field] !== undefined) {
-          (data as any)[field] = updateOrderDto[field];
-        }
-      }
-    }
+    // Ne jamais accepter de champs financiers/propriétaires venant du client,
+    // y compris pour un admin. Ils sont définitivement issus de la création.
+    const data: { status?: OrderStatus; reason?: string } = {};
+    if (updateOrderDto.status !== undefined) data.status = updateOrderDto.status;
+    if ((updateOrderDto as any).reason !== undefined) data.reason = (updateOrderDto as any).reason;
 
     const newStatus = data.status;
-
-    // Le remboursement d'une commande passe obligatoirement par la
-    // résolution d'un litige (disputes.service.ts gère déjà tout le calcul :
-    // solde vendeur insuffisant, créance, etc.) — jamais par ce PATCH
-    // générique, qui n'a aucune de ces garde-fous.
-    if (newStatus === 'REFUNDED') {
-      throw new BadRequestException(
-        "Un remboursement doit passer par la résolution d'un litige (POST /disputes puis PATCH /disputes/:id), pas par cet endpoint",
-      );
-    }
-
     if (!newStatus || newStatus === existing.status) {
+      if (Object.keys(data).length === 0) return existing;
       return this.prisma.order.update({ where: { id }, data });
     }
 
-    // changedById référence User, jamais WebUser : un admin connecté depuis
-    // le dashboard web n'a pas de ligne User, donc pas d'auteur enregistré
-    // pour cette transition (le champ est optionnel).
+    this.assertAllowedTransition(existing.status, newStatus, actor);
+
     const changedById = actor.authKind === 'web' ? null : actor.id;
 
     return this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.update({ where: { id }, data });
+      const now = new Date();
+
+      // Le passage à READY est une opération financière. On le "claim" avec
+      // escrowReleasedAt IS NULL dans la même écriture que la transition de
+      // statut. Une requête concurrente ne peut donc pas libérer deux fois le
+      // même séquestre.
+      let claim;
+      if (newStatus === OrderStatus.READY) {
+        claim = await tx.order.updateMany({
+          where: {
+            id,
+            status: existing.status,
+            escrowReleasedAt: null,
+          },
+          data: {
+            status: newStatus,
+            readyAt: now,
+            escrowReleasedAt: now,
+            ...(data.reason !== undefined ? { reason: data.reason } : {}),
+          },
+        });
+      } else {
+        claim = await tx.order.updateMany({
+          where: { id, status: existing.status },
+          data,
+        });
+      }
+
+      if (claim.count !== 1) {
+        throw new BadRequestException(
+          'La commande a été modifiée entre-temps ou son séquestre a déjà été libéré',
+        );
+      }
+
+      const order = await tx.order.findUnique({ where: { id } });
+      if (!order) throw new NotFoundException(`Commande ${id} introuvable`);
 
       await tx.orderStatusHistory.create({
         data: { orderId: id, oldStatus: existing.status, newStatus, changedById },
       });
 
-      // LIBÉRATION D'ESCROW : au premier passage à READY (le vendeur a
-      // préparé la commande), pas à RECEIVED/AUTO_RECEIVED qui ne sont que
-      // des confirmations sans effet financier supplémentaire.
-      //
-      // CDC 4.7 — recouvrement automatique de créance : si le vendeur a une
-      // Debt non soldée, le crédit entrant sert d'abord à la résorber
-      // (FIFO sur les créances ouvertes). Seul le reliquat alimente
-      // balanceFcfa. debtFcfa est décrémenté en miroir.
-      if (newStatus === 'READY' && existing.status !== 'READY') {
+      // LIBÉRATION D'ESCROW : uniquement lors de la transition atomique vers
+      // READY. Comme escrowReleasedAt est posé par le claim ci-dessus, aucun
+      // second passage ne peut déclencher ce bloc.
+      if (newStatus === OrderStatus.READY) {
         const credit = Number(order.escrowAmount);
 
         const vendor = await tx.vendor.findUnique({
@@ -425,7 +503,6 @@ export class OrdersService {
           },
         });
 
-        // Grand livre : libération intégrale du séquestre (flux commande → vendeur).
         await tx.transaction.create({
           data: {
             userId: vendor.userId,
@@ -438,7 +515,6 @@ export class OrdersService {
           },
         });
 
-        // Grand livre : part du crédit absorbée par les créances plateforme.
         if (totalRecovered > 0) {
           await tx.transaction.create({
             data: {
@@ -454,13 +530,12 @@ export class OrdersService {
         }
       }
 
-      // ANNULATION : le séquestre n'a jamais été consommé, il retourne
-      // intégralement à l'étudiant. Ne s'applique que si l'escrow n'avait
-      // pas déjà été libéré au vendeur (donc jamais après READY).
+      // Une commande refusée/annulée avant READY restitue le séquestre.
+      // READY ne peut plus revenir ici grâce à la machine à états.
       if (
-        (newStatus === 'REFUSED' || newStatus === 'CANCELLED_VENDOR') &&
-        existing.status !== 'REFUSED' &&
-        existing.status !== 'CANCELLED_VENDOR'
+        (newStatus === OrderStatus.REFUSED || newStatus === OrderStatus.CANCELLED_VENDOR) &&
+        existing.status !== OrderStatus.REFUSED &&
+        existing.status !== OrderStatus.CANCELLED_VENDOR
       ) {
         await tx.user.update({
           where: { id: order.studentId },

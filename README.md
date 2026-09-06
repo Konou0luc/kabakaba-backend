@@ -96,3 +96,14 @@ Nest is an MIT-licensed open source project. It can grow thanks to the sponsors 
 ## License
 
 Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+
+## Security hardening — Step 2
+
+Implemented order/escrow protections:
+- Strict server-side order state machine; backward transitions are rejected.
+- Order financial and ownership fields are immutable after creation through PATCH.
+- `READY` is claimed atomically with `escrowReleasedAt IS NULL`.
+- Escrow release can occur only on the atomic transition into `READY`.
+- `readyAt` is recorded at the same time as the READY transition.
+- Legacy orders that already have an `ESCROW_RELEASE` transaction are backfilled with `escrowReleasedAt` by the Prisma migration.
+- No npm build/test was run by design; the project should be tested locally after installation of dependencies.

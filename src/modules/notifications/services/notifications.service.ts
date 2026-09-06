@@ -42,7 +42,7 @@ export class NotificationsService {
 
     if (devices.length > 0) {
       this.logger.log(
-        `Push pending user=${userId} devices=${devices.length} [${devices.map((d) => d.platform).join(',')}] ${title}`,
+        `Push pending user=${userId} devices=${devices.length} [${devices.map((d) => d.platform).join(',')}]`,
       );
     }
 
