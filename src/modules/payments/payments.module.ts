@@ -9,5 +9,6 @@ import { UsersModule } from '../users/users.module';
   imports: [HttpModule, UsersModule],
   controllers: [PaymentsController],
   providers: [PaymentsService, FedapayService],
+  exports: [FedapayService],
 })
 export class PaymentsModule {}

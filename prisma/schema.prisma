@@ -414,6 +414,8 @@ model Withdrawal {
   // réel plutôt que de le reconstruire par déduction à partir du barème de
   // frais, qui peut évoluer.
   debitedAmount Decimal        @db.Decimal(10, 2)
+  operator      String?
+  payoutAmount  Decimal?       @db.Decimal(10, 2)
   payoutReference String?      @unique
   payoutRequestedAt DateTime?
   payoutCompletedAt DateTime?

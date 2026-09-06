@@ -112,8 +112,8 @@ export class WithdrawalsController {
   @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({
-    summary: 'Mettre à jour le statut d’un retrait',
-    description: 'PROCESSING | COMPLETED | FAILED. FAILED recrédite le solde vendeur.',
+    summary: 'Démarrer le payout FedaPay',
+    description: 'PROCESSING déclenche le payout. COMPLETED/FAILED sont déterminés uniquement par FedaPay.',
   })
   updateStatus(
     @Param('id') id: string,
@@ -123,6 +123,20 @@ export class WithdrawalsController {
     return this.withdrawalsService.updateStatus(id, status, {
       id: req.user.id,
       role: req.user.role,
+      isAdmin: true,
+      kind: 'web',
+    });
+  }
+
+  @Post(':id/sync')
+  @Roles(UserRole.ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Synchroniser un retrait avec FedaPay' })
+  syncPayout(@Param('id') id: string, @Request() req: any) {
+    return this.withdrawalsService.syncPayout(id, {
+      id: req.user.id,
+      role: req.user.role,
+      kind: 'web',
       isAdmin: true,
     });
   }

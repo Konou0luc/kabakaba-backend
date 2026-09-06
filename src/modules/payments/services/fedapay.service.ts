@@ -160,6 +160,96 @@ export class FedapayService {
     }
   }
 
+
+  async createPayout(params: {
+    amount: number;
+    operator: 'FLOOZ' | 'MIXX';
+    customer: { name: string; email?: string; phone: string };
+    merchantReference: string;
+  }): Promise<any> {
+    if (!this.secretKey || !this.baseUrl) {
+      throw new InternalServerErrorException('FedaPay payout non configuré');
+    }
+
+    const mode = params.operator === 'FLOOZ' ? 'moov_tg' : 'togocel';
+    const url = `${this.baseUrl}/v1/payouts`;
+    const payload = {
+      amount: Math.trunc(params.amount),
+      currency: { iso: 'XOF' },
+      mode,
+      description: `Retrait vendeur Kabakaba ${params.merchantReference}`,
+      customer: {
+        firstname: params.customer.name.split(' ')[0] || params.customer.name,
+        lastname: params.customer.name.split(' ').slice(1).join(' ') || params.customer.name,
+        email: params.customer.email || undefined,
+        phone_number: { number: params.customer.phone, country: 'tg' },
+      },
+      merchant_reference: params.merchantReference,
+      custom_metadata: {
+        withdrawal_id: params.merchantReference,
+        source: 'kabakaba',
+      },
+    };
+
+    try {
+      const response: AxiosResponse<any> = await firstValueFrom(
+        this.httpService.post(url, payload, { headers: this.getHeaders() }),
+      );
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Erreur création payout FedaPay: ${error.message}`, error.stack);
+      throw new BadRequestException('Impossible de créer le payout FedaPay');
+    }
+  }
+
+  async findPayoutByMerchantReference(merchantReference: string): Promise<any | null> {
+    if (!this.secretKey || !this.baseUrl) {
+      throw new InternalServerErrorException('FedaPay payout non configuré');
+    }
+    try {
+      const url = `${this.baseUrl}/v1/payouts/merchant/${encodeURIComponent(merchantReference)}`;
+      const response: AxiosResponse<any> = await firstValueFrom(
+        this.httpService.get(url, { headers: this.getHeaders() }),
+      );
+      return response.data;
+    } catch (error) {
+      const status = error?.response?.status;
+      if (status === 404) return null;
+      this.logger.error(`Erreur recherche payout FedaPay: ${error.message}`, error.stack);
+      throw new BadRequestException('Impossible de vérifier le payout FedaPay');
+    }
+  }
+
+  async startPayout(payoutId: number, phone: string): Promise<any> {
+    try {
+      const url = `${this.baseUrl}/v1/payouts/start`;
+      const response: AxiosResponse<any> = await firstValueFrom(
+        this.httpService.put(
+          url,
+          [{ id: payoutId, phone_number: { number: phone, country: 'TG' } }],
+          { headers: this.getHeaders() },
+        ),
+      );
+      return Array.isArray(response.data) ? response.data[0] : response.data;
+    } catch (error) {
+      this.logger.error(`Erreur envoi payout FedaPay: ${error.message}`, error.stack);
+      throw new BadRequestException('Impossible de démarrer le payout FedaPay');
+    }
+  }
+
+  async getPayout(payoutId: number): Promise<any> {
+    try {
+      const url = `${this.baseUrl}/v1/payouts/${payoutId}`;
+      const response: AxiosResponse<any> = await firstValueFrom(
+        this.httpService.get(url, { headers: this.getHeaders() }),
+      );
+      return response.data;
+    } catch (error) {
+      this.logger.error(`Erreur récupération payout FedaPay: ${error.message}`, error.stack);
+      throw new BadRequestException('Impossible de récupérer le payout FedaPay');
+    }
+  }
+
   /**
    * Vérifie la signature d'un webhook FedaPay (header X-FEDAPAY-SIGNATURE
    * au format "t=<timestamp>,s=<signature>", HMAC-SHA256 sur `${t}.${rawBody}`).

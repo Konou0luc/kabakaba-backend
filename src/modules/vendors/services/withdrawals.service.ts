@@ -4,9 +4,10 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UserRole, WithdrawalStatus } from '@prisma/client';
+import { UserRole, WithdrawalStatus, WebUserRole } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
+import { FedapayService } from '../../payments/services/fedapay.service';
 import { CreateWithdrawalDto } from '../dto/create-withdrawal.dto';
 import {
   computeWithdrawalFees,
@@ -22,7 +23,10 @@ interface Actor {
 
 @Injectable()
 export class WithdrawalsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fedapay: FedapayService,
+  ) {}
 
   /**
    * Récapitulatif sans débit — écran mobile avant confirmation.
@@ -108,6 +112,8 @@ export class WithdrawalsService {
           platformFee: fees.cashOutFee,
           operatorFee: fees.fedapayFee,
           debitedAmount: totalDebit,
+          operator,
+          payoutAmount: fees.payoutAmountToSend,
           status: WithdrawalStatus.PENDING,
         },
       });
@@ -244,83 +250,150 @@ export class WithdrawalsService {
    * COMPLETED : le payout FedaPay a été envoyé pour `payoutAmountToSend`
    * (à calculer à nouveau via computeWithdrawalFees si besoin côté admin).
    */
-  async updateStatus(id: string, status: WithdrawalStatus, actor: Actor) {
+  private async assertAdmin(actor: Actor) {
     if (!actor.isAdmin && !(actor.kind === 'web' && actor.role === UserRole.ADMIN)) {
       throw new ForbiddenException('Action réservée aux administrateurs');
     }
+  }
 
-    if (
-      status !== WithdrawalStatus.COMPLETED &&
-      status !== WithdrawalStatus.FAILED &&
-      status !== WithdrawalStatus.PROCESSING
-    ) {
-      throw new BadRequestException('Statut cible non autorisé');
-    }
-
+  private async failAndRefund(id: string) {
     return this.prisma.$transaction(async (tx) => {
       const existing = await tx.withdrawal.findUnique({ where: { id } });
-      if (!existing || existing.deletedAt) {
-        throw new NotFoundException('Retrait introuvable');
-      }
-      if (
-        existing.status === WithdrawalStatus.COMPLETED ||
-        existing.status === WithdrawalStatus.FAILED
-      ) {
-        throw new BadRequestException(`Retrait déjà terminé (${existing.status})`);
+      if (!existing || existing.deletedAt) throw new NotFoundException('Retrait introuvable');
+      if (existing.status === WithdrawalStatus.FAILED) return existing;
+      if (existing.status === WithdrawalStatus.COMPLETED) {
+        throw new BadRequestException('Impossible d’échouer un retrait déjà complété');
       }
 
-      if (status === WithdrawalStatus.COMPLETED) {
-        throw new BadRequestException(
-          'COMPLETED est réservé à la confirmation du payout fournisseur',
-        );
-      }
-
-      if (status === WithdrawalStatus.FAILED) {
-        // Montant réellement débité à la création — stocké explicitement
-        // (debitedAmount), plus de reconstruction heuristique à partir des
-        // paliers de frais.
-        const refund = Number(existing.debitedAmount);
-
-        await tx.vendor.update({
-          where: { id: existing.vendorId },
-          data: { balanceFcfa: { increment: refund } },
+      const refund = Number(existing.debitedAmount);
+      await tx.vendor.update({ where: { id: existing.vendorId }, data: { balanceFcfa: { increment: refund } } });
+      const vendor = await tx.vendor.findUnique({ where: { id: existing.vendorId }, select: { userId: true } });
+      if (vendor) {
+        await tx.transaction.create({
+          data: {
+            userId: vendor.userId,
+            type: 'REFUND',
+            status: 'COMPLETED',
+            amount: refund,
+            reference: crypto.randomUUID(),
+            description: `Échec payout ${existing.id} — solde recrédité`,
+          },
         });
-        const vendor = await tx.vendor.findUnique({ where: { id: existing.vendorId } });
-        if (vendor) {
-          await tx.transaction.create({
-            data: {
-              userId: vendor.userId,
-              type: 'REFUND',
-              status: 'COMPLETED',
-              amount: refund,
-              reference: crypto.randomUUID(),
-              description: `Annulation retrait ${existing.id} — solde recrédité`,
-            },
-          });
-        }
       }
-
-      // Miroir : la Transaction WITHDRAWAL créée dans request() reste
-      // retrouvable via reference = withdrawal.id (voir commentaire
-      // là-bas) — on la met à jour pour qu'elle reflète le vrai statut au
-      // lieu de rester figée. TransactionStatus n'a pas de valeur
-      // PROCESSING : le plus proche sémantiquement est PENDING ("pas encore
-      // terminé").
       await tx.transaction.updateMany({
         where: { reference: existing.id, type: 'WITHDRAWAL' },
-        data: { status: status === WithdrawalStatus.PROCESSING ? 'PENDING' : status },
+        data: { status: 'FAILED' },
       });
+      return tx.withdrawal.update({ where: { id }, data: { status: WithdrawalStatus.FAILED } });
+    });
+  }
 
-      return tx.withdrawal.update({
+  /**
+   * Lance un payout FedaPay de façon idempotente.
+   * Le merchant_reference est l'ID interne du retrait : en cas de timeout
+   * après création chez FedaPay, on retrouve le payout avant toute nouvelle
+   * création, ce qui évite un double paiement.
+   */
+  async processPayout(id: string, actor: Actor) {
+    await this.assertAdmin(actor);
+
+    const claimed = await this.prisma.$transaction(async (tx) => {
+      const withdrawal = await tx.withdrawal.findUnique({
         where: { id },
-        data: status === WithdrawalStatus.PROCESSING
-          ? {
-              status,
-              payoutReference: existing.payoutReference ?? existing.id,
-              payoutRequestedAt: existing.payoutRequestedAt ?? new Date(),
-            }
-          : { status },
+        include: { vendor: { include: { user: true } } },
+      });
+      if (!withdrawal || withdrawal.deletedAt) throw new NotFoundException('Retrait introuvable');
+      if (withdrawal.status === WithdrawalStatus.COMPLETED) return withdrawal;
+      if (withdrawal.status === WithdrawalStatus.FAILED) {
+        throw new BadRequestException('Retrait déjà échoué');
+      }
+      if (withdrawal.status === WithdrawalStatus.PENDING) {
+        await tx.withdrawal.updateMany({
+          where: { id, status: WithdrawalStatus.PENDING },
+          data: { status: WithdrawalStatus.PROCESSING, payoutRequestedAt: new Date() },
+        });
+      }
+      return tx.withdrawal.findUnique({
+        where: { id },
+        include: { vendor: { include: { user: true } } },
       });
     });
+
+    if (!claimed) throw new NotFoundException('Retrait introuvable');
+    if (claimed.status === WithdrawalStatus.COMPLETED) return claimed;
+
+    const user = claimed.vendor.user;
+    if (!user.phone) throw new BadRequestException('Numéro Mobile Money du vendeur manquant');
+    if (!claimed.operator || !claimed.payoutAmount) throw new BadRequestException('Informations payout incomplètes');
+
+    // Rechercher d'abord par merchant_reference pour rendre le retry sûr.
+    let payout = await this.fedapay.findPayoutByMerchantReference(claimed.id);
+    if (!payout) {
+      payout = await this.fedapay.createPayout({
+        amount: Number(claimed.payoutAmount),
+        operator: claimed.operator as 'FLOOZ' | 'MIXX',
+        customer: {
+          name: `${user.firstName ?? ''} ${user.lastName ?? ''}`.trim() || user.phone,
+          email: user.email ?? undefined,
+          phone: user.phone,
+        },
+        merchantReference: claimed.id,
+      });
+    }
+
+    const payoutId = Number(payout?.id);
+    if (!Number.isFinite(payoutId)) {
+      throw new BadRequestException('Réponse FedaPay invalide : identifiant payout absent');
+    }
+
+    await this.prisma.withdrawal.update({
+      where: { id },
+      data: { payoutReference: String(payout.reference ?? payout.id) },
+    });
+
+    let result = payout;
+    const currentStatus = String(payout.status ?? '').toLowerCase();
+    if (currentStatus === 'pending') {
+      result = await this.fedapay.startPayout(payoutId, user.phone);
+    }
+
+    return this.applyPayoutStatus(id, result);
+  }
+
+  /** Synchronise l'état réel d'un payout FedaPay sans permettre au dashboard
+   * de choisir arbitrairement COMPLETED. */
+  async syncPayout(id: string, actor: Actor) {
+    await this.assertAdmin(actor);
+    const withdrawal = await this.prisma.withdrawal.findUnique({ where: { id } });
+    if (!withdrawal || withdrawal.deletedAt) throw new NotFoundException('Retrait introuvable');
+    if (!withdrawal.payoutReference) throw new BadRequestException('Aucun payout FedaPay associé');
+    const payout = await this.fedapay.findPayoutByMerchantReference(id);
+    if (!payout) throw new NotFoundException('Payout FedaPay introuvable');
+    return this.applyPayoutStatus(id, payout);
+  }
+
+  private async applyPayoutStatus(id: string, payout: any) {
+    const status = String(payout?.status ?? '').toLowerCase();
+    if (status === 'sent') {
+      return this.prisma.$transaction(async (tx) => {
+        const existing = await tx.withdrawal.findUnique({ where: { id } });
+        if (!existing || existing.deletedAt) throw new NotFoundException('Retrait introuvable');
+        if (existing.status === WithdrawalStatus.COMPLETED) return existing;
+        await tx.transaction.updateMany({ where: { reference: id, type: 'WITHDRAWAL' }, data: { status: 'COMPLETED' } });
+        return tx.withdrawal.update({ where: { id }, data: { status: WithdrawalStatus.COMPLETED, payoutCompletedAt: new Date() } });
+      });
+    }
+    if (status === 'failed') return this.failAndRefund(id);
+    return this.prisma.withdrawal.update({ where: { id }, data: { status: WithdrawalStatus.PROCESSING } });
+  }
+
+  async updateStatus(id: string, status: WithdrawalStatus, actor: Actor) {
+    await this.assertAdmin(actor);
+    if (status !== WithdrawalStatus.PROCESSING) {
+      throw new BadRequestException(
+        'Seul le démarrage du payout est autorisé manuellement. FAILED/COMPLETED viennent de FedaPay.',
+      );
+    }
+    return this.processPayout(id, actor);
   }
 }
