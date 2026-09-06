@@ -10,7 +10,11 @@ import { WebUserRole } from '@prisma/client';
 import { decryptSecret, encryptSecret } from '../../../common/utils/secret-crypto';
 
 const SALT_ROUNDS = 10;
-const CHALLENGE_TOKEN_TTL = '5m';
+// 10 minutes plutôt que 5 : entre la saisie du mot de passe et le
+// basculement vers l'appli d'authentification pour lire le code TOTP, 5
+// minutes s'avéraient trop courtes en usage réel et provoquaient des
+// "Jeton invalide, expiré ou déjà consommé" au moindre temps de flottement.
+const CHALLENGE_TOKEN_TTL = '10m';
 const ONBOARDING_TOKEN_TTL = '20m';
 const SESSION_TOKEN_TTL = '8h';
 const PASSWORD_RESET_SESSION_TTL = '5m';

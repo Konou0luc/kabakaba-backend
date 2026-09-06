@@ -39,8 +39,14 @@ export function issueWebSessionCookies(res: Response, accessToken: string) {
   const secure = isProduction() || process.env.WEB_AUTH_COOKIE_SECURE === 'true';
   const same = sameSite();
   if (same === 'none' && !secure) throw new Error('WEB_AUTH_COOKIE_SAMESITE=none exige WEB_AUTH_COOKIE_SECURE=true');
-  const common = `Path=/; Max-Age=${8 * 60 * 60}; HttpOnly; Secure=${secure}; SameSite=${same}`.replace('; Secure=false','');
-  const csrfCommon = `Path=/; Max-Age=${8 * 60 * 60}; Secure=${secure}; SameSite=${same}`.replace('; Secure=false','');
+  // `Secure` et `HttpOnly` sont des drapeaux booléens dans Set-Cookie : ils
+  // doivent apparaître nus ("Secure"), jamais sous forme "Secure=true". Un
+  // navigateur conforme à la spec ignore silencieusement un attribut qu'il
+  // ne reconnaît pas — "Secure=true" n'active donc PAS le flag Secure, et
+  // le cookie de session partait sans cette protection en production.
+  const securePart = secure ? '; Secure' : '';
+  const common = `Path=/; Max-Age=${8 * 60 * 60}; HttpOnly${securePart}; SameSite=${same}`;
+  const csrfCommon = `Path=/; Max-Age=${8 * 60 * 60}${securePart}; SameSite=${same}`;
   res.setHeader('Set-Cookie', [
     `${WEB_SESSION_COOKIE}=${encodeURIComponent(accessToken)}; ${common}`,
     `${WEB_CSRF_COOKIE}=${encodeURIComponent(csrf)}; ${csrfCommon}`,
