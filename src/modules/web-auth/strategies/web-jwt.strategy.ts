@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Strategy } from 'passport-jwt';
 import { getWebSessionToken } from '../../../common/utils/web-session-cookie';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/services/prisma.service';
@@ -17,7 +17,7 @@ export class WebJwtStrategy extends PassportStrategy(Strategy, 'web-jwt') {
     }
 
     super({
-      jwtFromRequest: (req) => getWebSessionToken(req) || ExtractJwt.fromAuthHeaderAsBearerToken()(req),
+      jwtFromRequest: (req) => getWebSessionToken(req),
       ignoreExpiration: false,
       secretOrKey: secret,
     });

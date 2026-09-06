@@ -16,12 +16,12 @@ function parseCookies(header?: string): Record<string, string> {
   }, {});
 }
 
-export function getWebSessionToken(req: Request): string | undefined {
-  return parseCookies(req.headers.cookie)[WEB_SESSION_COOKIE];
+export function getWebSessionToken(req: Request): string | null {
+  return parseCookies(req.headers.cookie)[WEB_SESSION_COOKIE] ?? null;
 }
 
-export function getCsrfCookie(req: Request): string | undefined {
-  return parseCookies(req.headers.cookie)[WEB_CSRF_COOKIE];
+export function getCsrfCookie(req: Request): string | null {
+  return parseCookies(req.headers.cookie)[WEB_CSRF_COOKIE] ?? null;
 }
 
 function isProduction(): boolean {

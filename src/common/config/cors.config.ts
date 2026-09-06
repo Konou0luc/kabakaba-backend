@@ -22,8 +22,13 @@ export function getAllowedOrigins(): string[] {
       .filter(Boolean);
   }
 
-  // Fallback de développement local uniquement (aucune variable définie).
-  // En production, CORS_ALLOWED_ORIGINS doit toujours être configurée sur Vercel ;
-  // ce fallback n'est pas censé être atteint en prod.
+  const isProduction = process.env.VERCEL_ENV === 'production' || process.env.NODE_ENV === 'production';
+  if (isProduction) {
+    throw new Error(
+      'CORS_ALLOWED_ORIGINS manquant en production — démarrage/refus CORS pour des raisons de sécurité',
+    );
+  }
+
+  // Développement local uniquement.
   return ['http://localhost:5173'];
 }

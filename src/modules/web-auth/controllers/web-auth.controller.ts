@@ -138,9 +138,8 @@ export class WebAuthController {
   }
 
   @Get('me')
-  @ApiBearerAuth()
   @UseGuards(WebJwtAuthGuard)
-  @ApiOperation({ summary: 'Profil du WebUser actuellement connecté' })
+  @ApiOperation({ summary: 'Profil du WebUser actuellement connecté (session cookie HttpOnly)' })
   @ApiResponse({ status: 200, description: 'Retourne le profil.', type: WebUserEntity })
   me(@Request() req) {
     return req.user;
