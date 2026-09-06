@@ -21,6 +21,7 @@ import {
 } from '@nestjs/swagger';
 import { PaymentsService } from '../services/payments.service';
 import { CreatePaymentDto } from '../dto/create-payment.dto';
+import { CreateManualPaymentDto } from '../dto/create-manual-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { CreatePaymentIntentDto, PreviewRechargeDto } from '../dto/create-payment-intent.dto';
 import { InitiatePaymentDto } from '../dto/initiate-payment.dto';
@@ -136,7 +137,7 @@ export class PaymentsController {
     description: 'Le paiement a été créé avec succès.',
     type: PaymentEntity,
   })
-  create(@Body() createPaymentDto: CreatePaymentDto, @Request() req) {
+  create(@Body() createPaymentDto: CreateManualPaymentDto, @Request() req) {
     return this.paymentsService.create(createPaymentDto, req.user.id);
   }
 

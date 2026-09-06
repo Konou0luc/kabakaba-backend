@@ -106,14 +106,24 @@ export class AmbassadorsService {
         orderBy: { createdAt: 'desc' },
         include: {
           user: {
-            select: { firstName: true, lastName: true, phone: true, email: true, createdAt: true, campus: { select: { name: true } } },
+            select: { firstName: true, lastName: true, createdAt: true, campus: { select: { name: true } } },
           },
         },
       }),
     ]);
 
+    const safeData = data.map((ambassador) => ({
+      ...ambassador,
+      user: ambassador.user ? {
+        firstName: ambassador.user.firstName,
+        lastName: ambassador.user.lastName,
+        createdAt: ambassador.user.createdAt,
+        campus: ambassador.user.campus,
+      } : null,
+    }));
+
     return {
-      data,
+      data: safeData,
       meta: {
         page,
         limit,
@@ -151,6 +161,19 @@ export class AmbassadorsService {
   async update(id: string, updateAmbassadorDto: UpdateAmbassadorDto) {
     const existing = await this.findOne(id);
 
+    const requestedStatus = updateAmbassadorDto.status;
+    if (requestedStatus && requestedStatus !== existing.status) {
+      const allowed: Record<AmbassadorStatus, AmbassadorStatus[]> = {
+        [AmbassadorStatus.PENDING]: [AmbassadorStatus.ACTIVE, AmbassadorStatus.REJECTED],
+        [AmbassadorStatus.ACTIVE]: [AmbassadorStatus.SUSPENDED],
+        [AmbassadorStatus.SUSPENDED]: [AmbassadorStatus.ACTIVE, AmbassadorStatus.REJECTED],
+        [AmbassadorStatus.REJECTED]: [],
+              };
+      if (!allowed[existing.status]?.includes(requestedStatus)) {
+        throw new BadRequestException(`Transition de statut ambassadeur interdite : ${existing.status} -> ${requestedStatus}`);
+      }
+    }
+
     let promoCode = updateAmbassadorDto.promoCode;
     // Le code promo n'est généré qu'à l'acceptation (cf. maquette DemandesAmbassadeur :
     // "Le code promo est généré uniquement à l'acceptation") : on ne l'auto-génère
@@ -159,11 +182,13 @@ export class AmbassadorsService {
       promoCode = await this.generatePromoCode(existing.userId);
     }
 
+    const { treatedByWebUserId: _treatedByWebUserId, suspendedAt: _suspendedAt, ...safeUpdate } = updateAmbassadorDto;
     return this.prisma.ambassador.update({
       where: { id },
       data: {
-        ...updateAmbassadorDto,
+        ...safeUpdate,
         ...(promoCode ? { promoCode } : {}),
+        ...(requestedStatus === AmbassadorStatus.SUSPENDED ? { suspendedAt: new Date() } : {}),
       },
     });
   }

@@ -63,7 +63,8 @@ export class TransactionsController {
   })
   findAll(@Query() query: FindTransactionsQueryDto, @Request() req) {
     const isAdmin =
-      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN;
+      req.user.__authKind === 'web' &&
+      (req.user.role === WebUserRole.ADMIN || req.user.role === WebUserRole.SUPERVISION);
     // Un utilisateur non-admin reste toujours scopé à ses propres transactions ;
     // le filtre userId de la query n'est pris en compte que pour les admins/dashboard.
     const userId = isAdmin ? query.userId : req.user.id;
@@ -112,8 +113,13 @@ export class TransactionsController {
   @ApiResponse({ status: 404, description: 'Transaction introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
     const isAdmin =
-      req.user.__authKind === 'web' || req.user.role === UserRole.ADMIN;
-    return this.transactionsService.findOne(id, { id: req.user.id, isAdmin });
+      req.user.__authKind === 'web' &&
+      (req.user.role === WebUserRole.ADMIN || req.user.role === WebUserRole.SUPERVISION);
+    return this.transactionsService.findOne(id, {
+      id: req.user.id,
+      kind: req.user.__authKind === 'web' ? 'web' : 'mobile',
+      role: req.user.role,
+    });
   }
 
   @Patch(':id')

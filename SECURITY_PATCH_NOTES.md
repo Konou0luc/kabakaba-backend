@@ -1,8 +1,13 @@
-# Security patch SEC-02 -> SEC-27 + hardening
+# Security patch SEC-40 → SEC-44
 
-- SEC-23: deletion-request cancellation now requires the initiator or a WebUser ADMIN.
-- SEC-24 hardening: WebUser provisioning explicitly rejects any role outside SUPERVISION/ADMIN, and root remains non-provisionable/non-editable through this API.
-- SEC-26 hardening: device listing masks push tokens; raw tokens are no longer returned by GET /devices.
-- SEC-27: public partner-application responses are generic and do not expose application data.
+## SEC-40 — Atomic refunds
+Refunds initiated by vendors and dispute resolutions now run at SERIALIZABLE transaction isolation to prevent concurrent refunds from racing on the vendor balance. The existing order/dispute claim remains atomic.
 
-No new environment variable is required by these changes.
+## SEC-41 — Withdrawal completion
+The admin status endpoint no longer permits an administrator to force a withdrawal to COMPLETED. Admins can move withdrawals to PROCESSING or FAILED only. COMPLETED must come from a future provider-confirmation flow.
+
+## SEC-42 — Payout idempotency
+Withdrawals now have a unique optional payoutReference plus payoutRequestedAt/payoutCompletedAt. When an admin moves a withdrawal to PROCESSING, the withdrawal id is used as the stable idempotency reference and is recorded once.
+
+## SEC-43/44 — Provider confirmation hardening
+No manual endpoint is added to fake a provider success. COMPLETED remains unavailable to the admin status endpoint until an authenticated provider/webhook confirmation flow is implemented. This avoids creating a false sense of payout verification.

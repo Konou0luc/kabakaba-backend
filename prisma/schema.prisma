@@ -350,12 +350,27 @@ model Payment {
   user                  User                   @relation(fields: [userId], references: [id])
   ambassadorCommissions AmbassadorCommission[]
   relatedTransactions   Transaction[]          @relation("TransactionPayment")
+  webhookEvents         PaymentWebhookEvent[]
 }
 
 enum TransactionStatus {
   PENDING
   COMPLETED
   FAILED
+}
+
+model PaymentWebhookEvent {
+  id              String   @id @default(uuid())
+  providerEventKey String   @unique
+  paymentId       String
+  eventName       String
+  receivedAt      DateTime @default(now())
+  processedAt     DateTime?
+
+  payment Payment @relation(fields: [paymentId], references: [id])
+
+  @@index([paymentId])
+  @@index([receivedAt])
 }
 
 model Transaction {
@@ -399,6 +414,9 @@ model Withdrawal {
   // réel plutôt que de le reconstruire par déduction à partir du barème de
   // frais, qui peut évoluer.
   debitedAmount Decimal        @db.Decimal(10, 2)
+  payoutReference String?      @unique
+  payoutRequestedAt DateTime?
+  payoutCompletedAt DateTime?
   status      WithdrawalStatus @default(PENDING)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt

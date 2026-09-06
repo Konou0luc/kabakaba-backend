@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DisputeStatus, DisputeDecision, OrderStatus, TransactionType, TransactionStatus, UserRole, WebUserRole } from '@prisma/client';
+import { DisputeStatus, DisputeDecision, OrderStatus, TransactionType, TransactionStatus, UserRole, WebUserRole, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateDisputeDto } from '../dto/create-dispute.dto';
 import { UpdateDisputeDto } from '../dto/update-dispute.dto';
@@ -467,6 +467,6 @@ export class DisputesService {
           resolvedAt: resolvedAt ?? existing.resolvedAt ?? new Date(),
         },
       });
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 }

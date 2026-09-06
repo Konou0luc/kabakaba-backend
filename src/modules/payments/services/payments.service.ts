@@ -204,6 +204,25 @@ export class PaymentsService {
     // jamais été crédité — un webhook rejoué verrait alors "déjà traité"
     // et le crédit serait perdu définitivement.
     const result = await this.prisma.$transaction(async (tx) => {
+      // Durcissement webhook : une livraison FedaPay est dédupliquée par
+      // transaction + type d'événement. L'enregistrement et le crédit sont
+      // dans la même transaction afin qu'un échec ne consomme pas l'événement.
+      const providerEventKey = `${transactionId}:${eventName}`;
+      try {
+        await tx.paymentWebhookEvent.create({
+          data: {
+            providerEventKey,
+            paymentId: payment.id,
+            eventName,
+          },
+        });
+      } catch (error: any) {
+        if (error?.code === 'P2002') {
+          return { alreadyProcessed: true };
+        }
+        throw error;
+      }
+
       const claim = await tx.payment.updateMany({
         where: { id: payment.id, status: PaymentStatus.PENDING },
         data: { status: newStatus },
@@ -297,6 +316,11 @@ export class PaymentsService {
         }
       }
 
+      await tx.paymentWebhookEvent.update({
+        where: { providerEventKey },
+        data: { processedAt: new Date() },
+      });
+
       return { alreadyProcessed: false };
     });
 
@@ -313,6 +337,17 @@ export class PaymentsService {
     // sans lui, le paiement serait créé pour l'admin lui-même, ce qui n'a
     // pas de sens pour ce cas d'usage.
     const { userId: targetUserId, ...paymentData } = createPaymentDto;
+    const amountFcfa = Number(createPaymentDto.amountFcfa);
+    const ticketsReceived = Number(createPaymentDto.ticketsReceived);
+    if (!Number.isFinite(amountFcfa) || amountFcfa <= 0 || !Number.isInteger(ticketsReceived) || ticketsReceived <= 0) {
+      throw new BadRequestException('Montant et tickets invalides');
+    }
+    const expectedAmount = computeRechargeAmountFcfa(ticketsReceived);
+    if (expectedAmount !== amountFcfa) {
+      throw new BadRequestException(
+        `Montant incohérent : ${ticketsReceived} tickets nécessitent ${expectedAmount} FCFA`,
+      );
+    }
     return this.prisma.payment.create({
       data: {
         ...paymentData,

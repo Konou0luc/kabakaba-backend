@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrderStatus, UserRole } from '@prisma/client';
+import { OrderStatus, UserRole, Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
@@ -854,6 +854,6 @@ export class OrdersService {
         platformAdvance,
         reason,
       };
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   }
 }

@@ -54,6 +54,7 @@ export class WithdrawalsController {
     return this.withdrawalsService.request(dto, {
       id: req.user.id,
       role: req.user.role,
+      kind: req.user.__authKind === 'web' ? 'web' : 'mobile',
     });
   }
 

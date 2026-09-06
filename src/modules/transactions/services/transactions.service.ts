@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
-import { TransactionType, TransactionStatus, OrderStatus, UserRole } from '@prisma/client';
+import { TransactionType, TransactionStatus, OrderStatus, UserRole, WebUserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateTransactionDto } from '../dto/create-transaction.dto';
 import { UpdateTransactionDto } from '../dto/update-transaction.dto';
@@ -108,7 +108,7 @@ export class TransactionsService {
 
   async create(
     createTransactionDto: CreateTransactionDto,
-    actor: { id: string; kind: 'mobile' | 'web'; role?: string },
+    actor: { id: string; kind: 'mobile' | 'web'; role?: UserRole | WebUserRole },
   ) {
     // Le ledger est financier et doit rester append-only. Une création
     // manuelle est donc réservée au ADMIN web et impose un montant
@@ -192,7 +192,7 @@ export class TransactionsService {
     };
   }
 
-  async findOne(id: string, actor?: { id: string; isAdmin: boolean }) {
+  async findOne(id: string, actor?: { id: string; kind: 'mobile' | 'web'; role?: UserRole | WebUserRole }) {
     const transaction = await this.prisma.transaction.findUnique({
       where: { id },
       include: this.displayInclude,
@@ -200,7 +200,10 @@ export class TransactionsService {
 
     if (!transaction) throw new NotFoundException(`Transaction avec l'identifiant ${id} introuvable`);
 
-    if (actor && !actor.isAdmin) {
+    if (actor) {
+      const isWebAdmin = actor.kind === 'web' &&
+        (actor.role === WebUserRole.ADMIN || actor.role === WebUserRole.SUPERVISION);
+      if (isWebAdmin) return transaction;
       const isParty = transaction.senderId === actor.id || transaction.receiverId === actor.id;
       if (!isParty) {
         throw new ForbiddenException("Vous n'avez pas accès à cette transaction");

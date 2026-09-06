@@ -15,6 +15,7 @@ import {
 
 interface Actor {
   id: string;
+  kind?: 'mobile' | 'web';
   role?: UserRole;
   isAdmin?: boolean;
 }
@@ -244,7 +245,7 @@ export class WithdrawalsService {
    * (à calculer à nouveau via computeWithdrawalFees si besoin côté admin).
    */
   async updateStatus(id: string, status: WithdrawalStatus, actor: Actor) {
-    if (!actor.isAdmin && actor.role !== UserRole.ADMIN) {
+    if (!actor.isAdmin && !(actor.kind === 'web' && actor.role === UserRole.ADMIN)) {
       throw new ForbiddenException('Action réservée aux administrateurs');
     }
 
@@ -266,6 +267,12 @@ export class WithdrawalsService {
         existing.status === WithdrawalStatus.FAILED
       ) {
         throw new BadRequestException(`Retrait déjà terminé (${existing.status})`);
+      }
+
+      if (status === WithdrawalStatus.COMPLETED) {
+        throw new BadRequestException(
+          'COMPLETED est réservé à la confirmation du payout fournisseur',
+        );
       }
 
       if (status === WithdrawalStatus.FAILED) {
@@ -306,7 +313,13 @@ export class WithdrawalsService {
 
       return tx.withdrawal.update({
         where: { id },
-        data: { status },
+        data: status === WithdrawalStatus.PROCESSING
+          ? {
+              status,
+              payoutReference: existing.payoutReference ?? existing.id,
+              payoutRequestedAt: existing.payoutRequestedAt ?? new Date(),
+            }
+          : { status },
       });
     });
   }
