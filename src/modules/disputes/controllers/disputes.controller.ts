@@ -50,7 +50,7 @@ export class DisputesController {
       vendorId = vendor ?? '__none__';
     }
 
-    return this.disputesService.findAll(query.page, query.limit, query.status, vendorId, studentId, query.orderId, query.campusId, query.days);
+    return this.disputesService.findAll(query.page, query.limit, query.status, vendorId, studentId, query.orderId, query.campusId, query.days, query.from, query.to);
   }
 
   @Get('stats')

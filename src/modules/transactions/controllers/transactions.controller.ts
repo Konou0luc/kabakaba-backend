@@ -72,6 +72,8 @@ export class TransactionsController {
       query.status,
       query.vendorId,
       query.campusId,
+      query.from,
+      query.to,
     );
   }
 

@@ -60,16 +60,27 @@ export class DisputesService {
     orderId?: string,
     campusId?: string,
     days?: number,
+    from?: string,
+    to?: string,
   ) {
     const skip = (page - 1) * limit;
-    const since = days ? new Date(Date.now() - days * 24 * 60 * 60 * 1000) : undefined;
+    // from/to (plage personnalisée du calendrier) prennent le pas sur `days`
+    // (fenêtre glissante), comme resolveRange() dans analytics.service.ts.
+    let createdAt: { gte?: Date; lte?: Date } | undefined;
+    if (from || to) {
+      const until = to ? new Date(to) : new Date();
+      until.setHours(23, 59, 59, 999);
+      createdAt = { ...(from ? { gte: new Date(from) } : {}), lte: until };
+    } else if (days) {
+      createdAt = { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) };
+    }
     const where = {
       ...(status ? { status } : {}),
       ...(vendorId ? { vendorId } : {}),
       ...(studentId ? { studentId } : {}),
       ...(orderId ? { orderId } : {}),
       ...(campusId ? { student: { campusId } } : {}),
-      ...(since ? { createdAt: { gte: since } } : {}),
+      ...(createdAt ? { createdAt } : {}),
     };
 
     const [total, data] = await this.prisma.$transaction([

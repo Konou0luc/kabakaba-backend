@@ -4,6 +4,16 @@ import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateTransactionDto } from '../dto/create-transaction.dto';
 import { UpdateTransactionDto } from '../dto/update-transaction.dto';
 
+// Même logique que resolveRange() dans analytics.service.ts : bornes
+// incluses, `to` étendu à la fin de journée pour couvrir toute la
+// journée choisie dans le sélecteur de plage du frontend.
+function dateFilter(from?: string, to?: string) {
+  if (!from && !to) return undefined;
+  const until = to ? new Date(to) : new Date();
+  until.setHours(23, 59, 59, 999);
+  return { ...(from ? { gte: new Date(from) } : {}), lte: until };
+}
+
 @Injectable()
 export class TransactionsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -123,8 +133,11 @@ export class TransactionsService {
     status?: TransactionStatus,
     vendorId?: string,
     campusId?: string,
+    from?: string,
+    to?: string,
   ) {
     const skip = (page - 1) * limit;
+    const createdAt = dateFilter(from, to);
     const where = {
       ...(userId ? { userId } : {}),
       ...(type ? { type } : {}),
@@ -133,6 +146,7 @@ export class TransactionsService {
         ? { OR: [{ relatedOrder: { vendorId } }, { user: { vendor: { id: vendorId } } }] }
         : {}),
       ...(campusId ? { user: { campusId } } : {}),
+      ...(createdAt ? { createdAt } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.transaction.count({ where }),

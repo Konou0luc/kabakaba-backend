@@ -18,6 +18,16 @@ interface Actor {
   authKind?: 'mobile' | 'web';
 }
 
+// Même logique que resolveRange() dans analytics.service.ts : bornes
+// incluses, `to` étendu à la fin de journée pour couvrir toute la
+// journée choisie dans le sélecteur de plage du frontend.
+function dateFilter(from?: string, to?: string) {
+  if (!from && !to) return undefined;
+  const until = to ? new Date(to) : new Date();
+  until.setHours(23, 59, 59, 999);
+  return { ...(from ? { gte: new Date(from) } : {}), lte: until };
+}
+
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
@@ -239,6 +249,8 @@ export class OrdersService {
     vendorUserId?: string,
     statuses?: OrderStatus[],
     campusId?: string,
+    from?: string,
+    to?: string,
   ) {
     // Order.vendorId référence Vendor.id, pas User.id : quand un VENDOR
     // liste ses propres commandes (vendorUserId = son User.id), il faut
@@ -254,6 +266,7 @@ export class OrdersService {
     }
 
     const skip = (page - 1) * limit;
+    const createdAt = dateFilter(from, to);
     const where = {
       deletedAt: null,
       ...(studentId ? { studentId } : {}),
@@ -261,6 +274,7 @@ export class OrdersService {
       ...(status ? { status } : {}),
       ...(statuses && statuses.length > 0 ? { status: { in: statuses } } : {}),
       ...(campusId ? { student: { campusId } } : {}),
+      ...(createdAt ? { createdAt } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.order.count({ where }),

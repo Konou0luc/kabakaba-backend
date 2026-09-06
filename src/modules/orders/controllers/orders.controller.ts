@@ -85,6 +85,8 @@ export class OrdersController {
       vendorUserId,
       query.statuses,
       isAdmin ? query.campusId : undefined,
+      query.from,
+      query.to,
     );
   }
 
