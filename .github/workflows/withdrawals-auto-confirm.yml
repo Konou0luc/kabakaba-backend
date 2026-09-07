@@ -1,0 +1,17 @@
+name: Withdrawals auto-confirmation (1h)
+
+on:
+  schedule:
+    - cron: '* * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  withdrawals-auto-confirm:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirmer les retraits dont le délai d'une heure est écoulé
+        run: |
+          curl -fsS --max-time 60 \
+            -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://kabakaba-backend.vercel.app/api/v1/internal/cron/withdrawals-auto-confirm

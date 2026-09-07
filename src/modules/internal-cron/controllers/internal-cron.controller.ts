@@ -3,6 +3,7 @@ import { ApiExcludeController } from '@nestjs/swagger';
 import { CronAuthGuard } from '../../../common/guards/cron-auth.guard';
 import { AmbassadorsService } from '../../ambassadors/services/ambassadors.service';
 import { OrdersService } from '../../orders/services/orders.service';
+import { WithdrawalsService } from '../../vendors/services/withdrawals.service';
 
 /**
  * Endpoints déclenchés par les workflows GitHub Actions (voir
@@ -12,6 +13,7 @@ import { OrdersService } from '../../orders/services/orders.service';
  * - heartbeat : sonde infra
  * - ambassador-daily : volume30d / level / suspension inactivité (CDC 10.3–10.5)
  * - orders-timeout : PENDING > 5 min + READY > 1 h (CDC 4.3 / 4.6)
+ * - withdrawals-auto-confirm : clôture automatique après 1 h sans contestation
  */
 @ApiExcludeController()
 @Controller('internal/cron')
@@ -22,6 +24,7 @@ export class InternalCronController {
   constructor(
     private readonly ambassadorsService: AmbassadorsService,
     private readonly ordersService: OrdersService,
+    private readonly withdrawalsService: WithdrawalsService,
   ) {}
 
   @Post('heartbeat')
@@ -47,5 +50,12 @@ export class InternalCronController {
     const pending = await this.ordersService.processPendingTimeouts();
     const autoReceive = await this.ordersService.processReadyAutoReceive();
     return { ok: true, pending, autoReceive };
+  }
+
+  @Post('withdrawals-auto-confirm')
+  async withdrawalsAutoConfirm() {
+    this.logger.log('Cron withdrawals-auto-confirm démarré');
+    const result = await this.withdrawalsService.autoConfirmDue();
+    return { ok: true, ...result };
   }
 }

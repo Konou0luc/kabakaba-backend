@@ -19,7 +19,7 @@ export class CreateWithdrawalDto {
   @ApiProperty({
     enum: WithdrawalOperatorDto,
     example: 'MIXX',
-    description: 'Réseau de réception : FLOOZ (Moov) ou MIXX (Yas / ex T-Money).',
+    description: 'Réseau sur lequel l’administrateur effectuera manuellement le transfert : FLOOZ (Moov) ou MIXX (Yas).',
   })
   @IsEnum(WithdrawalOperatorDto)
   operator: WithdrawalOperatorDto;

@@ -5,10 +5,10 @@ import { VendorSchedulesController } from './schedules/controllers/vendor-schedu
 import { VendorSchedulesService } from './schedules/services/vendor-schedules.service';
 import { WithdrawalsController } from './controllers/withdrawals.controller';
 import { WithdrawalsService } from './services/withdrawals.service';
-import { PaymentsModule } from '../payments/payments.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [PaymentsModule],
+  imports: [NotificationsModule],
   controllers: [VendorsController, VendorSchedulesController, WithdrawalsController],
   providers: [VendorsService, VendorSchedulesService, WithdrawalsService],
   exports: [VendorsService, WithdrawalsService],

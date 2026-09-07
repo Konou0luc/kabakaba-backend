@@ -69,7 +69,20 @@ enum WithdrawalStatus {
   PROCESSING
   COMPLETED
   FAILED
+  CANCELLED
 }
+
+enum WithdrawalAppealType {
+  NOT_RECEIVED
+  AMOUNT_MISMATCH
+}
+
+enum WithdrawalAppealStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 
 enum NotificationType {
   INFO
@@ -414,17 +427,78 @@ model Withdrawal {
   // réel plutôt que de le reconstruire par déduction à partir du barème de
   // frais, qui peut évoluer.
   debitedAmount Decimal        @db.Decimal(10, 2)
+  // Frais réellement retenus par Kabakaba sur ce retrait. Avec le mode
+  // manuel, ils ne sont plus payés à FedaPay : ils restent dans la caisse
+  // de la plateforme (notamment le barème < 10 000 FCFA).
+  feeRetained Decimal         @default(0) @db.Decimal(10, 2)
   operator      String?
+  // Héritage du chantier FedaPay. payoutAmount est désormais le montant
+  // exact à envoyer manuellement ; les champs payoutReference/payoutRequestedAt
+  // restent conservés pour compatibilité avec les anciennes lignes.
   payoutAmount  Decimal?       @db.Decimal(10, 2)
   payoutReference String?      @unique
   payoutRequestedAt DateTime?
   payoutCompletedAt DateTime?
+  acceptedAt DateTime?
+  acceptedByWebUserId String?
+  paidAt DateTime?
+  confirmationDeadlineAt DateTime?
+  autoConfirmedAt DateTime?
+  cancelledAt DateTime?
+  cancelledByWebUserId String?
+  failureReason String?
+  cancellationReason String?
   status      WithdrawalStatus @default(PENDING)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
   deletedAt   DateTime?
 
   vendor Vendor @relation(fields: [vendorId], references: [id])
+  acceptedByWebUser WebUser? @relation("WithdrawalAcceptedBy", fields: [acceptedByWebUserId], references: [id])
+  cancelledByWebUser WebUser? @relation("WithdrawalCancelledBy", fields: [cancelledByWebUserId], references: [id])
+  proof WithdrawalProof?
+  appeals WithdrawalAppeal[]
+
+  @@index([status])
+  @@index([confirmationDeadlineAt])
+  @@index([vendorId, createdAt])
+}
+
+model WithdrawalProof {
+  id String @id @default(uuid())
+  withdrawalId String @unique
+  uploadedByWebUserId String
+  originalName String
+  contentType String
+  sizeBytes Int
+  sha256 String
+  data Bytes
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id])
+  uploadedByWebUser WebUser @relation(fields: [uploadedByWebUserId], references: [id])
+
+  @@index([uploadedByWebUserId])
+}
+
+model WithdrawalAppeal {
+  id String @id @default(uuid())
+  withdrawalId String
+  type WithdrawalAppealType
+  reason String
+  status WithdrawalAppealStatus @default(PENDING)
+  resolvedByWebUserId String?
+  resolutionNote String?
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id])
+  resolvedByWebUser WebUser? @relation("WithdrawalAppealResolvedBy", fields: [resolvedByWebUserId], references: [id])
+
+  @@index([withdrawalId, status])
+  @@index([createdAt])
 }
 
 model Debt {
@@ -695,6 +769,10 @@ model WebUser {
   partnerApplicationsTreated PartnerApplication[]
   disputesTreated            Dispute[]
   ambassadorsTreated         Ambassador[]
+  withdrawalsAccepted       Withdrawal[] @relation("WithdrawalAcceptedBy")
+  withdrawalsCancelled      Withdrawal[] @relation("WithdrawalCancelledBy")
+  withdrawalProofsUploaded  WithdrawalProof[]
+  withdrawalAppealsResolved WithdrawalAppeal[] @relation("WithdrawalAppealResolvedBy")
   deletionRequestsAsTarget   WebUserDeletionRequest[] @relation("DeletionTarget")
   deletionRequestsInitiated  WebUserDeletionRequest[] @relation("DeletionInitiator")
   deletionRequestsConfirmed  WebUserDeletionRequest[] @relation("DeletionConfirmer")
