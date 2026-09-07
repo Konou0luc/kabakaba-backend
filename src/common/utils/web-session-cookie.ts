@@ -29,9 +29,27 @@ function isProduction(): boolean {
 }
 
 function sameSite(): 'lax' | 'strict' | 'none' {
-  const value = (process.env.WEB_AUTH_COOKIE_SAMESITE || 'lax').toLowerCase();
-  if (value === 'strict' || value === 'none') return value;
-  return 'lax';
+  const envValue = (process.env.WEB_AUTH_COOKIE_SAMESITE || '').toLowerCase();
+  if (envValue === 'strict' || envValue === 'none' || envValue === 'lax') return envValue;
+  // Pas de valeur explicite en env : on choisit un défaut qui correspond à
+  // la topologie réelle du déploiement plutôt qu'un défaut générique.
+  //
+  // En production, le frontend (ex: ka-bakaba.vercel.app) et ce backend
+  // (ex: kabakaba-backend.vercel.app) sont deux PROJETS VERCEL DISTINCTS —
+  // deux sous-domaines de vercel.app, qui est lui-même inscrit sur la
+  // Public Suffix List. Ce sont donc deux sites différents au sens des
+  // cookies, pas seulement deux origines. Or un cookie SameSite=Lax n'est
+  // JAMAIS envoyé sur un fetch()/XHR cross-site (seulement lors d'une
+  // navigation top-level) : avec 'lax' par défaut, le cookie de session
+  // était bien posé après le login, mais toute requête API suivante
+  // repartait sans lui — 401 silencieux et systématique sur tout le
+  // dashboard. D'où le défaut 'none' (+ Secure, obligatoire et garanti par
+  // isProduction() ci-dessous) en prod.
+  //
+  // En local, frontend et backend tournent tous les deux sur `localhost`
+  // (ports différents) : c'est le même site au sens SameSite, donc 'lax'
+  // convient et évite d'exiger HTTPS en développement.
+  return isProduction() ? 'none' : 'lax';
 }
 
 export function issueWebSessionCookies(res: Response, accessToken: string) {
