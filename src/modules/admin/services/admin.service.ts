@@ -66,7 +66,18 @@ export class AdminService {
     return auditLog;
   }
 
+  private supervisionStatsCache?: { expiresAt: number; value: ReturnType<AdminService['getSupervisionStatsUncached']> };
+
   async getSupervisionStats() {
+    const now = Date.now();
+    if (this.supervisionStatsCache && this.supervisionStatsCache.expiresAt > now) return this.supervisionStatsCache.value;
+    const value = this.getSupervisionStatsUncached();
+    this.supervisionStatsCache = { expiresAt: now + 10_000, value };
+    value.catch(() => { this.supervisionStatsCache = undefined; });
+    return value;
+  }
+
+  private async getSupervisionStatsUncached() {
     const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const [

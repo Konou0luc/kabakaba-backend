@@ -98,7 +98,37 @@ function buildDayKeys(since: Date, until: Date): string[] {
 export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async getCampusComparison(days = 30, from?: string, to?: string) {
+  // Cache mémoire très court : les dashboards déclenchent souvent plusieurs
+  // appels identiques lors d'une navigation rapide. En serverless, ce cache
+  // profite uniquement aux instances chaudes et ne remplace jamais la DB.
+  // Les données analytiques peuvent tolérer quelques secondes de fraîcheur.
+  private readonly cache = new Map<string, { expiresAt: number; value: Promise<unknown> }>();
+  private readonly analyticsCacheTtlMs = 10_000;
+
+  private withCache<T>(key: string, factory: () => Promise<T>, ttlMs = this.analyticsCacheTtlMs): Promise<T> {
+    const now = Date.now();
+    const cached = this.cache.get(key);
+    if (cached && cached.expiresAt > now) return cached.value as Promise<T>;
+    const value = factory();
+    this.cache.set(key, { expiresAt: now + ttlMs, value });
+    value.catch(() => {
+      const current = this.cache.get(key);
+      if (current?.value === value) this.cache.delete(key);
+    });
+    return value;
+  }
+
+  async getCampusComparison(days = 30, from?: string, to?: string) { return this.withCache(`getCampusComparison:${days}:${from ?? ''}:${to ?? ''}`, () => this.getCampusComparisonUncached(days, from, to)); }
+  async getTopCanteens(days = 30, limit = 10, from?: string, to?: string) { return this.withCache(`getTopCanteens:${days}:${limit}:${from ?? ''}:${to ?? ''}`, () => this.getTopCanteensUncached(days, limit, from, to)); }
+  async getRevenueBreakdown(days = 30, from?: string, to?: string) { return this.withCache(`getRevenueBreakdown:${days}:${from ?? ''}:${to ?? ''}`, () => this.getRevenueBreakdownUncached(days, from, to)); }
+  async getVendorPerformance(days = 30, from?: string, to?: string) { return this.withCache(`getVendorPerformance:${days}:${from ?? ''}:${to ?? ''}`, () => this.getVendorPerformanceUncached(days, from, to)); }
+  async getStudentBehavior(days = 30, from?: string, to?: string) { return this.withCache(`getStudentBehavior:${days}:${from ?? ''}:${to ?? ''}`, () => this.getStudentBehaviorUncached(days, from, to)); }
+  async getVendorFinancials(days = 30, from?: string, to?: string) { return this.withCache(`getVendorFinancials:${days}:${from ?? ''}:${to ?? ''}`, () => this.getVendorFinancialsUncached(days, from, to)); }
+  async getReviewsQuality(days = 30, from?: string, to?: string) { return this.withCache(`getReviewsQuality:${days}:${from ?? ''}:${to ?? ''}`, () => this.getReviewsQualityUncached(days, from, to)); }
+  async getAmbassadorRanking(days = 30, from?: string, to?: string) { return this.withCache(`getAmbassadorRanking:${days}:${from ?? ''}:${to ?? ''}`, () => this.getAmbassadorRankingUncached(days, from, to)); }
+  async getAmbassadorDetail(id: string, days = 30, from?: string, to?: string) { return this.withCache(`getAmbassadorDetail:${id}:${days}:${from ?? ''}:${to ?? ''}`, () => this.getAmbassadorDetailUncached(id, days, from, to)); }
+
+  private async getCampusComparisonUncached(days = 30, from?: string, to?: string) {
     const { since, until, prevSince, prevUntil } = resolveRange(days, from, to);
     const dayKeys = buildDayKeys(since, until);
     const chartStart = new Date(dayKeys[0]);
@@ -205,7 +235,7 @@ export class AnalyticsService {
     };
   }
 
-  async getTopCanteens(days = 30, limit = 10, from?: string, to?: string) {
+  private async getTopCanteensUncached(days = 30, limit = 10, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
     const [orders, vendors, reviews, vendorCampusLinks, campuses] = await Promise.all([
       this.prisma.order.findMany({ where: { createdAt: { gte: since, lte: until } }, select: { vendorId: true, status: true } }),
@@ -260,7 +290,7 @@ export class AnalyticsService {
       .slice(0, limit);
   }
 
-  async getRevenueBreakdown(days = 30, from?: string, to?: string) {
+  private async getRevenueBreakdownUncached(days = 30, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
     const [payments, withdrawals, commissions, campuses, vendorCampusLinks] = await Promise.all([
       this.prisma.payment.findMany({
@@ -354,7 +384,7 @@ export class AnalyticsService {
     };
   }
 
-  async getVendorPerformance(days = 30, from?: string, to?: string) {
+  private async getVendorPerformanceUncached(days = 30, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
     const [orders, acceptanceEvents, vendors, vendorCampusLinks, campuses] = await Promise.all([
       this.prisma.order.findMany({ where: { createdAt: { gte: since, lte: until } }, select: { vendorId: true, status: true } }),
@@ -443,7 +473,7 @@ export class AnalyticsService {
     };
   }
 
-  async getStudentBehavior(days = 30, from?: string, to?: string) {
+  private async getStudentBehaviorUncached(days = 30, from?: string, to?: string) {
     const { since, until, prevSince } = resolveRange(days, from, to);
     const dayKeys = buildDayKeys(since, until);
     const chartStart = new Date(dayKeys[0]);
@@ -554,7 +584,7 @@ export class AnalyticsService {
     };
   }
 
-  async getVendorFinancials(days = 30, from?: string, to?: string) {
+  private async getVendorFinancialsUncached(days = 30, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
 
     const [vendors, vendorCampusLinks, campuses, withdrawals] = await Promise.all([
@@ -603,7 +633,7 @@ export class AnalyticsService {
     };
   }
 
-  async getReviewsQuality(days = 30, from?: string, to?: string) {
+  private async getReviewsQualityUncached(days = 30, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
     const dayKeys = buildDayKeys(since, until);
     const chartStart = new Date(dayKeys[0]);
@@ -686,7 +716,7 @@ export class AnalyticsService {
   // Inclut ACTIVE et SUSPENDED : la liste admin doit pouvoir afficher les
   // deux (avec un badge de statut), contrairement à un classement public
   // qui ne montrerait que les actifs.
-  async getAmbassadorRanking(days = 30, from?: string, to?: string) {
+  private async getAmbassadorRankingUncached(days = 30, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
 
     const [ambassadors, affiliateCounts, activeAffiliateRows, commissionsWindow] = await Promise.all([
@@ -773,7 +803,7 @@ export class AnalyticsService {
     };
   }
 
-  async getAmbassadorDetail(id: string, days = 30, from?: string, to?: string) {
+  private async getAmbassadorDetailUncached(id: string, days = 30, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
 
     const ambassador = await this.prisma.ambassador.findUnique({
