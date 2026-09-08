@@ -28,6 +28,7 @@ import { MenuItemEntity } from '../entities/menu-item.entity';
 import { MenuComponentEntity } from '../entities/menu-component.entity';
 import { PackagingOptionEntity } from '../entities/packaging-option.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
+import { FindMenuItemsQueryDto } from '../dto/find-menu-items-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
@@ -66,21 +67,13 @@ export class CatalogController {
   @Get('menu-items')
   @Public()
   @ApiOperation({ summary: 'Get all active menu items' })
-  @ApiQuery({ name: 'vendorId', required: false, type: String, description: 'Filter by vendor ID' })
-  @ApiQuery({ type: PaginationDto })
+  @ApiQuery({ type: FindMenuItemsQueryDto })
   @ApiResponse({
     status: 200,
     description: 'Return all active menu items with pagination.',
   })
-  findAllMenuItems(
-    @Query('vendorId') vendorId?: string,
-    @Query() paginationDto?: PaginationDto,
-  ) {
-    return this.catalogService.findAllMenuItems(
-      paginationDto?.page,
-      paginationDto?.limit,
-      vendorId,
-    );
+  findAllMenuItems(@Query() query: FindMenuItemsQueryDto) {
+    return this.catalogService.findAllMenuItems(query.page, query.limit, query.vendorId);
   }
 
   @Get('menu-items/:id')
