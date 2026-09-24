@@ -4,6 +4,7 @@ import {
   ConflictException,
   BadRequestException,
   ForbiddenException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -16,7 +17,6 @@ import { VerifyOtpDto } from '../dto/verify-otp.dto';
 import { LoginEmailDto } from '../dto/login-email.dto';
 import * as bcrypt from 'bcrypt';
 import { AmbassadorStatus, UserRole } from '@prisma/client';
-import { safeErrorMessage } from '../../../common/utils/safe-log';
 
 @Injectable()
 export class AuthService {
@@ -75,7 +75,10 @@ export class AuthService {
         `Votre code de vérification Kabakaba est: ${code}`,
       );
     } catch (error) {
-      console.error(`Erreur lors de l'envoi du SMS OTP: ${safeErrorMessage(error)}`);
+      // Ne jamais annoncer un OTP comme envoyé si le fournisseur l’a refusé.
+      throw new ServiceUnavailableException(
+        'Impossible d’envoyer le code de vérification. Veuillez réessayer.',
+      );
     }
 
     return {

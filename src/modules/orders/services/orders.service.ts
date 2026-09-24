@@ -284,6 +284,11 @@ export class OrdersService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
+          items: {
+            include: {
+              menuItem: { select: { name: true } },
+            },
+          },
           student: { select: { id: true, firstName: true, lastName: true, campus: { select: { id: true, name: true } } } },
           vendor: { select: { id: true, canteenName: true } },
         },

@@ -67,9 +67,10 @@ export class FedapayService {
       );
       return response.data;
     } catch (error) {
+      const err = error as Error & { stack?: string };
       this.logger.error(
-        `Erreur lors de la création de la transaction FedaPay: ${error.message}`,
-        error.stack,
+        `Erreur lors de la création de la transaction FedaPay: ${err.message}`,
+        err.stack,
       );
       throw new BadRequestException(
         'Erreur lors de la création de la transaction',
@@ -86,9 +87,10 @@ export class FedapayService {
 
       return response.data;
     } catch (error) {
+      const err = error as Error & { stack?: string };
       this.logger.error(
-        `Erreur lors de la récupération de la transaction FedaPay: ${error.message}`,
-        error.stack,
+        `Erreur lors de la récupération de la transaction FedaPay: ${err.message}`,
+        err.stack,
       );
       throw new BadRequestException('Erreur lors de la récupération de la transaction');
     }
@@ -115,9 +117,10 @@ export class FedapayService {
       );
       token = tokenResponse.data?.token;
     } catch (error) {
+      const err = error as Error & { stack?: string };
       this.logger.error(
-        `Erreur lors de la génération du token FedaPay: ${error.message}`,
-        error.stack,
+        `Erreur lors de la génération du token FedaPay: ${err.message}`,
+        err.stack,
       );
       throw new BadRequestException(
         'Erreur lors de la génération du token de paiement',
@@ -150,9 +153,10 @@ export class FedapayService {
       );
       return response.data;
     } catch (error) {
+      const err = error as Error & { stack?: string };
       this.logger.error(
-        `Erreur lors de l'initiation du paiement Mobile Money: ${error.message}`,
-        error.stack,
+        `Erreur lors de l'initiation du paiement Mobile Money: ${err.message}`,
+        err.stack,
       );
       throw new BadRequestException(
         "Erreur lors de l'initiation du paiement",

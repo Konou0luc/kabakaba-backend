@@ -323,6 +323,7 @@ export class VendorsService {
         suspensionReason: true,
         createdAt: true,
         updatedAt: true,
+        user: { select: { phone: true } },
         campuses: {
           select: { campus: { select: { id: true, name: true, city: true, institution: true } } },
         },
@@ -336,6 +337,8 @@ export class VendorsService {
       balanceFcfa: Number(vendor.balanceFcfa),
       debtFcfa: Number(vendor.debtFcfa),
       campuses: vendor.campuses.map((vc) => vc.campus),
+      campusName: vendor.campuses[0]?.campus.name ?? '',
+      phone: vendor.user?.phone ?? null,
       withdrawalBlocked: Number(vendor.debtFcfa) > 0,
     };
   }

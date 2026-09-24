@@ -184,7 +184,7 @@ export async function createNestApp() {
     const filePath = resolveSwaggerAssetPath(req.path, swaggerUiDir);
 
     if (!filePath) {
-      res.status(404).send('Not Found');
+      next();
       return;
     }
 
@@ -194,8 +194,6 @@ export async function createNestApp() {
       }
     });
   };
-
-  app.use('/docs', requireSwaggerAuth, express.static(swaggerUiDir, { fallthrough: true }));
   app.use('/docs', requireSwaggerAuth, swaggerAssetPath);
 
   const swaggerJsonPath = '/api/v1/docs-json';
@@ -244,8 +242,8 @@ export async function createNestApp() {
 async function bootstrap() {
   const app = await createNestApp();
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
-  console.log(`Application is running on: http://localhost:${port}/api/v1`);
+  await app.listen(port, '0.0.0.0');
+  console.log(`Application is running on: http://0.0.0.0:${port}/api/v1`);
   console.log(`Swagger documentation available at: http://localhost:${port}/docs`);
 }
 

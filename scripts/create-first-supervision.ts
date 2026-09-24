@@ -9,9 +9,9 @@ dotenv.config();
 const SALT_ROUNDS = 10;
 
 async function main() {
-  const connectionString = process.env.DATABASE_URL;
+  const connectionString = process.env.DATABASE_URL_PROD;
   if (!connectionString) {
-    throw new Error('DATABASE_URL manquant — vérifie ton fichier .env');
+    throw new Error('DATABASE_URL_PROD manquant — vérifie ton fichier .env');
   }
 
   const pool = new Pool({ connectionString });
