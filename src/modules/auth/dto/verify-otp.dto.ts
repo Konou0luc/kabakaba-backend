@@ -1,5 +1,12 @@
 import { ApiPropertyOptional, ApiProperty } from '@nestjs/swagger';
-import { IsPhoneNumber, IsString, IsNotEmpty, IsOptional, IsUUID, Length } from 'class-validator';
+import {
+  IsPhoneNumber,
+  IsString,
+  IsNotEmpty,
+  IsOptional,
+  IsUUID,
+  Length,
+} from 'class-validator';
 
 export class VerifyOtpDto {
   @ApiProperty({ example: '+22890000000', description: 'Numéro de téléphone' })
@@ -31,7 +38,8 @@ export class VerifyOtpDto {
   // Requis uniquement à la première création de compte ; ignoré à la reconnexion.
   @ApiPropertyOptional({
     example: 'uuid-campus',
-    description: "Identifiant du campus choisi à l'inscription. Requis pour un nouveau compte.",
+    description:
+      "Identifiant du campus choisi à l'inscription. Requis pour un nouveau compte.",
   })
   @IsOptional()
   @IsUUID()

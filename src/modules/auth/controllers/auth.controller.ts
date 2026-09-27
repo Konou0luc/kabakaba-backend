@@ -5,7 +5,6 @@ import {
   UseGuards,
   HttpCode,
   HttpStatus,
-  Request,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import {
@@ -44,7 +43,10 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
   @ApiOperation({ summary: "Vérifier le code OTP et se connecter/s'inscrire" })
-  @ApiResponse({ status: 200, description: 'Code OTP vérifié, tokens renvoyés.' })
+  @ApiResponse({
+    status: 200,
+    description: 'Code OTP vérifié, tokens renvoyés.',
+  })
   verifyOtp(@Body() verifyOtpDto: VerifyOtpDto) {
     return this.authService.verifyOtp(verifyOtpDto);
   }
@@ -53,8 +55,13 @@ export class AuthController {
   @Post('login-email')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ summary: 'Se connecter avec email et mot de passe (admin/vendeur)' })
-  @ApiResponse({ status: 200, description: 'Connexion réussie, tokens renvoyés.' })
+  @ApiOperation({
+    summary: 'Se connecter avec email et mot de passe (admin/vendeur)',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Connexion réussie, tokens renvoyés.',
+  })
   loginEmail(@Body() loginEmailDto: LoginEmailDto) {
     return this.authService.loginEmail(loginEmailDto);
   }
@@ -83,13 +90,17 @@ export class AuthController {
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
-    summary: 'Changer son mot de passe (requis après une première connexion avec un mot de passe temporaire)',
+    summary:
+      'Changer son mot de passe (requis après une première connexion avec un mot de passe temporaire)',
   })
   @ApiResponse({ status: 200, description: 'Mot de passe changé avec succès.' })
   @ApiResponse({ status: 401, description: 'Mot de passe actuel incorrect.' })
-  changePassword(@Request() req, @Body() changePasswordDto: ChangePasswordDto) {
+  changePassword(
+    @GetCurrentUserId() userId: string,
+    @Body() changePasswordDto: ChangePasswordDto,
+  ) {
     return this.authService.changePassword(
-      req.user.id,
+      userId,
       changePasswordDto.currentPassword,
       changePasswordDto.newPassword,
     );

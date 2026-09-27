@@ -6,6 +6,7 @@ import { VendorActivateStartDto } from '../dto/vendor-activate-start.dto';
 import { VendorActivateVerifyOtpDto } from '../dto/vendor-activate-verify-otp.dto';
 import { VendorSetPinDto } from '../dto/vendor-set-pin.dto';
 import { VendorLoginPinDto } from '../dto/vendor-login-pin.dto';
+import { VendorResendOtpDto } from '../dto/vendor-resend-otp.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 
 @ApiTags('Auth vendeur (mobile)')
@@ -28,6 +29,16 @@ export class VendorAuthController {
   @ApiResponse({ status: 401, description: 'Numéro ou mot de passe invalide.' })
   activateStart(@Body() dto: VendorActivateStartDto) {
     return this.vendorAuthService.activateStart(dto);
+  }
+
+  @Public()
+  @Post('activate/resend-otp')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 3, ttl: 60000 } })
+  @ApiOperation({ summary: 'Renvoyer le code OTP de l’étape en cours' })
+  @ApiResponse({ status: 200, description: 'Nouveau code OTP envoyé.' })
+  activateResendOtp(@Body() dto: VendorResendOtpDto) {
+    return this.vendorAuthService.resendActivationOtp(dto);
   }
 
   @Public()

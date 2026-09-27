@@ -7,7 +7,7 @@ export class VendorActivateVerifyOtpDto {
   })
   @IsString()
   @IsNotEmpty()
-  onboardingToken: string;
+  onboardingToken!: string;
 
   @ApiProperty({
     example: '123456',
@@ -15,5 +15,5 @@ export class VendorActivateVerifyOtpDto {
   })
   @IsString()
   @Length(6, 6)
-  code: string;
+  code!: string;
 }

@@ -9,7 +9,7 @@ export class VendorSetPinDto {
   })
   @IsString()
   @IsNotEmpty()
-  pinSetupToken: string;
+  pinSetupToken!: string;
 
   @ApiProperty({
     example: '4821',
@@ -19,5 +19,5 @@ export class VendorSetPinDto {
   @Matches(new RegExp(`^\\d{${VENDOR_PIN_LENGTH}}$`), {
     message: `Le code PIN doit contenir exactement ${VENDOR_PIN_LENGTH} chiffres`,
   })
-  pin: string;
+  pin!: string;
 }

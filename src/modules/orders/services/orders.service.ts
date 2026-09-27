@@ -291,6 +291,10 @@ export class OrdersService {
           },
           student: { select: { id: true, firstName: true, lastName: true, campus: { select: { id: true, name: true } } } },
           vendor: { select: { id: true, canteenName: true } },
+          // Le vendeur doit savoir si la commande est à emporter ou sur
+          // place : sans ce nom, le client ne dispose que de la clé
+          // étrangère packagingOptionId et ne peut que le deviner.
+          packagingOption: { select: { id: true, name: true } },
         },
       }),
     ]);
@@ -309,6 +313,19 @@ export class OrdersService {
   async findOne(id: string, actor: Actor) {
     const order = await this.prisma.order.findUnique({
       where: { id, deletedAt: null },
+      include: {
+        items: { include: { menuItem: { select: { name: true } } } },
+        student: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            campus: { select: { id: true, name: true } },
+          },
+        },
+        vendor: { select: { id: true, canteenName: true } },
+        packagingOption: { select: { id: true, name: true } },
+      },
     });
 
     if (!order) throw new NotFoundException(`Commande avec l'identifiant ${id} introuvable`);

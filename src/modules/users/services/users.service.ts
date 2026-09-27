@@ -1,4 +1,8 @@
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
@@ -27,11 +31,29 @@ const SELF_UPDATABLE_FIELDS = [
 // Décision produit : le dashboard web ne fait QUE lire/afficher des
 // informations et modérer des comptes, jamais toucher à ce qui protège le
 // compte de l'utilisateur.
-const WEB_ADMIN_MODERATION_FIELDS = ['isSuspended', 'suspensionUntil', 'suspensionReason'] as const;
+const WEB_ADMIN_MODERATION_FIELDS = [
+  'isSuspended',
+  'suspensionUntil',
+  'suspensionReason',
+] as const;
 
-export function sanitize<T extends { password?: string | null }>(user: T) {
-  const { password, ...safe } = user;
-  return safe;
+const HIDDEN_USER_KEYS = [
+  'password',
+  'pinHash',
+  'pinFailedAttempts',
+  'pinLockedUntil',
+  'pinUpdatedAt',
+] as const;
+
+type HiddenUserKey = (typeof HIDDEN_USER_KEYS)[number];
+
+/** Retire les secrets du compte avant tout envoi au client. */
+export function sanitize<T extends object>(user: T): Omit<T, HiddenUserKey> {
+  const copy = { ...(user as Record<string, unknown>) };
+  for (const key of HIDDEN_USER_KEYS) {
+    delete copy[key];
+  }
+  return copy as Omit<T, HiddenUserKey>;
 }
 
 @Injectable()
@@ -84,8 +106,13 @@ export class UsersService {
   }
 
   async findOne(id: string, actor?: { id: string; isPrivileged: boolean }) {
-    const user = await this.prisma.user.findFirst({ where: { id, deletedAt: null } });
-    if (!user) throw new NotFoundException(`Utilisateur avec l'identifiant ${id} introuvable`);
+    const user = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!user)
+      throw new NotFoundException(
+        `Utilisateur avec l'identifiant ${id} introuvable`,
+      );
 
     // SÉCURITÉ : un utilisateur normal ne peut consulter que son propre
     // profil — évite qu'un étudiant/vendeur puisse voir le profil complet
@@ -108,25 +135,35 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto, actor: Actor) {
-    const current = await this.prisma.user.findFirst({ where: { id, deletedAt: null } });
-    if (!current) throw new NotFoundException(`Utilisateur avec l'identifiant ${id} introuvable`);
+    const current = await this.prisma.user.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!current)
+      throw new NotFoundException(
+        `Utilisateur avec l'identifiant ${id} introuvable`,
+      );
 
     const isSelf = actor.id === id;
     const isMobilePrivileged = false;
     const isWebAdmin = actor.kind === 'web' && actor.role === 'ADMIN';
-    const isWebSupervision = actor.kind === 'web' && actor.role === 'SUPERVISION';
+    const isWebSupervision =
+      actor.kind === 'web' && actor.role === 'SUPERVISION';
 
     if (isWebSupervision) {
       // SÉCURITÉ : la supervision web est en lecture seule sur les comptes
       // utilisateurs — elle affiche des informations, elle ne les modifie pas.
-      throw new ForbiddenException('La supervision est en lecture seule sur les comptes utilisateurs');
+      throw new ForbiddenException(
+        'La supervision est en lecture seule sur les comptes utilisateurs',
+      );
     }
 
     if (!isSelf && !isMobilePrivileged && !isWebAdmin) {
-      throw new ForbiddenException('Vous ne pouvez modifier que votre propre profil');
+      throw new ForbiddenException(
+        'Vous ne pouvez modifier que votre propre profil',
+      );
     }
 
-    let payload: Record<string, any>;
+    let payload: UpdateUserDto;
     if (isMobilePrivileged) {
       // Aucun rôle admin n'est émis pour l'application mobile.
       payload = { ...updateUserDto };
@@ -149,15 +186,23 @@ export class UsersService {
     }
 
     const isPrivilegedForSuspension = isMobilePrivileged || isWebAdmin;
-    const isSuspending = isPrivilegedForSuspension && payload.isSuspended === true && !current.isSuspended;
-    const isLifting = isPrivilegedForSuspension && payload.isSuspended === false && current.isSuspended;
+    const isSuspending =
+      isPrivilegedForSuspension &&
+      payload.isSuspended === true &&
+      !current.isSuspended;
+    const isLifting =
+      isPrivilegedForSuspension &&
+      payload.isSuspended === false &&
+      current.isSuspended;
 
     if (isSuspending) {
       await this.suspensionsService.suspend({
         studentId: id,
         reason: payload.suspensionReason ?? 'Suspension manuelle',
         trigger: 'MANUAL',
-        suspendedUntil: payload.suspensionUntil ? new Date(payload.suspensionUntil) : undefined,
+        suspendedUntil: payload.suspensionUntil
+          ? new Date(payload.suspensionUntil)
+          : undefined,
         actor,
       });
     }
@@ -171,7 +216,9 @@ export class UsersService {
 
     if (payload.campusId !== undefined) {
       if (isSelf && current.role !== UserRole.STUDENT) {
-        throw new ForbiddenException('Seul un étudiant peut modifier son campus');
+        throw new ForbiddenException(
+          'Seul un étudiant peut modifier son campus',
+        );
       }
       const campus = await this.prisma.campus.findFirst({
         where: { id: payload.campusId, deletedAt: null },
@@ -180,12 +227,15 @@ export class UsersService {
       if (!campus) throw new NotFoundException('Campus invalide ou inexistant');
     }
 
-    const passwordChanged = typeof payload.password === 'string' && payload.password.length > 0;
-    if (passwordChanged) {
-      payload.password = await bcrypt.hash(payload.password, 10);
+    const passwordChanged =
+      typeof payload.password === 'string' && payload.password.length > 0;
+    if (passwordChanged && payload.password) {
+      payload = {
+        ...payload,
+        password: await bcrypt.hash(payload.password, 10),
+      };
     }
-    const roleChanged = payload.role !== undefined && payload.role !== current.role;
-    const securityStateChanged = passwordChanged || roleChanged;
+    const securityStateChanged = passwordChanged;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const result = await tx.user.update({ where: { id }, data: payload });

@@ -1,7 +1,6 @@
 import {
   Injectable,
   UnauthorizedException,
-  ConflictException,
   BadRequestException,
   ForbiddenException,
   ServiceUnavailableException,
@@ -40,7 +39,9 @@ export class AuthService {
     });
 
     if (existingOtp && existingOtp.attempts >= 5) {
-      throw new BadRequestException('Trop de tentatives, veuillez demander un nouveau code OTP');
+      throw new BadRequestException(
+        'Trop de tentatives, veuillez demander un nouveau code OTP',
+      );
     }
 
     // SÉCURITÉ : crypto.randomInt (CSPRNG) au lieu de Math.random() — un
@@ -74,7 +75,7 @@ export class AuthService {
         phone,
         `Votre code de vérification Kabakaba est: ${code}`,
       );
-    } catch (error) {
+    } catch {
       // Ne jamais annoncer un OTP comme envoyé si le fournisseur l’a refusé.
       throw new ServiceUnavailableException(
         'Impossible d’envoyer le code de vérification. Veuillez réessayer.',
@@ -107,7 +108,9 @@ export class AuthService {
     // jamais lors d'un échec de vérification, laissant un même code
     // brute-forçable sans limite pendant ses 5 minutes de validité.
     if (otp.attempts >= 5) {
-      throw new BadRequestException('Trop de tentatives, veuillez demander un nouveau code OTP');
+      throw new BadRequestException(
+        'Trop de tentatives, veuillez demander un nouveau code OTP',
+      );
     }
 
     const isValid = await bcrypt.compare(code, otp.code);
@@ -116,11 +119,18 @@ export class AuthService {
       // peuvent pas réutiliser un même état d'OTP ni dépasser le plafond par
       // une lecture obsolète de `attempts`.
       const claimedFailure = await this.prisma.otpCode.updateMany({
-        where: { id: otp.id, used: false, expiresAt: { gt: new Date() }, attempts: { lt: 5 } },
+        where: {
+          id: otp.id,
+          used: false,
+          expiresAt: { gt: new Date() },
+          attempts: { lt: 5 },
+        },
         data: { attempts: { increment: 1 } },
       });
       if (claimedFailure.count === 0) {
-        throw new BadRequestException('Trop de tentatives, veuillez demander un nouveau code OTP');
+        throw new BadRequestException(
+          'Trop de tentatives, veuillez demander un nouveau code OTP',
+        );
       }
       throw new BadRequestException('Code OTP invalide ou expiré');
     }
@@ -128,7 +138,12 @@ export class AuthService {
     // Consommation atomique : une seule requête concurrente peut marquer
     // l'OTP comme utilisé et obtenir l'authentification.
     const claimed = await this.prisma.otpCode.updateMany({
-      where: { id: otp.id, used: false, expiresAt: { gt: new Date() }, attempts: { lt: 5 } },
+      where: {
+        id: otp.id,
+        used: false,
+        expiresAt: { gt: new Date() },
+        attempts: { lt: 5 },
+      },
       data: { used: true },
     });
     if (claimed.count === 0) {
@@ -164,18 +179,23 @@ export class AuthService {
           // des affiliés avant toute validation. Filtrer sur status: ACTIVE
           // plutôt que sur la simple existence du promoCode.
           ambassador = await tx.ambassador.findFirst({
-            where: { promoCode: trimmedReferralCode, status: AmbassadorStatus.ACTIVE },
+            where: {
+              promoCode: trimmedReferralCode,
+              status: AmbassadorStatus.ACTIVE,
+            },
             select: { id: true },
           });
           if (!ambassador) {
-            throw new BadRequestException('Code de parrainage invalide ou inexistant');
+            throw new BadRequestException(
+              'Code de parrainage invalide ou inexistant',
+            );
           }
         }
 
         // CDC 2.1 — campus obligatoire à la première inscription.
         if (!campusId?.trim()) {
           throw new BadRequestException(
-            'Le campus est obligatoire à l\'inscription. Veuillez sélectionner votre campus.',
+            "Le campus est obligatoire à l'inscription. Veuillez sélectionner votre campus.",
           );
         }
         const campus = await tx.campus.findFirst({
@@ -231,10 +251,14 @@ export class AuthService {
     const user = await this.usersService.findByEmail(email);
     if (!user) throw new UnauthorizedException('Identifiants invalides');
 
-    if (!user.password) throw new UnauthorizedException('Veuillez utiliser la connexion par téléphone');
+    if (!user.password)
+      throw new UnauthorizedException(
+        'Veuillez utiliser la connexion par téléphone',
+      );
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) throw new UnauthorizedException('Identifiants invalides');
+    if (!isPasswordValid)
+      throw new UnauthorizedException('Identifiants invalides');
 
     const tokens = await this.issueTokens(user.id, user.role);
     await this.persistRefreshToken(user.id, tokens.refreshToken);
@@ -251,13 +275,21 @@ export class AuthService {
    * vendeur créé via POST /vendors). Vérifie l'ancien mot de passe avant
    * d'accepter le nouveau, comme n'importe quel changement de mot de passe.
    */
-  async changePassword(userId: string, currentPassword: string, newPassword: string) {
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException();
-    if (!user.password) throw new UnauthorizedException('Ce compte ne peut pas changer de mot de passe');
+    if (!user.password)
+      throw new UnauthorizedException(
+        'Ce compte ne peut pas changer de mot de passe',
+      );
 
     const isCurrentValid = await bcrypt.compare(currentPassword, user.password);
-    if (!isCurrentValid) throw new UnauthorizedException('Mot de passe actuel incorrect');
+    if (!isCurrentValid)
+      throw new UnauthorizedException('Mot de passe actuel incorrect');
 
     const hashedPassword = await bcrypt.hash(newPassword, 10);
     await this.prisma.$transaction([
@@ -277,7 +309,7 @@ export class AuthService {
 
   async refreshTokens(refreshToken: string) {
     try {
-      const decoded = this.jwtService.verify(refreshToken, {
+      const decoded = this.jwtService.verify<{ sub: string }>(refreshToken, {
         secret: this.configService.get('JWT_REFRESH_SECRET'),
       });
 
@@ -292,7 +324,9 @@ export class AuthService {
       // via une clause WHERE, on compare donc candidat par candidat parmi
       // les tokens non expirés de cet utilisateur (révoqués INCLUS, pour
       // pouvoir détecter une réutilisation — voir plus bas).
-      const candidates = user.refreshTokens.filter((rt) => rt.expiresAt > new Date());
+      const candidates = user.refreshTokens.filter(
+        (rt) => rt.expiresAt > new Date(),
+      );
 
       let matched: (typeof candidates)[number] | null = null;
       for (const rt of candidates) {
@@ -312,10 +346,16 @@ export class AuthService {
         // on tue toute la famille de tokens : la session entière doit se
         // reconnecter.
         await this.prisma.refreshToken.updateMany({
-          where: { userId: user.id, familyId: matched.familyId, revoked: false },
+          where: {
+            userId: user.id,
+            familyId: matched.familyId,
+            revoked: false,
+          },
           data: { revoked: true },
         });
-        throw new UnauthorizedException('Session invalidée, veuillez vous reconnecter');
+        throw new UnauthorizedException(
+          'Session invalidée, veuillez vous reconnecter',
+        );
       }
 
       // SÉCURITÉ : claim ATOMIQUE — deux requêtes de refresh concurrentes
@@ -330,11 +370,17 @@ export class AuthService {
       });
 
       if (claim.count === 0) {
-        throw new UnauthorizedException('Token de renouvellement déjà utilisé, veuillez vous reconnecter');
+        throw new UnauthorizedException(
+          'Token de renouvellement déjà utilisé, veuillez vous reconnecter',
+        );
       }
 
       const tokens = await this.issueTokens(user.id, user.role);
-      await this.persistRefreshToken(user.id, tokens.refreshToken, matched.familyId);
+      await this.persistRefreshToken(
+        user.id,
+        tokens.refreshToken,
+        matched.familyId,
+      );
 
       return tokens;
     } catch (error) {
@@ -363,7 +409,9 @@ export class AuthService {
     // ADMIN sont des rôles du back-office Web uniquement.
     // Aucun compte mobile ne doit pouvoir recevoir de JWT mobile avec ces rôles.
     if (role === UserRole.ADMIN) {
-      throw new ForbiddenException("Les comptes ADMIN utilisent exclusivement l'authentification Web");
+      throw new ForbiddenException(
+        "Les comptes ADMIN utilisent exclusivement l'authentification Web",
+      );
     }
 
     const [accessToken, refreshToken] = await Promise.all([
@@ -389,7 +437,11 @@ export class AuthService {
     };
   }
 
-  async persistRefreshToken(userId: string, refreshToken: string, familyId?: string) {
+  async persistRefreshToken(
+    userId: string,
+    refreshToken: string,
+    familyId?: string,
+  ) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 

@@ -1,3 +1,4 @@
+/// <reference types="jest" />
 import 'reflect-metadata';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -95,7 +96,22 @@ async function buildHarness(overrides: Partial<FakeUser> = {}) {
       }),
     },
     refreshToken: { updateMany: revokeRefreshTokens },
-    $transaction: (operations: Promise<unknown>[]) => Promise.all(operations),
+    $transaction: (
+      arg:
+        | Promise<unknown>[]
+        | ((tx: {
+            user: { update: typeof update };
+            refreshToken: { updateMany: typeof revokeRefreshTokens };
+          }) => Promise<unknown>),
+    ) => {
+      if (typeof arg === 'function') {
+        return arg({
+          user: { update },
+          refreshToken: { updateMany: revokeRefreshTokens },
+        });
+      }
+      return Promise.all(arg);
+    },
   } as unknown as PrismaService;
 
   const sendOtp = jest.fn().mockResolvedValue({ message: 'ok' });

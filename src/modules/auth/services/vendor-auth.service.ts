@@ -16,6 +16,7 @@ import { VendorActivateStartDto } from '../dto/vendor-activate-start.dto';
 import { VendorActivateVerifyOtpDto } from '../dto/vendor-activate-verify-otp.dto';
 import { VendorSetPinDto } from '../dto/vendor-set-pin.dto';
 import { VendorLoginPinDto } from '../dto/vendor-login-pin.dto';
+import { VendorResendOtpDto } from '../dto/vendor-resend-otp.dto';
 import {
   VENDOR_ONBOARDING_TOKEN_TTL,
   VENDOR_PIN_LENGTH,
@@ -92,6 +93,34 @@ export class VendorAuthService {
     };
   }
 
+  /**
+   * Renvoie un SMS sans redemander le mot de passe : le jeton d'étape suffit
+   * à prouver que l'étape 1 a été franchie. Évite au client mobile de garder
+   * le mot de passe en mémoire juste pour alimenter un bouton « renvoyer ».
+   *
+   * Un jeton rafraîchi est retourné pour que le compte à rebours de l'étape
+   * reparte en même temps que celui du nouveau code.
+   */
+  async resendActivationOtp(dto: VendorResendOtpDto) {
+    const userId = await this.verifyStepToken(
+      dto.onboardingToken,
+      VENDOR_SCOPE_ONBOARDING,
+    );
+    const user = await this.loadVendorUser(userId);
+
+    await this.authService.sendOtp({ phone: user.phone });
+
+    return {
+      stage: 'OTP_REQUIRED' as const,
+      onboardingToken: await this.signStepToken(
+        user.id,
+        VENDOR_SCOPE_ONBOARDING,
+      ),
+      phoneMasked: maskPhone(user.phone),
+      pinLength: VENDOR_PIN_LENGTH,
+    };
+  }
+
   async activateVerifyOtp(dto: VendorActivateVerifyOtpDto) {
     const userId = await this.verifyStepToken(
       dto.onboardingToken,
@@ -119,8 +148,8 @@ export class VendorAuthService {
 
     const pinHash = await bcrypt.hash(this.pepperPin(dto.pin), 10);
 
-    const [updated] = await this.prisma.$transaction([
-      this.prisma.user.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const next = await tx.user.update({
         where: { id: user.id },
         data: {
           pinHash,
@@ -131,14 +160,15 @@ export class VendorAuthService {
           // désormais piloté par son PIN, plus rien n'est « à changer ».
           mustChangePassword: false,
         },
-      }),
+      });
       // Poser un PIN équivaut à un changement de mot de passe : toutes les
       // sessions ouvertes ailleurs sont invalidées.
-      this.prisma.refreshToken.updateMany({
+      await tx.refreshToken.updateMany({
         where: { userId: user.id, revoked: false },
         data: { revoked: true },
-      }),
-    ]);
+      });
+      return next;
+    });
 
     return this.openSession(updated);
   }

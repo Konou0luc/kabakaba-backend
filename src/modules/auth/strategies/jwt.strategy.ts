@@ -15,7 +15,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     if (!secret) {
       // Ne JAMAIS démarrer avec un secret par défaut connu de tous —
       // mieux vaut un crash au démarrage qu'une faille silencieuse.
-      throw new Error('JWT_ACCESS_SECRET manquant — démarrage refusé pour des raisons de sécurité');
+      throw new Error(
+        'JWT_ACCESS_SECRET manquant — démarrage refusé pour des raisons de sécurité',
+      );
     }
 
     super({
@@ -48,7 +50,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     // Sans ça, un compte resterait bloqué après suspensionUntil jusqu'à
     // une action admin manuelle.
     if (user.isSuspended) {
-      if (user.suspensionUntil && user.suspensionUntil.getTime() <= Date.now()) {
+      if (
+        user.suspensionUntil &&
+        user.suspensionUntil.getTime() <= Date.now()
+      ) {
         await this.prisma.$transaction([
           this.prisma.user.update({
             where: { id: user.id },
@@ -70,7 +75,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
             },
           }),
         ]);
-        user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
+        user = await this.prisma.user.findUnique({
+          where: { id: payload.sub },
+        });
 
         // Re-contrôle défensif après relecture : le compte a pu être banni
         // ou supprimé entre la première lecture et la levée de suspension.

@@ -8,7 +8,7 @@ export class VendorActivateStartDto {
   })
   @IsPhoneNumber()
   @IsNotEmpty()
-  phone: string;
+  phone!: string;
 
   @ApiProperty({
     example: 'MotDePasseTemporaire1',
@@ -17,5 +17,5 @@ export class VendorActivateStartDto {
   })
   @IsString()
   @IsNotEmpty()
-  password: string;
+  password!: string;
 }
