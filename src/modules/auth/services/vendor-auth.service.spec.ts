@@ -9,9 +9,10 @@ import { AuthService } from './auth.service';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { VENDOR_PIN_MAX_ATTEMPTS } from '../constants/vendor-pin.constants';
 
-const ACCESS_SECRET = 'secret-de-test-pour-les-jetons';
-const PHONE = '+22890000000';
-const PASSWORD = 'MotDePasseTemporaire1';
+// Fixtures locales uniquement : aucun compte, aucun secret de prod.
+const jwtTestKey = 'vendor-auth-unit-test-hmac';
+const fixturePhone = '+22890000000';
+const fixturePlain = 'unit-test-plain';
 
 type FakeUser = {
   id: string;
@@ -45,8 +46,8 @@ type UpdateArgs = {
 async function buildHarness(overrides: Partial<FakeUser> = {}) {
   const user: FakeUser = {
     id: 'user-1',
-    phone: PHONE,
-    password: await bcrypt.hash(PASSWORD, 4),
+    phone: fixturePhone,
+    password: await bcrypt.hash(fixturePlain, 4),
     role: UserRole.VENDOR,
     pinHash: null,
     pinFailedAttempts: 0,
@@ -129,7 +130,7 @@ async function buildHarness(overrides: Partial<FakeUser> = {}) {
   } as unknown as AuthService;
 
   const configService = {
-    get: jest.fn().mockReturnValue(ACCESS_SECRET),
+    get: jest.fn().mockReturnValue(jwtTestKey),
   } as unknown as ConfigService;
 
   const service = new VendorAuthService(
@@ -147,13 +148,13 @@ describe('VendorAuthService — activation', () => {
     const { service, sendOtp } = await buildHarness();
 
     const result = await service.activateStart({
-      phone: PHONE,
-      password: PASSWORD,
+      phone: fixturePhone,
+      password: fixturePlain,
     });
 
     expect(result.stage).toBe('OTP_REQUIRED');
     expect(result.onboardingToken).toBeTruthy();
-    expect(sendOtp).toHaveBeenCalledWith({ phone: PHONE });
+    expect(sendOtp).toHaveBeenCalledWith({ phone: fixturePhone });
     // Le numéro complet ne doit pas repartir en clair vers le client.
     expect(result.phoneMasked).not.toContain('90000000');
   });
@@ -163,10 +164,10 @@ describe('VendorAuthService — activation', () => {
     const notAVendor = await buildHarness({ role: UserRole.STUDENT });
 
     const first = await wrongPassword.service
-      .activateStart({ phone: PHONE, password: 'mauvais' })
+      .activateStart({ phone: fixturePhone, password: 'mauvais' })
       .catch((error: Error) => error.message);
     const second = await notAVendor.service
-      .activateStart({ phone: PHONE, password: PASSWORD })
+      .activateStart({ phone: fixturePhone, password: fixturePlain })
       .catch((error: Error) => error.message);
 
     expect(first).toBe(second);
@@ -176,7 +177,7 @@ describe('VendorAuthService — activation', () => {
     const { service, sendOtp } = await buildHarness();
 
     await expect(
-      service.activateStart({ phone: PHONE, password: 'mauvais' }),
+      service.activateStart({ phone: fixturePhone, password: 'mauvais' }),
     ).rejects.toThrow();
 
     expect(sendOtp).not.toHaveBeenCalled();
@@ -186,7 +187,7 @@ describe('VendorAuthService — activation', () => {
     const { service } = await buildHarness({ isBanned: true });
 
     await expect(
-      service.activateStart({ phone: PHONE, password: PASSWORD }),
+      service.activateStart({ phone: fixturePhone, password: fixturePlain }),
     ).rejects.toThrow(/désactivé/);
   });
 
@@ -198,7 +199,7 @@ describe('VendorAuthService — activation', () => {
     });
 
     await expect(
-      service.activateStart({ phone: PHONE, password: PASSWORD }),
+      service.activateStart({ phone: fixturePhone, password: fixturePlain }),
     ).rejects.toThrow(/Litiges répétés/);
   });
 
@@ -209,7 +210,7 @@ describe('VendorAuthService — activation', () => {
     });
 
     await expect(
-      service.activateStart({ phone: PHONE, password: PASSWORD }),
+      service.activateStart({ phone: fixturePhone, password: fixturePlain }),
     ).resolves.toMatchObject({ stage: 'OTP_REQUIRED' });
   });
 });
@@ -219,8 +220,8 @@ describe('VendorAuthService — jetons d’étape', () => {
     const { service } = await buildHarness();
 
     const { onboardingToken } = await service.activateStart({
-      phone: PHONE,
-      password: PASSWORD,
+      phone: fixturePhone,
+      password: fixturePlain,
     });
 
     // Les deux étapes sont signées avec des clés dérivées distinctes : un
@@ -247,8 +248,8 @@ describe('VendorAuthService — jetons d’étape', () => {
       await buildHarness();
 
     const started = await service.activateStart({
-      phone: PHONE,
-      password: PASSWORD,
+      phone: fixturePhone,
+      password: fixturePlain,
     });
     const verified = await service.activateVerifyOtp({
       onboardingToken: started.onboardingToken,
@@ -259,7 +260,7 @@ describe('VendorAuthService — jetons d’étape', () => {
       pin: '4821',
     });
 
-    expect(consumeOtp).toHaveBeenCalledWith(PHONE, '123456');
+    expect(consumeOtp).toHaveBeenCalledWith(fixturePhone, '123456');
     expect(session.accessToken).toBe('access');
     expect(session.vendor).toMatchObject({ canteenName: 'Cantine Test' });
     // Poser un PIN vaut changement de mot de passe : les sessions ouvertes
@@ -276,8 +277,8 @@ describe('VendorAuthService — code PIN', () => {
     async (pin) => {
       const { service } = await buildHarness();
       const started = await service.activateStart({
-        phone: PHONE,
-        password: PASSWORD,
+        phone: fixturePhone,
+        password: fixturePlain,
       });
       const verified = await service.activateVerifyOtp({
         onboardingToken: started.onboardingToken,
@@ -293,8 +294,8 @@ describe('VendorAuthService — code PIN', () => {
   it('stocke le PIN poivré, non devinable depuis la base seule', async () => {
     const { service, user } = await buildHarness();
     const started = await service.activateStart({
-      phone: PHONE,
-      password: PASSWORD,
+      phone: fixturePhone,
+      password: fixturePlain,
     });
     const verified = await service.activateVerifyOtp({
       onboardingToken: started.onboardingToken,
@@ -316,8 +317,8 @@ describe('VendorAuthService — code PIN', () => {
   it('connecte le vendeur avec le bon PIN', async () => {
     const { service } = await buildHarness();
     const started = await service.activateStart({
-      phone: PHONE,
-      password: PASSWORD,
+      phone: fixturePhone,
+      password: fixturePlain,
     });
     const verified = await service.activateVerifyOtp({
       onboardingToken: started.onboardingToken,
@@ -329,7 +330,7 @@ describe('VendorAuthService — code PIN', () => {
     });
 
     await expect(
-      service.loginPin({ phone: PHONE, pin: '4821' }),
+      service.loginPin({ phone: fixturePhone, pin: '4821' }),
     ).resolves.toMatchObject({
       accessToken: 'access',
     });
@@ -338,8 +339,8 @@ describe('VendorAuthService — code PIN', () => {
   it('verrouille le PIN après trop d’échecs, puis refuse même le bon PIN', async () => {
     const { service, user } = await buildHarness();
     const started = await service.activateStart({
-      phone: PHONE,
-      password: PASSWORD,
+      phone: fixturePhone,
+      password: fixturePlain,
     });
     const verified = await service.activateVerifyOtp({
       onboardingToken: started.onboardingToken,
@@ -352,25 +353,25 @@ describe('VendorAuthService — code PIN', () => {
 
     for (let attempt = 1; attempt < VENDOR_PIN_MAX_ATTEMPTS; attempt++) {
       await expect(
-        service.loginPin({ phone: PHONE, pin: '1357' }),
+        service.loginPin({ phone: fixturePhone, pin: '1357' }),
       ).rejects.toThrow(/Il te reste/);
     }
 
     await expect(
-      service.loginPin({ phone: PHONE, pin: '1357' }),
+      service.loginPin({ phone: fixturePhone, pin: '1357' }),
     ).rejects.toThrow(/Réessaie dans/);
     expect(user.pinLockedUntil).toBeInstanceOf(Date);
 
     await expect(
-      service.loginPin({ phone: PHONE, pin: '4821' }),
+      service.loginPin({ phone: fixturePhone, pin: '4821' }),
     ).rejects.toThrow(/Réessaie dans/);
   });
 
   it('remet le compteur à zéro après une connexion réussie', async () => {
     const { service, user } = await buildHarness();
     const started = await service.activateStart({
-      phone: PHONE,
-      password: PASSWORD,
+      phone: fixturePhone,
+      password: fixturePlain,
     });
     const verified = await service.activateVerifyOtp({
       onboardingToken: started.onboardingToken,
@@ -382,11 +383,11 @@ describe('VendorAuthService — code PIN', () => {
     });
 
     await expect(
-      service.loginPin({ phone: PHONE, pin: '1357' }),
+      service.loginPin({ phone: fixturePhone, pin: '1357' }),
     ).rejects.toThrow();
     expect(user.pinFailedAttempts).toBe(1);
 
-    await service.loginPin({ phone: PHONE, pin: '4821' });
+    await service.loginPin({ phone: fixturePhone, pin: '4821' });
     expect(user.pinFailedAttempts).toBe(0);
   });
 
@@ -394,7 +395,7 @@ describe('VendorAuthService — code PIN', () => {
     const { service } = await buildHarness();
 
     await expect(
-      service.loginPin({ phone: PHONE, pin: '4821' }),
+      service.loginPin({ phone: fixturePhone, pin: '4821' }),
     ).rejects.toThrow(/Numéro de téléphone ou code PIN invalide/);
   });
 });
