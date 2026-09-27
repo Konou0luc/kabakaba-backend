@@ -25,7 +25,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub: string; role: string }) {
+  async validate(payload: { sub: string; role: string; scope?: string }) {
+    // SÉCURITÉ : les jetons intermédiaires du parcours d'activation vendeur
+    // (scope vendor_onboarding / vendor_pin_setup) sont signés avec une clé
+    // dérivée distincte, mais on refuse en plus explicitement tout jeton
+    // porteur d'un `scope` ici. Un jeton d'étape ne doit jamais pouvoir
+    // servir de token d'accès, même si la dérivation de clé changeait.
+    if (payload.scope) return null;
+
     let user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
     });
@@ -64,12 +71,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           }),
         ]);
         user = await this.prisma.user.findUnique({ where: { id: payload.sub } });
-        if (!user || user.deletedAt || user.isBanned) return null;
 
-    // Les rôles ADMIN appartiennent exclusivement au back-office Web.
-    // Refus explicite même si un ancien JWT mobile ou un token forgé avec la bonne
-    // signature tente de les utiliser.
-    if (user.role === UserRole.ADMIN) return null;
+        // Re-contrôle défensif après relecture : le compte a pu être banni
+        // ou supprimé entre la première lecture et la levée de suspension.
+        if (!user || user.deletedAt || user.isBanned) return null;
+        if (user.role === UserRole.ADMIN) return null;
       } else {
         // Encore sous suspension : accès refusé → fonds gelés côté API
         // (aucune commande / transfert / recharge possible).

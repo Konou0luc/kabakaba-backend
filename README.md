@@ -107,3 +107,40 @@ Implemented order/escrow protections:
 - `readyAt` is recorded at the same time as the READY transition.
 - Legacy orders that already have an `ESCROW_RELEASE` transaction are backfilled with `escrowReleasedAt` by the Prisma migration.
 - No npm build/test was run by design; the project should be tested locally after installation of dependencies.
+
+## Authentification de l'application vendeur mobile
+
+L'app vendeur ne se connecte ni par `login-email` ni par le flux OTP étudiant :
+elle utilise un parcours dédié où un **code PIN à 4 chiffres remplace le mot de
+passe** pour les connexions quotidiennes.
+
+**Activation** (première connexion, et seul chemin de récupération d'un PIN oublié) :
+
+| Étape | Route | Corps | Réponse |
+|---|---|---|---|
+| 1 | `POST /api/v1/auth/vendor/activate/start` | `phone`, `password` | `onboardingToken`, `phoneMasked` + envoi de l'OTP par SMS |
+| 2 | `POST /api/v1/auth/vendor/activate/verify-otp` | `onboardingToken`, `code` | `pinSetupToken` |
+| 3 | `POST /api/v1/auth/vendor/activate/set-pin` | `pinSetupToken`, `pin` | `user`, `vendor`, `accessToken`, `refreshToken` |
+
+**Connexions suivantes** : `POST /api/v1/auth/vendor/login-pin` avec `phone` + `pin`.
+
+Le `password` est le mot de passe temporaire créé par l'admin via `POST /vendors`
+(`mustChangePassword: true`). Il n'est plus saisi au quotidien après l'activation,
+mais reste le secret exigé pour reposer un PIN — un accès à la seule carte SIM ne
+suffit donc pas à reprendre la main sur une cantine.
+
+Choix de sécurité :
+- Les jetons d'étape portent un `scope` et sont signés avec des clés **dérivées
+  par HMAC** du `JWT_ACCESS_SECRET` (une clé distincte par étape, aucune variable
+  d'environnement supplémentaire). `JwtStrategy` refuse en plus tout jeton porteur
+  d'un `scope`, donc un jeton d'étape ne peut jamais servir de token d'accès.
+- `User.pinHash` est un bcrypt appliqué au **HMAC poivré** du PIN, pas au PIN brut :
+  un PIN à 4 chiffres ne vaut que 10 000 combinaisons, et une fuite de la base
+  seule ne permet pas de le retrouver hors ligne sans le secret applicatif.
+- 5 échecs consécutifs verrouillent le PIN 15 minutes (`pinFailedAttempts`,
+  `pinLockedUntil`), en plus du throttling HTTP (10 req/min sur `login-pin`).
+- Les PIN triviaux (`0000`, `1111`, `1234`, `4321`…) sont refusés.
+- Poser un PIN révoque tous les refresh tokens du compte, comme un changement de
+  mot de passe.
+
+Migration à appliquer : `prisma/migrations/20260927190000_add_vendor_pin_auth`.

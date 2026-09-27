@@ -149,6 +149,15 @@ model User {
   bannedAt           DateTime?
   banReason          String?
   mustChangePassword Boolean   @default(false)
+  // Authentification vendeur mobile par code PIN (voir VendorAuthService).
+  // pinHash est un bcrypt appliqué NON PAS au PIN brut mais à son HMAC
+  // poivré côté serveur : un PIN à 4 chiffres ne représente que 10 000
+  // combinaisons, donc une fuite de la base seule ne doit pas suffire à le
+  // retrouver hors ligne sans le secret applicatif.
+  pinHash            String?
+  pinFailedAttempts  Int       @default(0)
+  pinLockedUntil     DateTime?
+  pinUpdatedAt       DateTime?
   notifyOrders       Boolean   @default(true)
   notifyAmbassador   Boolean   @default(true)
   notifyPromotions   Boolean   @default(false)

@@ -86,9 +86,14 @@ export class AuthService {
     };
   }
 
-  async verifyOtp(verifyOtpDto: VerifyOtpDto) {
-    const { phone, code, referralCode, campusId } = verifyOtpDto;
-
+  /**
+   * Vérifie et consomme l'OTP actif d'un numéro, sans rien décider de
+   * l'identité derrière : c'est l'appelant qui choisit ensuite quoi faire
+   * (inscription étudiant via verifyOtp, activation vendeur via
+   * VendorAuthService). Mutualisé pour que la logique anti-brute-force ne
+   * soit écrite — et donc durcie — qu'une seule fois.
+   */
+  async consumeOtp(phone: string, code: string) {
     const otp = await this.prisma.otpCode.findFirst({
       where: { phone, used: false, expiresAt: { gt: new Date() } },
     });
@@ -129,6 +134,12 @@ export class AuthService {
     if (claimed.count === 0) {
       throw new BadRequestException('Code OTP invalide ou expiré');
     }
+  }
+
+  async verifyOtp(verifyOtpDto: VerifyOtpDto) {
+    const { phone, code, referralCode, campusId } = verifyOtpDto;
+
+    await this.consumeOtp(phone, code);
 
     let user = await this.usersService.findByPhone(phone);
 
@@ -205,8 +216,8 @@ export class AuthService {
       });
     }
 
-    const tokens = await this.getTokens(user.id, user.role);
-    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    const tokens = await this.issueTokens(user.id, user.role);
+    await this.persistRefreshToken(user.id, tokens.refreshToken);
 
     return {
       user: sanitize(user),
@@ -225,8 +236,8 @@ export class AuthService {
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) throw new UnauthorizedException('Identifiants invalides');
 
-    const tokens = await this.getTokens(user.id, user.role);
-    await this.updateRefreshToken(user.id, tokens.refreshToken);
+    const tokens = await this.issueTokens(user.id, user.role);
+    await this.persistRefreshToken(user.id, tokens.refreshToken);
 
     return {
       user: sanitize(user),
@@ -322,8 +333,8 @@ export class AuthService {
         throw new UnauthorizedException('Token de renouvellement déjà utilisé, veuillez vous reconnecter');
       }
 
-      const tokens = await this.getTokens(user.id, user.role);
-      await this.updateRefreshToken(user.id, tokens.refreshToken, matched.familyId);
+      const tokens = await this.issueTokens(user.id, user.role);
+      await this.persistRefreshToken(user.id, tokens.refreshToken, matched.familyId);
 
       return tokens;
     } catch (error) {
@@ -343,7 +354,12 @@ export class AuthService {
     };
   }
 
-  private async getTokens(userId: string, role: UserRole) {
+  /**
+   * Émet la paire access/refresh d'une session mobile. Public car partagé
+   * avec VendorAuthService : toute règle sur qui a droit à un JWT mobile
+   * (voir le refus des rôles ADMIN ci-dessous) doit rester à un seul endroit.
+   */
+  async issueTokens(userId: string, role: UserRole) {
     // ADMIN sont des rôles du back-office Web uniquement.
     // Aucun compte mobile ne doit pouvoir recevoir de JWT mobile avec ces rôles.
     if (role === UserRole.ADMIN) {
@@ -373,7 +389,7 @@ export class AuthService {
     };
   }
 
-  private async updateRefreshToken(userId: string, refreshToken: string, familyId?: string) {
+  async persistRefreshToken(userId: string, refreshToken: string, familyId?: string) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
