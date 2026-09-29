@@ -95,7 +95,7 @@ export class PaymentsService {
         operator: params.operator as any,
         amountFcfa: amount,
         ticketsReceived,
-        fedapayReference: fedapayTransaction.transaction.id || '',
+        fedapayReference: String(fedapayTransaction.transaction?.id ?? ''),
         status: PaymentStatus.PENDING,
       },
     });
