@@ -3,6 +3,7 @@ import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateNotificationDto } from '../dto/create-notification.dto';
 import { UpdateNotificationDto } from '../dto/update-notification.dto';
+import { FcmService } from './fcm.service';
 
 interface Actor {
   id: string;
@@ -13,7 +14,10 @@ interface Actor {
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly fcm: FcmService,
+  ) {}
 
   async create(createNotificationDto: CreateNotificationDto) {
     return this.prisma.notification.create({
@@ -22,8 +26,7 @@ export class NotificationsService {
   }
 
   /**
-   * Notification in-app + intention push (tokens via POST /devices).
-   * L’envoi FCM/APNs se branche ici dès que les credentials cloud sont prêts.
+   * Notification in-app + push FCM si un token d’appareil est enregistré.
    */
   async notifyUser(
     userId: string,
@@ -35,14 +38,12 @@ export class NotificationsService {
       data: { userId, title, message, type },
     });
 
-    const devices = await this.prisma.device.findMany({
-      where: { userId, deletedAt: null },
-      select: { deviceToken: true, platform: true },
-    });
-
-    if (devices.length > 0) {
-      this.logger.log(
-        `Push pending user=${userId} devices=${devices.length} [${devices.map((d) => d.platform).join(',')}]`,
+    try {
+      await this.fcm.sendToUser(userId, title, message);
+    } catch (error) {
+      this.logger.error(
+        `Push FCM impossible user=${userId}`,
+        error instanceof Error ? error.stack : error,
       );
     }
 

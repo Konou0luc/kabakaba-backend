@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { RegisterDeviceDto } from '../dto/register-device.dto';
 
@@ -10,9 +10,6 @@ export class DevicesService {
     const existing = await this.prisma.device.findUnique({
       where: { deviceToken: dto.deviceToken },
     });
-    if (existing && existing.userId !== userId) {
-      throw new ConflictException('Ce token d’appareil est déjà associé à un autre compte');
-    }
     if (existing) {
       return this.prisma.device.update({
         where: { id: existing.id },
@@ -34,10 +31,11 @@ export class DevicesService {
   }
 
   async unregister(userId: string, deviceToken: string) {
+    if (!deviceToken) return null;
     const device = await this.prisma.device.findFirst({
       where: { deviceToken, userId, deletedAt: null },
     });
-    if (!device) throw new NotFoundException('Appareil introuvable');
+    if (!device) return null;
     return this.prisma.device.update({
       where: { id: device.id },
       data: { deletedAt: new Date() },
