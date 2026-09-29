@@ -29,6 +29,7 @@ import { PartnerApplicationsModule } from './modules/partner-applications/partne
 import { WebAuthModule } from './modules/web-auth/web-auth.module';
 import { InternalCronModule } from './modules/internal-cron/internal-cron.module';
 import { DevicesModule } from './modules/devices/devices.module';
+import { MediaModule } from './modules/media/media.module';
 
 @Module({
   imports: [
@@ -70,6 +71,7 @@ import { DevicesModule } from './modules/devices/devices.module';
     WebAuthModule,
     InternalCronModule,
     DevicesModule,
+    MediaModule,
   ],
   controllers: [AppController],
   providers: [

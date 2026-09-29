@@ -8,6 +8,8 @@ import {
   Delete,
   Query,
   UseGuards,
+  UploadedFile,
+  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -15,7 +17,10 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiQuery,
+  ApiConsumes,
+  ApiBody,
 } from '@nestjs/swagger';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AmbassadorsService } from '../services/ambassadors.service';
 import { CreateAmbassadorDto } from '../dto/create-ambassador.dto';
 import { UpdateAmbassadorDto } from '../dto/update-ambassador.dto';
@@ -26,14 +31,19 @@ import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../../common/guards/roles.guard';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { GetCurrentUserId } from '../../../common/decorators/get-current-user.decorator';
+import { CloudinaryService } from '../../media/cloudinary.service';
 
 @ApiTags('Ambassadors')
 @Controller('ambassadors')
 export class AmbassadorsController {
-  constructor(private readonly ambassadorsService: AmbassadorsService) {}
+  constructor(
+    private readonly ambassadorsService: AmbassadorsService,
+    private readonly cloudinary: CloudinaryService,
+  ) {}
 
   @Post()
   @ApiBearerAuth()
@@ -83,6 +93,29 @@ export class AmbassadorsController {
       userId,
       createSelfAmbassadorApplicationDto,
     );
+  }
+
+  @Post('school-card')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.STUDENT)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 4 * 1024 * 1024 } }))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      required: ['file'],
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({
+    summary: 'Téléverser la carte scolaire (Cloudinary) — étudiant connecté',
+  })
+  uploadSchoolCard(
+    @GetCurrentUserId() userId: string,
+    @UploadedFile() file: { buffer: Buffer; size: number; originalname?: string },
+  ) {
+    return this.cloudinary.uploadImage(file, 'school-card', userId);
   }
 
   @Get('me')

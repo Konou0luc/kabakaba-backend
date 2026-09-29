@@ -94,7 +94,12 @@ export class AuthService {
    * VendorAuthService). Mutualisé pour que la logique anti-brute-force ne
    * soit écrite — et donc durcie — qu'une seule fois.
    */
-  async consumeOtp(phone: string, code: string) {
+  async consumeOtp(
+    phone: string,
+    code: string,
+    options: { consume?: boolean } = {},
+  ) {
+    const shouldConsume = options.consume !== false;
     const otp = await this.prisma.otpCode.findFirst({
       where: { phone, used: false, expiresAt: { gt: new Date() } },
     });
@@ -135,6 +140,10 @@ export class AuthService {
       throw new BadRequestException('Code OTP invalide ou expiré');
     }
 
+    if (!shouldConsume) {
+      return;
+    }
+
     // Consommation atomique : une seule requête concurrente peut marquer
     // l'OTP comme utilisé et obtenir l'authentification.
     const claimed = await this.prisma.otpCode.updateMany({
@@ -154,9 +163,16 @@ export class AuthService {
   async verifyOtp(verifyOtpDto: VerifyOtpDto) {
     const { phone, code, referralCode, campusId } = verifyOtpDto;
 
-    await this.consumeOtp(phone, code);
-
     let user = await this.usersService.findByPhone(phone);
+
+    if (!user && !campusId?.trim()) {
+      await this.consumeOtp(phone, code, { consume: false });
+      throw new BadRequestException(
+        "Le campus est obligatoire à l'inscription. Veuillez sélectionner votre campus.",
+      );
+    }
+
+    await this.consumeOtp(phone, code);
 
     if (!user) {
       // CDC 2.1 [NOUVEAU v1.1] : le code de parrainage n'a de sens qu'à la

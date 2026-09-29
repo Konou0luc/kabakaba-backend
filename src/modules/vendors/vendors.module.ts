@@ -6,9 +6,10 @@ import { VendorSchedulesService } from './schedules/services/vendor-schedules.se
 import { WithdrawalsController } from './controllers/withdrawals.controller';
 import { WithdrawalsService } from './services/withdrawals.service';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { MediaModule } from '../media/media.module';
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, MediaModule],
   controllers: [VendorsController, VendorSchedulesController, WithdrawalsController],
   providers: [VendorsService, VendorSchedulesService, WithdrawalsService],
   exports: [VendorsService, WithdrawalsService],

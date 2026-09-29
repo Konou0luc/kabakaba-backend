@@ -5,6 +5,8 @@ import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
 import { UpdateVendorDto } from '../dto/update-vendor.dto';
 import { FindVendorsForAdminQueryDto } from '../dto/find-vendors-for-admin-query.dto';
+import { CloudinaryService } from '../../media/cloudinary.service';
+import { UploadedImageFile } from '../../../common/utils/image-type';
 
 const SALT_ROUNDS = 10;
 
@@ -29,7 +31,10 @@ const PUBLIC_VENDOR_SELECT = {
 
 @Injectable()
 export class VendorsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cloudinary: CloudinaryService,
+  ) {}
 
   /**
    * Crée le compte vendeur (User) et la cantine (Vendor) dans une seule
@@ -380,6 +385,26 @@ export class VendorsService {
     return this.prisma.vendor.update({
       where: { id },
       data: { deletedAt: new Date() },
+    });
+  }
+
+  async uploadLogo(id: string, file: UploadedImageFile) {
+    await this.findOne(id);
+    const uploaded = await this.cloudinary.uploadImage(file, 'logo', id);
+    return this.prisma.vendor.update({
+      where: { id },
+      data: { logoUrl: uploaded.url },
+      select: PUBLIC_VENDOR_SELECT,
+    });
+  }
+
+  async uploadBanner(id: string, file: UploadedImageFile) {
+    await this.findOne(id);
+    const uploaded = await this.cloudinary.uploadImage(file, 'banner', id);
+    return this.prisma.vendor.update({
+      where: { id },
+      data: { bannerUrl: uploaded.url },
+      select: PUBLIC_VENDOR_SELECT,
     });
   }
 }
