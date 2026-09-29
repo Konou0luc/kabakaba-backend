@@ -124,13 +124,23 @@ export class PaymentsService {
       throw new BadRequestException('Paiement déjà initié ou traité');
     }
 
-    const fedapayPayment = await this.fedapayService.initiateMobileMoneyPayment(
-      payment.fedapayReference || '',
-      phoneNumber,
-      payment.operator,
-    );
-
-    return fedapayPayment;
+    try {
+      return await this.fedapayService.initiateMobileMoneyPayment(
+        payment.fedapayReference || '',
+        phoneNumber,
+        payment.operator,
+      );
+    } catch (error) {
+      try {
+        await this.applyPaymentOutcome(payment, PaymentStatus.FAILED);
+      } catch (notifyError) {
+        this.logger.error(
+          `Marquage échec recharge impossible payment=${payment.id}`,
+          notifyError instanceof Error ? notifyError.stack : notifyError,
+        );
+      }
+      throw error;
+    }
   }
 
   async handleWebhook(rawBody: string, signatureHeader?: string) {
@@ -169,6 +179,7 @@ export class PaymentsService {
         break;
       case 'transaction.declined':
       case 'transaction.canceled':
+      case 'transaction.failed':
         newStatus = PaymentStatus.FAILED;
         break;
       default:
@@ -176,16 +187,8 @@ export class PaymentsService {
     }
 
     if (newStatus === PaymentStatus.SUCCESS) {
-      // Défense en profondeur : même si `amount` est désormais calculé
-      // côté serveur (voir recharge-pricing.ts) et ne peut plus être
-      // falsifié à la création, on vérifie en plus que le montant que
-      // FedaPay confirme avoir réellement encaissé correspond bien au
-      // montant qu'on attendait, avant de créditer le wallet.
       const confirmedAmount = webhookData?.entity?.amount;
       if (confirmedAmount === undefined || confirmedAmount === null) {
-        // SÉCURITÉ : un montant absent n'est plus toléré/ignoré — pour un
-        // événement financier, l'absence d'information n'autorise jamais
-        // implicitement le crédit.
         this.logger.error(
           `Webhook FedaPay: montant absent du payload pour la transaction ${transactionId}. Crédit refusé.`,
         );
@@ -199,40 +202,74 @@ export class PaymentsService {
       }
     }
 
-    // SÉCURITÉ : le claim ATOMIQUE de la transition PENDING -> newStatus et
-    // le crédit du wallet doivent réussir ou échouer ENSEMBLE, dans une
-    // seule transaction DB. Sans ça, un crash serveur entre les deux
-    // laisserait le paiement bloqué à SUCCESS sans que le wallet n'ait
-    // jamais été crédité — un webhook rejoué verrait alors "déjà traité"
-    // et le crédit serait perdu définitivement.
+    const applied = await this.applyPaymentOutcome(payment, newStatus, {
+      providerEventKey: `${transactionId}:${eventName}`,
+      eventName,
+      confirmedAmount:
+        newStatus === PaymentStatus.SUCCESS
+          ? Number(webhookData?.entity?.amount)
+          : undefined,
+    });
+
+    return {
+      message: applied
+        ? 'Webhook traité avec succès'
+        : 'Paiement déjà traité, webhook ignoré',
+    };
+  }
+
+  private async applyPaymentOutcome(
+    payment: {
+      id: string;
+      userId: string;
+      amountFcfa: unknown;
+      ticketsReceived: number;
+      operator: string;
+    },
+    newStatus: PaymentStatus,
+    opts?: {
+      providerEventKey?: string;
+      eventName?: string;
+      confirmedAmount?: number;
+    },
+  ): Promise<boolean> {
+    if (newStatus === PaymentStatus.SUCCESS) {
+      const confirmedAmount = opts?.confirmedAmount;
+      if (confirmedAmount === undefined || Number.isNaN(Number(confirmedAmount))) {
+        this.logger.error(
+          `Crédit refusé: montant FedaPay absent pour payment=${payment.id}`,
+        );
+        return false;
+      }
+      if (Number(confirmedAmount) !== Number(payment.amountFcfa)) {
+        this.logger.error(
+          `Crédit refusé: montant FedaPay (${confirmedAmount}) ≠ attendu (${payment.amountFcfa}) payment=${payment.id}`,
+        );
+        return false;
+      }
+    }
+
     const result = await this.prisma.$transaction(async (tx) => {
-      // Durcissement webhook : une livraison FedaPay est dédupliquée par
-      // transaction + type d'événement. L'enregistrement et le crédit sont
-      // dans la même transaction afin qu'un échec ne consomme pas l'événement.
-      const providerEventKey = `${transactionId}:${eventName}`;
-      try {
-        await tx.paymentWebhookEvent.create({
-          data: {
-            providerEventKey,
-            paymentId: payment.id,
-            eventName,
-          },
-        });
-      } catch (error: any) {
-        if (error?.code === 'P2002') {
-          return { alreadyProcessed: true };
+      if (opts?.providerEventKey && opts.eventName) {
+        try {
+          await tx.paymentWebhookEvent.create({
+            data: {
+              providerEventKey: opts.providerEventKey,
+              paymentId: payment.id,
+              eventName: opts.eventName,
+            },
+          });
+        } catch (error: any) {
+          if (error?.code === 'P2002') return { applied: false };
+          throw error;
         }
-        throw error;
       }
 
       const claim = await tx.payment.updateMany({
         where: { id: payment.id, status: PaymentStatus.PENDING },
         data: { status: newStatus },
       });
-
-      if (claim.count === 0) {
-        return { alreadyProcessed: true };
-      }
+      if (claim.count === 0) return { applied: false };
 
       if (newStatus === PaymentStatus.SUCCESS) {
         await tx.user.update({
@@ -240,9 +277,6 @@ export class PaymentsService {
           data: { walletBalance: { increment: payment.ticketsReceived } },
         });
 
-        // Avant ce correctif, aucune ligne de ce service ne créait de
-        // Transaction pour les recharges : le wallet était bien crédité,
-        // mais rien n'apparaissait jamais dans le grand livre (DEPOSIT).
         await tx.transaction.create({
           data: {
             userId: payment.userId,
@@ -255,10 +289,6 @@ export class PaymentsService {
           },
         });
 
-        // CDC 10.1 / 10.3 — commission ambassadeur sur recharge d'un affilié.
-        // Même transaction Prisma que le crédit étudiant : tout réussit ou
-        // tout échoue ensemble. Un ambassadeur SUSPENDED ne perçoit plus
-        // de commission (CDC 10.5) ; les affiliés restent rattachés.
         const affiliate = await tx.ambassadorAffiliate.findUnique({
           where: { studentId: payment.userId },
           select: {
@@ -318,29 +348,38 @@ export class PaymentsService {
         }
       }
 
-      await tx.paymentWebhookEvent.update({
-        where: { providerEventKey },
-        data: { processedAt: new Date() },
-      });
+      if (opts?.providerEventKey) {
+        await tx.paymentWebhookEvent.update({
+          where: { providerEventKey: opts.providerEventKey },
+          data: { processedAt: new Date() },
+        });
+      }
 
-      return { alreadyProcessed: false };
+      return { applied: true };
     });
 
-    if (result.alreadyProcessed) {
-      return { message: 'Paiement déjà traité, webhook ignoré' };
+    if (result.applied) {
+      await this.notifyRecharge(payment.userId, newStatus, payment.ticketsReceived);
     }
+    return result.applied;
+  }
 
+  private async notifyRecharge(
+    userId: string,
+    status: PaymentStatus,
+    ticketsReceived: number,
+  ) {
     try {
-      if (newStatus === PaymentStatus.SUCCESS) {
+      if (status === PaymentStatus.SUCCESS) {
         await this.notifications.notifyUser(
-          payment.userId,
+          userId,
           'Recharge réussie',
-          `${payment.ticketsReceived} tickets ont été ajoutés à ton portefeuille.`,
+          `${ticketsReceived} tickets ont été ajoutés à ton portefeuille.`,
           NotificationType.SUCCESS,
         );
-      } else if (newStatus === PaymentStatus.FAILED) {
+      } else if (status === PaymentStatus.FAILED) {
         await this.notifications.notifyUser(
-          payment.userId,
+          userId,
           'Recharge échouée',
           'Le paiement Mobile Money n’a pas abouti. Tes tickets n’ont pas été débités. Tu peux réessayer.',
           NotificationType.ERROR,
@@ -348,12 +387,45 @@ export class PaymentsService {
       }
     } catch (error) {
       this.logger.error(
-        `Notif recharge impossible user=${payment.userId}`,
+        `Notif recharge impossible user=${userId}`,
         error instanceof Error ? error.stack : error,
       );
     }
+  }
 
-    return { message: 'Webhook traité avec succès' };
+  private async syncPendingFromFedapay(payment: {
+    id: string;
+    userId: string;
+    amountFcfa: unknown;
+    ticketsReceived: number;
+    operator: string;
+    fedapayReference: string | null;
+  }) {
+    if (!payment.fedapayReference) return;
+    try {
+      const data = await this.fedapayService.getTransaction(payment.fedapayReference);
+      const tx = data?.transaction ?? data?.['v1/transaction'] ?? data;
+      const status = String(tx?.status ?? '').toLowerCase();
+      if (status === 'approved') {
+        await this.applyPaymentOutcome(payment, PaymentStatus.SUCCESS, {
+          confirmedAmount: Number(tx?.amount),
+        });
+      } else if (
+        status === 'declined' ||
+        status === 'canceled' ||
+        status === 'cancelled' ||
+        status === 'failed' ||
+        status === 'expired'
+      ) {
+        await this.applyPaymentOutcome(payment, PaymentStatus.FAILED);
+      }
+    } catch (error) {
+      this.logger.warn(
+        `Sync FedaPay impossible payment=${payment.id}: ${
+          error instanceof Error ? error.message : error
+        }`,
+      );
+    }
   }
 
   async create(createPaymentDto: CreatePaymentDto, callerId: string) {
@@ -424,6 +496,11 @@ export class PaymentsService {
     const isAdmin = actor.kind === 'web' && actor.role === 'ADMIN';
     if (!isAdmin && payment.userId !== actor.id) {
       throw new ForbiddenException("Vous n'avez pas accès à ce paiement");
+    }
+
+    if (payment.status === PaymentStatus.PENDING && payment.fedapayReference) {
+      await this.syncPendingFromFedapay(payment);
+      return this.getPaymentOrThrow(id);
     }
 
     return payment;

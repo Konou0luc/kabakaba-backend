@@ -28,6 +28,7 @@ export class FcmService {
           credential: cert(parseServiceAccount(json)),
         });
         this.ready = true;
+        this.logger.log('FCM initialisé');
         return;
       }
       const projectId = this.config.get<string>('FIREBASE_PROJECT_ID');
@@ -61,7 +62,10 @@ export class FcmService {
       where: { userId, deletedAt: null },
       select: { id: true, deviceToken: true },
     });
-    if (devices.length === 0) return;
+    if (devices.length === 0) {
+      this.logger.warn(`FCM: aucun appareil enregistré user=${userId}`);
+      return;
+    }
     if (!this.ready) {
       this.logger.warn(`FCM inactif, ${devices.length} appareil(s) non notifié(s) user=${userId}`);
       return;
@@ -78,6 +82,9 @@ export class FcmService {
       apns: { payload: { aps: { sound: 'default' } } },
       data: { title, body },
     });
+    this.logger.log(
+      `FCM ${response.successCount}/${tokens.length} envoyé(s) user=${userId}`,
+    );
 
     const stale: string[] = [];
     response.responses.forEach((item, index) => {

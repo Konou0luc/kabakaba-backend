@@ -67,7 +67,7 @@ export class OrdersService {
   async create(createOrderDto: CreateOrderDto, studentId: string) {
     const { vendorId, items, packagingOptionId } = createOrderDto;
 
-    return this.prisma.$transaction(async (tx) => {
+    const order = await this.prisma.$transaction(async (tx) => {
       const vendor = await tx.vendor.findUnique({ where: { id: vendorId, deletedAt: null } });
       if (!vendor) throw new NotFoundException('Vendeur introuvable');
       if (!vendor.isActive) {
@@ -240,6 +240,9 @@ export class OrdersService {
 
       return order;
     });
+
+    await this.notifyStudentOrderStatus(studentId, OrderStatus.PENDING, vendorId);
+    return order;
   }
 
   async findAll(
@@ -678,7 +681,7 @@ export class OrdersService {
         deletedAt: null,
         updatedAt: { lte: cutoff },
       },
-      select: { id: true },
+      select: { id: true, studentId: true, vendorId: true },
     });
 
     let processed = 0;
@@ -707,6 +710,11 @@ export class OrdersService {
           },
         });
         processed += 1;
+        await this.notifyStudentOrderStatus(
+          order.studentId,
+          OrderStatus.AUTO_RECEIVED,
+          order.vendorId,
+        );
       } catch (err) {
         this.logger.error(`AUTO_RECEIVED échoué pour ${order.id}: ${err}`);
       }
@@ -914,6 +922,11 @@ export class OrdersService {
     const copy: Partial<
       Record<OrderStatus, { title: string; message: string; type: NotificationType }>
     > = {
+      [OrderStatus.PENDING]: {
+        title: 'Commande envoyée',
+        message: `${place} a reçu ta commande. Tu seras prévenu dès qu’elle sera acceptée.`,
+        type: NotificationType.INFO,
+      },
       [OrderStatus.ACCEPTED]: {
         title: 'Commande acceptée',
         message: `${place} a accepté ta commande. Elle est en préparation.`,
@@ -945,6 +958,11 @@ export class OrdersService {
         title: 'Commande remboursée',
         message: `Ta commande chez ${place} a été remboursée. Tes tickets sont de nouveau sur ton portefeuille.`,
         type: NotificationType.SUCCESS,
+      },
+      [OrderStatus.AUTO_RECEIVED]: {
+        title: 'Commande récupérée',
+        message: `Ta commande chez ${place} a été marquée comme récupérée.`,
+        type: NotificationType.INFO,
       },
     };
     const payload = copy[status];
