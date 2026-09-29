@@ -1,17 +1,23 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { SendMoneyDto } from '../dto/send-money.dto';
-import { TransactionType } from '@prisma/client';
+import { NotificationType, TransactionType } from '@prisma/client';
 import * as crypto from 'crypto';
+import { NotificationsService } from '../../notifications/services/notifications.service';
 
 @Injectable()
 export class WalletService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(WalletService.name);
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async sendMoney(senderId: string, sendMoneyDto: SendMoneyDto) {
     const { recipientPhone, amount } = sendMoneyDto;
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const sender = await tx.user.findUnique({
         where: { id: senderId },
       });
@@ -92,7 +98,30 @@ export class WalletService {
         message: 'Argent envoyé avec succès',
         reference,
         amount,
+        recipientId: recipient.id,
+        senderName: [sender.firstName, sender.lastName].filter(Boolean).join(' ') || 'Un étudiant',
       };
     });
+
+    try {
+      await this.notifications.notifyUser(
+        result.recipientId,
+        'Tickets reçus',
+        `${result.senderName} t’a envoyé ${result.amount} tickets.`,
+        NotificationType.SUCCESS,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Notif transfert impossible user=${result.recipientId}`,
+        error instanceof Error ? error.stack : error,
+      );
+    }
+
+    return {
+      success: result.success,
+      message: result.message,
+      reference: result.reference,
+      amount: result.amount,
+    };
   }
 }

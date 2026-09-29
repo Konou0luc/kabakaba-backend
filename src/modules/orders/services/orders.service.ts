@@ -1,11 +1,12 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrderStatus, UserRole, Prisma } from '@prisma/client';
+import { OrderStatus, UserRole, Prisma, NotificationType } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
 import { RefundOrderDto } from '../dto/refund-order.dto';
 import { AbuseService } from '../../abuse/services/abuse.service';
+import { NotificationsService } from '../../notifications/services/notifications.service';
 
 interface Actor {
   id: string;
@@ -35,6 +36,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly abuseService: AbuseService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -427,7 +429,7 @@ export class OrdersService {
 
     const changedById = actor.authKind === 'web' ? null : actor.id;
 
-    return this.prisma.$transaction(async (tx) => {
+    const order = await this.prisma.$transaction(async (tx) => {
       const now = new Date();
 
       // Le passage à READY est une opération financière. On le "claim" avec
@@ -578,6 +580,9 @@ export class OrdersService {
 
       return order;
     });
+
+    await this.notifyStudentOrderStatus(order.studentId, newStatus, order.vendorId);
+    return order;
   }
 
   async remove(id: string, actor: Actor) {
@@ -600,18 +605,18 @@ export class OrdersService {
         deletedAt: null,
         createdAt: { lte: cutoff },
       },
-      select: { id: true, studentId: true, totalTickets: true },
+      select: { id: true, studentId: true, totalTickets: true, vendorId: true },
     });
 
     let processed = 0;
     for (const order of expired) {
       try {
-        await this.prisma.$transaction(async (tx) => {
+        const claimed = await this.prisma.$transaction(async (tx) => {
           const claim = await tx.order.updateMany({
             where: { id: order.id, status: OrderStatus.PENDING },
             data: { status: OrderStatus.CANCELLED_VENDOR },
           });
-          if (claim.count === 0) return;
+          if (claim.count === 0) return false;
 
           await tx.orderStatusHistory.create({
             data: {
@@ -638,8 +643,17 @@ export class OrdersService {
               relatedOrderId: order.id,
             },
           });
+          return true;
         });
-        processed += 1;
+        if (claimed) {
+          processed += 1;
+          await this.notifyStudentOrderStatus(
+            order.studentId,
+            OrderStatus.CANCELLED_VENDOR,
+            order.vendorId,
+            'Le vendeur n’a pas répondu. Tes tickets ont été recrédités.',
+          );
+        }
       } catch (err) {
         this.logger.error(`Timeout PENDING échoué pour ${order.id}: ${err}`);
       }
@@ -793,7 +807,7 @@ export class OrdersService {
 
     const refundAmount = order.totalTickets;
 
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const claim = await tx.order.updateMany({
         where: {
           id: orderId,
@@ -877,5 +891,76 @@ export class OrdersService {
         reason,
       };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+
+    await this.notifyStudentOrderStatus(
+      order.studentId,
+      OrderStatus.REFUNDED,
+      order.vendorId,
+    );
+    return result;
+  }
+
+  private async notifyStudentOrderStatus(
+    studentId: string,
+    status: OrderStatus,
+    vendorId: string,
+    overrideMessage?: string,
+  ) {
+    const vendor = await this.prisma.vendor.findUnique({
+      where: { id: vendorId },
+      select: { canteenName: true },
+    });
+    const place = vendor?.canteenName?.trim() || 'ta cantine';
+    const copy: Partial<
+      Record<OrderStatus, { title: string; message: string; type: NotificationType }>
+    > = {
+      [OrderStatus.ACCEPTED]: {
+        title: 'Commande acceptée',
+        message: `${place} a accepté ta commande. Elle est en préparation.`,
+        type: NotificationType.SUCCESS,
+      },
+      [OrderStatus.IN_PREPARATION]: {
+        title: 'Commande en préparation',
+        message: `${place} prépare ta commande.`,
+        type: NotificationType.INFO,
+      },
+      [OrderStatus.READY]: {
+        title: 'Commande prête',
+        message: `Ta commande chez ${place} est prête. Va la récupérer.`,
+        type: NotificationType.SUCCESS,
+      },
+      [OrderStatus.REFUSED]: {
+        title: 'Commande refusée',
+        message: `${place} a refusé ta commande. Tes tickets ont été recrédités.`,
+        type: NotificationType.ERROR,
+      },
+      [OrderStatus.CANCELLED_VENDOR]: {
+        title: 'Commande annulée',
+        message:
+          overrideMessage ??
+          `Ta commande chez ${place} a été annulée. Tes tickets ont été recrédités.`,
+        type: NotificationType.WARNING,
+      },
+      [OrderStatus.REFUNDED]: {
+        title: 'Commande remboursée',
+        message: `Ta commande chez ${place} a été remboursée. Tes tickets sont de nouveau sur ton portefeuille.`,
+        type: NotificationType.SUCCESS,
+      },
+    };
+    const payload = copy[status];
+    if (!payload) return;
+    try {
+      await this.notifications.notifyUser(
+        studentId,
+        payload.title,
+        payload.message,
+        payload.type,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Notif commande impossible student=${studentId} status=${status}`,
+        error instanceof Error ? error.stack : error,
+      );
+    }
   }
 }

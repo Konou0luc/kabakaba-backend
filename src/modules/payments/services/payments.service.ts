@@ -5,7 +5,8 @@ import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { FedapayService } from './fedapay.service';
 import { UsersService } from '../../users/services/users.service';
-import { AmbassadorStatus, PaymentStatus, UserRole } from '@prisma/client';
+import { NotificationsService } from '../../notifications/services/notifications.service';
+import { AmbassadorStatus, PaymentStatus, UserRole, NotificationType } from '@prisma/client';
 import {
   computeRechargeAmountFcfa,
   quoteRechargeFromAmountFcfa,
@@ -29,6 +30,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly fedapayService: FedapayService,
     private readonly usersService: UsersService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -326,6 +328,29 @@ export class PaymentsService {
 
     if (result.alreadyProcessed) {
       return { message: 'Paiement déjà traité, webhook ignoré' };
+    }
+
+    try {
+      if (newStatus === PaymentStatus.SUCCESS) {
+        await this.notifications.notifyUser(
+          payment.userId,
+          'Recharge réussie',
+          `${payment.ticketsReceived} tickets ont été ajoutés à ton portefeuille.`,
+          NotificationType.SUCCESS,
+        );
+      } else if (newStatus === PaymentStatus.FAILED) {
+        await this.notifications.notifyUser(
+          payment.userId,
+          'Recharge échouée',
+          'Le paiement Mobile Money n’a pas abouti. Tes tickets n’ont pas été débités. Tu peux réessayer.',
+          NotificationType.ERROR,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Notif recharge impossible user=${payment.userId}`,
+        error instanceof Error ? error.stack : error,
+      );
     }
 
     return { message: 'Webhook traité avec succès' };

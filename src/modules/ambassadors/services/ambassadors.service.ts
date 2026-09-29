@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException, Injectable, Logger, NotFoundExc
 import { AmbassadorLevel, AmbassadorStatus, NotificationType, PaymentStatus } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
+import { NotificationsService } from '../../notifications/services/notifications.service';
 import { CreateAmbassadorDto } from '../dto/create-ambassador.dto';
 import { CreateSelfAmbassadorApplicationDto } from '../dto/create-self-ambassador-application.dto';
 import { UpdateAmbassadorDto } from '../dto/update-ambassador.dto';
@@ -14,7 +15,10 @@ import {
 export class AmbassadorsService {
   private readonly logger = new Logger(AmbassadorsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly notifications: NotificationsService,
+  ) {}
 
   async create(createAmbassadorDto: CreateAmbassadorDto) {
     return this.prisma.ambassador.create({
@@ -183,7 +187,7 @@ export class AmbassadorsService {
     }
 
     const { treatedByWebUserId: _treatedByWebUserId, suspendedAt: _suspendedAt, ...safeUpdate } = updateAmbassadorDto;
-    return this.prisma.ambassador.update({
+    const updated = await this.prisma.ambassador.update({
       where: { id },
       data: {
         ...safeUpdate,
@@ -191,6 +195,53 @@ export class AmbassadorsService {
         ...(requestedStatus === AmbassadorStatus.SUSPENDED ? { suspendedAt: new Date() } : {}),
       },
     });
+
+    if (requestedStatus && requestedStatus !== existing.status) {
+      await this.notifyAmbassadorDecision(existing.userId, requestedStatus, updated.promoCode, updateAmbassadorDto.decisionReason);
+    }
+
+    return updated;
+  }
+
+  private async notifyAmbassadorDecision(
+    userId: string,
+    status: AmbassadorStatus,
+    promoCode: string | null,
+    decisionReason?: string,
+  ) {
+    try {
+      if (status === AmbassadorStatus.ACTIVE) {
+        await this.notifications.notifyUser(
+          userId,
+          'Demande ambassadeur acceptée',
+          promoCode
+            ? `Ton code promo ${promoCode} est maintenant actif. Partage-le avec tes amis du campus.`
+            : 'Ta demande ambassadeur a été acceptée.',
+          NotificationType.SUCCESS,
+        );
+      } else if (status === AmbassadorStatus.REJECTED) {
+        await this.notifications.notifyUser(
+          userId,
+          'Demande ambassadeur refusée',
+          decisionReason?.trim() ||
+            "Ta demande ambassadeur n'a pas été retenue. Tu pourras en déposer une nouvelle plus tard.",
+          NotificationType.ERROR,
+        );
+      } else if (status === AmbassadorStatus.SUSPENDED) {
+        await this.notifications.notifyUser(
+          userId,
+          'Compte ambassadeur suspendu',
+          decisionReason?.trim() ||
+            'Ton compte ambassadeur a été suspendu. Consulte les détails dans l’app.',
+          NotificationType.WARNING,
+        );
+      }
+    } catch (error) {
+      this.logger.error(
+        `Notification ambassadeur impossible user=${userId} status=${status}`,
+        error instanceof Error ? error.stack : error,
+      );
+    }
   }
 
   private async generatePromoCode(userId: string): Promise<string> {

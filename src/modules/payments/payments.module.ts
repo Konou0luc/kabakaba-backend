@@ -4,9 +4,10 @@ import { PaymentsController } from './controllers/payments.controller';
 import { PaymentsService } from './services/payments.service';
 import { FedapayService } from './services/fedapay.service';
 import { UsersModule } from '../users/users.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [HttpModule, UsersModule],
+  imports: [HttpModule, UsersModule, NotificationsModule],
   controllers: [PaymentsController],
   providers: [PaymentsService, FedapayService],
   exports: [FedapayService],
