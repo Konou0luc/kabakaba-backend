@@ -41,37 +41,53 @@ export class FedapayService {
     customer: { name: string; email?: string; phone?: string },
     metadata?: Record<string, any>,
   ): Promise<any> {
+    if (!this.secretKey || !this.baseUrl) {
+      throw new InternalServerErrorException('FedaPay n’est pas configuré');
+    }
+
+    const { firstname, lastname } = splitCustomerName(customer.name);
+    const phoneNumber = toFedapayPhone(customer.phone);
+    const appUrl = (this.configService.get<string>('APP_URL') || '').replace(/\/$/, '');
+    const callbackPath = appUrl.endsWith('/api/v1')
+      ? '/payments/webhook'
+      : '/api/v1/payments/webhook';
+
+    const payload = {
+      description,
+      amount: Math.trunc(amount),
+      currency: { iso: currency },
+      callback_url: appUrl ? `${appUrl}${callbackPath}` : undefined,
+      customer: {
+        firstname,
+        lastname,
+        email: customer.email?.includes('@')
+          ? customer.email
+          : fallbackStudentEmail(customer.phone),
+        ...(phoneNumber ? { phone_number: phoneNumber } : {}),
+      },
+      custom_metadata: metadata,
+    };
+
     try {
       const url = `${this.baseUrl}/v1/transactions`;
-      const payload = {
-        transaction: {
-          amount,
-          currency: { iso: currency },
-          description,
-          customer: {
-            name: customer.name,
-            email: customer.email || undefined,
-            phone_number: customer.phone || undefined,
-          },
-          callback_url: `${this.configService.get('APP_URL')}/api/v1/payments/webhook`,
-          metadata,
-        },
-      };
-
       const response: AxiosResponse<any> = await firstValueFrom(
         this.httpService.post(url, payload, { headers: this.getHeaders() }),
       );
-
-      this.logger.log(
-        `Transaction FedaPay créée avec succès: ${response.data.transaction.id}`,
-      );
-      return response.data;
+      const transaction =
+        response.data?.transaction ?? response.data?.['v1/transaction'];
+      if (!transaction?.id) {
+        this.logger.error(
+          `Réponse FedaPay sans id: ${JSON.stringify(response.data)}`,
+        );
+        throw new BadRequestException(
+          'Erreur lors de la création de la transaction',
+        );
+      }
+      this.logger.log(`Transaction FedaPay créée: ${transaction.id}`);
+      return { ...response.data, transaction };
     } catch (error) {
-      const err = error as Error & { stack?: string };
-      this.logger.error(
-        `Erreur lors de la création de la transaction FedaPay: ${err.message}`,
-        err.stack,
-      );
+      const detail = fedapayErrorDetail(error);
+      this.logger.error(`Erreur création transaction FedaPay: ${detail}`);
       throw new BadRequestException(
         'Erreur lors de la création de la transaction',
       );
@@ -133,15 +149,17 @@ export class FedapayService {
       );
     }
 
+    const national = toFedapayPhone(phoneNumber);
+    if (!national) {
+      throw new BadRequestException('Numéro Mobile Money invalide');
+    }
+
     // 2. Déclencher le débit Mobile Money directement (sans redirection)
     try {
       const chargeUrl = `${this.baseUrl}/v1/${mode}`;
       const payload = {
         token,
-        phone_number: {
-          number: phoneNumber,
-          country: 'tg',
-        },
+        phone_number: national,
       };
 
       const response: AxiosResponse<any> = await firstValueFrom(
@@ -328,4 +346,37 @@ export class FedapayService {
       throw new BadRequestException('Signature de webhook invalide');
     }
   }
+}
+
+function splitCustomerName(name: string): { firstname: string; lastname: string } {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  return {
+    firstname: parts[0] || 'Etudiant',
+    lastname: parts.slice(1).join(' ') || 'Kabakaba',
+  };
+}
+
+function toFedapayPhone(phone?: string): { number: string; country: 'tg' } | undefined {
+  if (!phone) return undefined;
+  const digits = phone.replace(/\D/g, '');
+  const national = digits.startsWith('228') ? digits.slice(3) : digits;
+  if (national.length < 8) return undefined;
+  return { number: national, country: 'tg' };
+}
+
+function fallbackStudentEmail(phone?: string): string {
+  const digits = (phone || 'unknown').replace(/\D/g, '') || 'unknown';
+  return `etudiant.${digits}@kabakaba.app`;
+}
+
+function fedapayErrorDetail(error: unknown): string {
+  const ax = error as { message?: string; response?: { status?: number; data?: unknown } };
+  const data = ax.response?.data;
+  const body =
+    typeof data === 'string'
+      ? data
+      : data
+        ? JSON.stringify(data)
+        : '';
+  return [ax.response?.status, ax.message, body].filter(Boolean).join(' ');
 }
