@@ -355,20 +355,21 @@ export class AuthService {
       if (!matched) throw new UnauthorizedException();
 
       if (matched.revoked) {
-        // SÉCURITÉ : ce refresh token a déjà été consommé une fois (rotation
-        // précédente). Le revoir signifie soit un double-clic client, soit —
-        // plus grave — qu'il a été volé et qu'un attaquant tente de
-        // l'utiliser après (ou avant) le titulaire légitime. Dans le doute,
-        // on tue toute la famille de tokens : la session entière doit se
-        // reconnecter.
-        await this.prisma.refreshToken.updateMany({
-          where: {
-            userId: user.id,
-            familyId: matched.familyId,
-            revoked: false,
-          },
-          data: { revoked: true },
-        });
+        // Un refresh concurrent (l'app mobile envoie souvent 2 appels
+        // presque ensemble) revoit le token déjà consommé. Révoquer toute
+        // la famille ici déconnecte l'utilisateur légitime. On ne le fait
+        // que si la réutilisation est ancienne — signal d'un vol de token.
+        const reusedAfterMs = Date.now() - matched.updatedAt.getTime();
+        if (reusedAfterMs > 2 * 60 * 1000) {
+          await this.prisma.refreshToken.updateMany({
+            where: {
+              userId: user.id,
+              familyId: matched.familyId,
+              revoked: false,
+            },
+            data: { revoked: true },
+          });
+        }
         throw new UnauthorizedException(
           'Session invalidée, veuillez vous reconnecter',
         );
@@ -430,19 +431,22 @@ export class AuthService {
       );
     }
 
+    const accessExpiresIn = this.tokenTtl('JWT_ACCESS_EXPIRES', '7d');
+    const refreshExpiresIn = this.tokenTtl('JWT_REFRESH_EXPIRES', '30d');
+
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(
         { sub: userId, role },
         {
           secret: this.configService.get('JWT_ACCESS_SECRET'),
-          expiresIn: '15m',
+          expiresIn: accessExpiresIn as `${number}${'s' | 'm' | 'h' | 'd'}`,
         },
       ),
       this.jwtService.signAsync(
         { sub: userId, role },
         {
           secret: this.configService.get('JWT_REFRESH_SECRET'),
-          expiresIn: '7d',
+          expiresIn: refreshExpiresIn as `${number}${'s' | 'm' | 'h' | 'd'}`,
         },
       ),
     ]);
@@ -459,7 +463,8 @@ export class AuthService {
     familyId?: string,
   ) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const refreshTtl = this.tokenTtl('JWT_REFRESH_EXPIRES', '30d');
+    const expiresAt = new Date(Date.now() + this.ttlToMs(refreshTtl));
 
     // Hygiène : purge les tokens déjà expirés de cet utilisateur à chaque
     // nouvelle émission, pour éviter que la table ne grossisse sans limite
@@ -479,5 +484,28 @@ export class AuthService {
         ...(familyId ? { familyId } : {}),
       },
     });
+  }
+
+  private tokenTtl(key: string, fallback: string): string {
+    const value = this.configService.get<string>(key)?.trim();
+    return value && /^\d+[smhd]$/.test(value) ? value : fallback;
+  }
+
+  private ttlToMs(ttl: string): number {
+    const match = /^(\d+)([smhd])$/.exec(ttl);
+    if (!match) return 30 * 24 * 60 * 60 * 1000;
+    const amount = Number(match[1]);
+    switch (match[2]) {
+      case 's':
+        return amount * 1000;
+      case 'm':
+        return amount * 60 * 1000;
+      case 'h':
+        return amount * 60 * 60 * 1000;
+      case 'd':
+        return amount * 24 * 60 * 60 * 1000;
+      default:
+        return 30 * 24 * 60 * 60 * 1000;
+    }
   }
 }
