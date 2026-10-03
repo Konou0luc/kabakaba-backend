@@ -1,7 +1,6 @@
 import { ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
-import { CreateNotificationDto } from '../dto/create-notification.dto';
 import { UpdateNotificationDto } from '../dto/update-notification.dto';
 import { FcmService } from './fcm.service';
 
@@ -18,12 +17,6 @@ export class NotificationsService {
     private readonly prisma: PrismaService,
     private readonly fcm: FcmService,
   ) {}
-
-  async create(createNotificationDto: CreateNotificationDto) {
-    return this.prisma.notification.create({
-      data: createNotificationDto,
-    });
-  }
 
   /**
    * Notification in-app + push FCM si un token d’appareil est enregistré.
@@ -96,11 +89,4 @@ export class NotificationsService {
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
-    return this.prisma.notification.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-  }
 }

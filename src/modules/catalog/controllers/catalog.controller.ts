@@ -9,8 +9,6 @@ import {
   Query,
   UseGuards,
   Request,
-  UploadedFile,
-  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,10 +16,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiQuery,
-  ApiConsumes,
-  ApiBody,
 } from '@nestjs/swagger';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { CatalogService, CatalogActor } from '../services/catalog.service';
 import { CreateMenuItemDto } from '../dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from '../dto/update-menu-item.dto';
@@ -117,29 +112,6 @@ export class CatalogController {
   })
   removeMenuItem(@Param('id') id: string, @Request() req) {
     return this.catalogService.removeMenuItem(id, actorFromRequest(req));
-  }
-
-  @Post('menu-items/:id/image')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 4 * 1024 * 1024 } }))
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['file'],
-      properties: { file: { type: 'string', format: 'binary' } },
-    },
-  })
-  @ApiOperation({ summary: 'Ajouter ou remplacer la photo d’un plat (Cloudinary, admin web)' })
-  uploadMenuItemImage(
-    @Param('id') id: string,
-    @UploadedFile() file: { buffer: Buffer; size: number; originalname?: string },
-    @Request() req,
-  ) {
-    return this.catalogService.uploadMenuItemImage(id, file, actorFromRequest(req));
   }
 
   // Menu Components

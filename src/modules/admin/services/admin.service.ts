@@ -1,7 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
-import { CreateAuditLogDto } from '../dto/create-audit-log.dto';
 import { SuspensionsService } from '../../users/services/suspensions.service';
 
 @Injectable()
@@ -10,61 +8,6 @@ export class AdminService {
     private readonly prisma: PrismaService,
     private readonly suspensionsService: SuspensionsService,
   ) {}
-
-  async createAuditLog(
-    createAuditLogDto: CreateAuditLogDto,
-    actor: { id: string; kind: 'mobile' | 'web'; role?: string },
-  ) {
-    // L'identité de l'acteur est toujours dérivée du jeton authentifié.
-    // Le client ne peut ni usurper un autre admin ni écrire un faux acteur.
-    return this.prisma.auditLog.create({
-      data: {
-        action: createAuditLogDto.action,
-        entity: createAuditLogDto.entity,
-        entityId: createAuditLogDto.entityId,
-        metadata: createAuditLogDto.metadata as Prisma.InputJsonValue,
-        ...(actor.kind === 'web'
-          ? { webUserId: actor.id }
-          : { adminId: actor.id }),
-      },
-    });
-  }
-
-  async findAllAuditLogs(page: number = 1, limit: number = 10, adminId?: string) {
-    const skip = (page - 1) * limit;
-    const where = {
-      ...(adminId ? { adminId } : {}),
-    };
-    const [total, data] = await this.prisma.$transaction([
-      this.prisma.auditLog.count({ where }),
-      this.prisma.auditLog.findMany({
-        where,
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
-
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
-  }
-
-  async findOneAuditLog(id: string) {
-    const auditLog = await this.prisma.auditLog.findUnique({
-      where: { id },
-    });
-
-    if (!auditLog) throw new NotFoundException(`Journal d'audit avec l'identifiant ${id} introuvable`);
-
-    return auditLog;
-  }
 
   private supervisionStatsCache?: { expiresAt: number; value: ReturnType<AdminService['getSupervisionStatsUncached']> };
 

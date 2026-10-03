@@ -55,11 +55,4 @@ export class CampusesService {
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
-    return this.prisma.campus.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-  }
 }

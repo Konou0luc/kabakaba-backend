@@ -7,8 +7,6 @@ import { UpdateMenuComponentDto } from '../dto/update-menu-component.dto';
 import { CreatePackagingOptionDto } from '../dto/create-packaging-option.dto';
 import { UpdatePackagingOptionDto } from '../dto/update-packaging-option.dto';
 import { UserRole } from '@prisma/client';
-import { CloudinaryService } from '../../media/cloudinary.service';
-import { UploadedImageFile } from '../../../common/utils/image-type';
 
 export interface CatalogActor {
   id: string;
@@ -18,10 +16,7 @@ export interface CatalogActor {
 
 @Injectable()
 export class CatalogService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly cloudinary: CloudinaryService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   // Résout le Vendor possédé par l'utilisateur connecté (rôle VENDOR).
   private async resolveOwnVendorId(actor: CatalogActor): Promise<string> {
@@ -109,15 +104,6 @@ export class CatalogService {
     return this.prisma.menuItem.update({
       where: { id },
       data: { deletedAt: new Date() },
-    });
-  }
-
-  async uploadMenuItemImage(id: string, file: UploadedImageFile, actor: CatalogActor) {
-    await this.assertMenuItemOwnership(id, actor);
-    const uploaded = await this.cloudinary.uploadImage(file, 'dish', id);
-    return this.prisma.menuItem.update({
-      where: { id },
-      data: { imageUrl: uploaded.url },
     });
   }
 

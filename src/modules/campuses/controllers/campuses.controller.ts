@@ -5,7 +5,6 @@ import {
   Body,
   Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -84,17 +83,4 @@ export class CampusesController {
     return this.campusesService.update(id, updateCampusDto);
   }
 
-  @Delete(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Soft delete a campus (Admin only)' })
-  @ApiResponse({
-    status: 200,
-    description: 'The campus has been successfully soft deleted.',
-  })
-  remove(@Param('id') id: string) {
-    return this.campusesService.remove(id);
-  }
 }

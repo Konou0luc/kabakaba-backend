@@ -140,11 +140,4 @@ export class ReviewsService {
     });
   }
 
-  async remove(id: string) {
-    await this.findOne(id);
-    return this.prisma.review.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-  }
 }

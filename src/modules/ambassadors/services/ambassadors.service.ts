@@ -3,7 +3,6 @@ import { AmbassadorLevel, AmbassadorStatus, NotificationType, PaymentStatus } fr
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { NotificationsService } from '../../notifications/services/notifications.service';
-import { CreateAmbassadorDto } from '../dto/create-ambassador.dto';
 import { CreateSelfAmbassadorApplicationDto } from '../dto/create-self-ambassador-application.dto';
 import { UpdateAmbassadorDto } from '../dto/update-ambassador.dto';
 import {
@@ -19,12 +18,6 @@ export class AmbassadorsService {
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
   ) {}
-
-  async create(createAmbassadorDto: CreateAmbassadorDto) {
-    return this.prisma.ambassador.create({
-      data: createAmbassadorDto,
-    });
-  }
 
   async createSelfApplication(
     userId: string,
@@ -257,14 +250,6 @@ export class AmbassadorsService {
     }
     // Filet de sécurité si 5 tentatives se percutent toutes (extrêmement improbable)
     return `${base}-${year}-${Date.now().toString().slice(-4)}`;
-  }
-
-  async remove(id: string) {
-    await this.findOne(id);
-    return this.prisma.ambassador.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
   }
 
   /**

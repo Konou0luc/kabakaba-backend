@@ -582,14 +582,6 @@ export class OrdersService {
     return order;
   }
 
-  async remove(id: string, actor: Actor) {
-    await this.findOne(id, actor);
-    return this.prisma.order.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-  }
-
   /**
    * CDC 4.3 — commandes PENDING depuis plus de 5 minutes → CANCELLED_VENDOR
    * + restitution du séquestre à l'étudiant. Déclenché par cron interne.

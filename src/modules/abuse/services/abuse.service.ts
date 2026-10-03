@@ -1,9 +1,7 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { SuspensionTrigger } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { SuspensionsService } from '../../users/services/suspensions.service';
-import { CreateAbuseDto } from '../dto/create-abuse.dto';
-import { UpdateAbuseDto } from '../dto/update-abuse.dto';
 
 /** 3 annulations dans une fenêtre de 10 minutes → avertissement (1ère vague). */
 const CANCEL_WINDOW_MS = 10 * 60 * 1000;
@@ -19,67 +17,6 @@ export class AbuseService {
     private readonly prisma: PrismaService,
     private readonly suspensionsService: SuspensionsService,
   ) {}
-
-  async create(createAbuseDto: CreateAbuseDto) {
-    return this.prisma.abuseLog.create({
-      data: {
-        studentId: createAbuseDto.studentId,
-        count: 1,
-        warningSent: false,
-      },
-    });
-  }
-
-  async findAll(page: number = 1, limit: number = 10) {
-    const skip = (page - 1) * limit;
-    const [total, data] = await this.prisma.$transaction([
-      this.prisma.abuseLog.count({
-        where: { deletedAt: null },
-      }),
-      this.prisma.abuseLog.findMany({
-        where: { deletedAt: null },
-        skip,
-        take: limit,
-        orderBy: { createdAt: 'desc' },
-      }),
-    ]);
-
-    return {
-      data,
-      meta: {
-        page,
-        limit,
-        total,
-        totalPages: Math.ceil(total / limit),
-      },
-    };
-  }
-
-  async findOne(id: string) {
-    const abuse = await this.prisma.abuseLog.findUnique({
-      where: { id, deletedAt: null },
-    });
-
-    if (!abuse) throw new NotFoundException(`Journal d'abus avec l'identifiant ${id} introuvable`);
-
-    return abuse;
-  }
-
-  async update(id: string, updateAbuseDto: UpdateAbuseDto) {
-    await this.findOne(id);
-    return this.prisma.abuseLog.update({
-      where: { id },
-      data: updateAbuseDto,
-    });
-  }
-
-  async remove(id: string) {
-    await this.findOne(id);
-    return this.prisma.abuseLog.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-  }
 
   /**
    * Enregistre une annulation imputable à l'étudiant.

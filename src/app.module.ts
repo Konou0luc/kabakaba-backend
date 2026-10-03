@@ -5,7 +5,6 @@ import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { DistributedThrottlerStorage } from './common/throttling/distributed-throttler.storage';
 import { PrismaService } from './database/services/prisma.service';
 import { AppController } from './app.controller';
-import { AppService } from './app.service';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { DatabaseModule } from './database/database.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -72,9 +71,6 @@ import { MediaModule } from './modules/media/media.module';
     MediaModule,
   ],
   controllers: [AppController],
-  providers: [
-    AppService,
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
-  ],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}

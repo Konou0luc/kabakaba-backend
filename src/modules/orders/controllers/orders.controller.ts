@@ -5,7 +5,6 @@ import {
   Body,
   Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
   Request,
@@ -156,17 +155,4 @@ export class OrdersController {
     return this.ordersService.refundByVendor(id, req.user.id, dto);
   }
 
-  @Delete(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Supprimer une commande (Admin web)' })
-  @ApiResponse({
-    status: 200,
-    description: 'La commande a été supprimée avec succès.',
-  })
-  remove(@Param('id') id: string, @Request() req) {
-    return this.ordersService.remove(id, { id: req.user.id, role: req.user.role, isAdmin: true });
-  }
 }

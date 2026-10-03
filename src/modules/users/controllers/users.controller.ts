@@ -5,7 +5,6 @@ import {
   Body,
   Patch,
   Param,
-  Delete,
   Query,
   Request,
   UseGuards,
@@ -98,14 +97,4 @@ export class UsersController {
     });
   }
 
-  @Delete(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Désactiver un utilisateur (soft delete — admin/super admin seulement)' })
-  @ApiResponse({ status: 200, description: "L'utilisateur a été désactivé avec succès." })
-  remove(@Param('id') id: string) {
-    return this.usersService.remove(id);
-  }
 }

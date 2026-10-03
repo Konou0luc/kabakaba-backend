@@ -47,18 +47,6 @@ export class PartnerApplicationsController {
     return this.partnerApplicationsService.findAll(query.page, query.limit, query.status);
   }
 
-  @Get(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Récupérer une candidature partenaire (Admin/dashboard web)' })
-  @ApiResponse({ status: 200, description: 'Retourne la candidature.', type: PartnerApplicationEntity })
-  @ApiResponse({ status: 404, description: 'Candidature introuvable.' })
-  findOne(@Param('id') id: string) {
-    return this.partnerApplicationsService.findOne(id);
-  }
-
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)

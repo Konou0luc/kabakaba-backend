@@ -5,12 +5,9 @@ import {
   Body,
   Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
   Request,
-  UploadedFile,
-  UseInterceptors,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -18,10 +15,7 @@ import {
   ApiResponse,
   ApiBearerAuth,
   ApiQuery,
-  ApiConsumes,
-  ApiBody,
 } from '@nestjs/swagger';
-import { FileInterceptor } from '@nestjs/platform-express';
 import { VendorsService } from '../services/vendors.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
 import { UpdateVendorDto } from '../dto/update-vendor.dto';
@@ -144,61 +138,4 @@ export class VendorsController {
     return this.vendorsService.update(id, updateVendorDto, { id: req.user.id, role: req.user.role, kind: req.user.__authKind === 'web' ? 'web' : 'mobile' });
   }
 
-  @Post(':id/logo')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 4 * 1024 * 1024 } }))
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['file'],
-      properties: { file: { type: 'string', format: 'binary' } },
-    },
-  })
-  @ApiOperation({ summary: 'Remplacer la photo de profil de la cantine (Cloudinary, admin web)' })
-  uploadLogo(
-    @Param('id') id: string,
-    @UploadedFile() file: { buffer: Buffer; size: number; originalname?: string },
-  ) {
-    return this.vendorsService.uploadLogo(id, file);
-  }
-
-  @Post(':id/banner')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 4 * 1024 * 1024 } }))
-  @ApiConsumes('multipart/form-data')
-  @ApiBody({
-    schema: {
-      type: 'object',
-      required: ['file'],
-      properties: { file: { type: 'string', format: 'binary' } },
-    },
-  })
-  @ApiOperation({ summary: 'Remplacer la bannière de la cantine (Cloudinary, admin web)' })
-  uploadBanner(
-    @Param('id') id: string,
-    @UploadedFile() file: { buffer: Buffer; size: number; originalname?: string },
-  ) {
-    return this.vendorsService.uploadBanner(id, file);
-  }
-
-  @Delete(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Soft delete a vendor (Admin web)' })
-  @ApiResponse({
-    status: 200,
-    description: 'The vendor has been successfully soft deleted.',
-  })
-  remove(@Param('id') id: string) {
-    return this.vendorsService.remove(id);
-  }
 }

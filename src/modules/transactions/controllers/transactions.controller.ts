@@ -1,9 +1,6 @@
 import {
   Controller,
   Get,
-  Post,
-  Body,
-  Patch,
   Param,
   Query,
   UseGuards,
@@ -17,8 +14,6 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { TransactionsService } from '../services/transactions.service';
-import { CreateTransactionDto } from '../dto/create-transaction.dto';
-import { UpdateTransactionDto } from '../dto/update-transaction.dto';
 import { TransactionEntity } from '../entities/transaction.entity';
 import { FindTransactionsQueryDto } from '../dto/find-transactions-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -31,24 +26,6 @@ import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard'
 @Controller('transactions')
 export class TransactionsController {
   constructor(private readonly transactionsService: TransactionsService) {}
-
-  @Post()
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Créer une transaction manuelle (ADMIN web uniquement)' })
-  @ApiResponse({
-    status: 201,
-    description: 'La transaction a été créée avec succès.',
-    type: TransactionEntity,
-  })
-  create(@Body() createTransactionDto: CreateTransactionDto, @Request() req) {
-    return this.transactionsService.create(createTransactionDto, {
-      id: req.user.id,
-      kind: req.user.__authKind === 'web' ? 'web' : 'mobile',
-      role: req.user.role,
-    });
-  }
 
   @Get()
   @ApiBearerAuth()
@@ -119,18 +96,4 @@ export class TransactionsController {
     });
   }
 
-  @Patch(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Mettre à jour une transaction (Admin seulement)' })
-  @ApiResponse({
-    status: 200,
-    description: 'La transaction a été mise à jour avec succès.',
-    type: TransactionEntity,
-  })
-  update(@Param('id') id: string, @Body() updateTransactionDto: UpdateTransactionDto) {
-    return this.transactionsService.update(id, updateTransactionDto);
-  }
 }

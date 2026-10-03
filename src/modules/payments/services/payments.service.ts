@@ -1,8 +1,6 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
-import { CreatePaymentDto } from '../dto/create-payment.dto';
-import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { FedapayService } from './fedapay.service';
 import { UsersService } from '../../users/services/users.service';
 import { NotificationsService } from '../../notifications/services/notifications.service';
@@ -428,31 +426,6 @@ export class PaymentsService {
     }
   }
 
-  async create(createPaymentDto: CreatePaymentDto, callerId: string) {
-    // Réservé aux admins (voir @Roles sur le contrôleur). `userId` dans le
-    // DTO permet de créditer un étudiant spécifique (ajustement manuel) ;
-    // sans lui, le paiement serait créé pour l'admin lui-même, ce qui n'a
-    // pas de sens pour ce cas d'usage.
-    const { userId: targetUserId, ...paymentData } = createPaymentDto;
-    const amountFcfa = Number(createPaymentDto.amountFcfa);
-    const ticketsReceived = Number(createPaymentDto.ticketsReceived);
-    if (!Number.isFinite(amountFcfa) || amountFcfa <= 0 || !Number.isInteger(ticketsReceived) || ticketsReceived <= 0) {
-      throw new BadRequestException('Montant et tickets invalides');
-    }
-    const expectedAmount = computeRechargeAmountFcfa(ticketsReceived);
-    if (expectedAmount !== amountFcfa) {
-      throw new BadRequestException(
-        `Montant incohérent : ${ticketsReceived} tickets nécessitent ${expectedAmount} FCFA`,
-      );
-    }
-    return this.prisma.payment.create({
-      data: {
-        ...paymentData,
-        userId: targetUserId || callerId,
-      },
-    });
-  }
-
   async findAll(page: number = 1, limit: number = 10, userId?: string) {
     const skip = (page - 1) * limit;
     const where = {
@@ -504,24 +477,6 @@ export class PaymentsService {
     }
 
     return payment;
-  }
-
-  async update(id: string, updatePaymentDto: UpdatePaymentDto) {
-    // Accessible uniquement à ADMIN au niveau du contrôleur :
-    // pas de contrôle d'ownership à appliquer ici.
-    await this.getPaymentOrThrow(id);
-    return this.prisma.payment.update({
-      where: { id },
-      data: updatePaymentDto,
-    });
-  }
-
-  async remove(id: string) {
-    await this.getPaymentOrThrow(id);
-    return this.prisma.payment.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
   }
 
 }

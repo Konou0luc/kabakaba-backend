@@ -5,7 +5,6 @@ import {
   Body,
   Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
   Request,
@@ -27,8 +26,6 @@ import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../common/guards/roles.guard';
-import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
-import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { WebJwtAuthGuard } from '../../../common/guards/web-jwt-auth.guard';
 import { WebRolesGuard } from '../../../common/guards/web-roles.guard';
 
@@ -61,17 +58,6 @@ export class ReviewsController {
     return this.reviewsService.findAll(query.page, query.limit, query.vendorId, query.rating, query.search, query.sortBy);
   }
 
-  @Get(':id')
-  @ApiBearerAuth()
-  @UseGuards(WebJwtAuthGuard, WebRolesGuard)
-  @WebRoles(WebUserRole.SUPERVISION)
-  @ApiOperation({ summary: 'Récupérer un avis actif (Supervision uniquement)' })
-  @ApiResponse({ status: 200, description: "Retourne l'avis.", type: ReviewEntity })
-  @ApiResponse({ status: 404, description: 'Avis introuvable.' })
-  findOne(@Param('id') id: string) {
-    return this.reviewsService.findOne(id);
-  }
-
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -82,14 +68,4 @@ export class ReviewsController {
     return this.reviewsService.update(id, updateReviewDto, req.user.id);
   }
 
-  @Delete(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Supprimer un avis (Admin web)' })
-  @ApiResponse({ status: 200, description: "L'avis a été supprimé avec succès." })
-  remove(@Param('id') id: string) {
-    return this.reviewsService.remove(id);
-  }
 }

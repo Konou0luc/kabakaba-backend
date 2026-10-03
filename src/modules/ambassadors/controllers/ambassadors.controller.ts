@@ -5,7 +5,6 @@ import {
   Body,
   Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
   UploadedFile,
@@ -22,7 +21,6 @@ import {
 } from '@nestjs/swagger';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { AmbassadorsService } from '../services/ambassadors.service';
-import { CreateAmbassadorDto } from '../dto/create-ambassador.dto';
 import { UpdateAmbassadorDto } from '../dto/update-ambassador.dto';
 import { AmbassadorEntity } from '../entities/ambassador.entity';
 import { FindAmbassadorsQueryDto } from '../dto/find-ambassadors-query.dto';
@@ -44,21 +42,6 @@ export class AmbassadorsController {
     private readonly ambassadorsService: AmbassadorsService,
     private readonly cloudinary: CloudinaryService,
   ) {}
-
-  @Post()
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Créer un nouvel ambassadeur (Admin seulement)' })
-  @ApiResponse({
-    status: 201,
-    description: 'L\'ambassadeur a été créé avec succès.',
-    type: AmbassadorEntity,
-  })
-  create(@Body() createAmbassadorDto: CreateAmbassadorDto) {
-    return this.ambassadorsService.create(createAmbassadorDto);
-  }
 
   @Get()
   @ApiBearerAuth()
@@ -128,18 +111,6 @@ export class AmbassadorsController {
     return this.ambassadorsService.findByUserId(userId);
   }
 
-  @Get(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Récupérer un ambassadeur actif (Admin/dashboard web)' })
-  @ApiResponse({ status: 200, description: 'Retourne l\'ambassadeur.', type: AmbassadorEntity })
-  @ApiResponse({ status: 404, description: 'Ambassadeur introuvable.' })
-  findOne(@Param('id') id: string) {
-    return this.ambassadorsService.findOne(id);
-  }
-
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
@@ -155,17 +126,4 @@ export class AmbassadorsController {
     return this.ambassadorsService.update(id, updateAmbassadorDto);
   }
 
-  @Delete(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Supprimer un ambassadeur (Admin seulement)' })
-  @ApiResponse({
-    status: 200,
-    description: 'L\'ambassadeur a été supprimé avec succès.',
-  })
-  remove(@Param('id') id: string) {
-    return this.ambassadorsService.remove(id);
-  }
 }

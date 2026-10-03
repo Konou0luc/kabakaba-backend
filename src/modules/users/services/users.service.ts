@@ -250,13 +250,4 @@ export class UsersService {
     return sanitize(updated);
   }
 
-  // Soft delete uniquement — jamais de suppression physique.
-  async remove(id: string) {
-    await this.findOne(id);
-    const updated = await this.prisma.user.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-    return sanitize(updated);
-  }
 }

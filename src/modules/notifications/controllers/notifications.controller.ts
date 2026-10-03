@@ -1,11 +1,9 @@
 import {
   Controller,
   Get,
-  Post,
   Body,
   Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
   Request,
@@ -18,7 +16,6 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { NotificationsService } from '../services/notifications.service';
-import { CreateNotificationDto } from '../dto/create-notification.dto';
 import { UpdateNotificationDto } from '../dto/update-notification.dto';
 import { NotificationEntity } from '../entities/notification.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
@@ -32,21 +29,6 @@ import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard'
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notificationsService: NotificationsService) {}
-
-  @Post()
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Créer une nouvelle notification (Admin seulement)' })
-  @ApiResponse({
-    status: 201,
-    description: 'La notification a été créée avec succès.',
-    type: NotificationEntity,
-  })
-  create(@Body() createNotificationDto: CreateNotificationDto) {
-    return this.notificationsService.create(createNotificationDto);
-  }
 
   @Get()
   @ApiBearerAuth()
@@ -100,17 +82,4 @@ export class NotificationsController {
     return this.notificationsService.update(id, updateNotificationDto, { id: req.user.id, isAdmin });
   }
 
-  @Delete(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Supprimer une notification (Admin seulement)' })
-  @ApiResponse({
-    status: 200,
-    description: 'La notification a été supprimée avec succès.',
-  })
-  remove(@Param('id') id: string) {
-    return this.notificationsService.remove(id);
-  }
 }

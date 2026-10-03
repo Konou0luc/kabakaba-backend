@@ -815,7 +815,7 @@ export class AnalyticsService {
 
     if (!ambassador) throw new NotFoundException(`Ambassadeur ${id} introuvable`);
 
-    const [affiliates, commissions, affiliateCount, appeals, commissionByAffiliateRows] = await Promise.all([
+    const [affiliates, commissions, affiliateCount, commissionByAffiliateRows] = await Promise.all([
       this.prisma.ambassadorAffiliate.findMany({
         where: { ambassadorId: id, deletedAt: null },
         include: { student: { select: { firstName: true, lastName: true, campus: { select: { name: true } } } } },
@@ -828,10 +828,6 @@ export class AnalyticsService {
         include: { payment: { select: { amountFcfa: true, createdAt: true } } },
       }),
       this.prisma.ambassadorAffiliate.count({ where: { ambassadorId: id, deletedAt: null } }),
-      this.prisma.ambassadorAppeal.findMany({
-        where: { ambassadorId: id, deletedAt: null },
-        orderBy: { createdAt: 'desc' },
-      }),
       // Commission totale générée par chaque affilié (sur toute sa durée
       // de vie, pas seulement la fenêtre analysée) — affiche "combien cet
       // affilié a rapporté" dans l'onglet Affiliés.
@@ -917,12 +913,6 @@ export class AnalyticsService {
         levelApplied: c.levelApplied,
         commissionRate: c.commissionRate ? Number(c.commissionRate) : null,
         amount: Number(c.amount),
-      })),
-      appeals: appeals.map((ap) => ({
-        id: ap.id,
-        reason: ap.reason,
-        status: ap.status,
-        createdAt: ap.createdAt,
       })),
     };
   }

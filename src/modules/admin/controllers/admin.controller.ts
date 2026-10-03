@@ -1,24 +1,6 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  Query,
-  UseGuards,
-  Request,
-} from '@nestjs/common';
-import {
-  ApiTags,
-  ApiOperation,
-  ApiResponse,
-  ApiBearerAuth,
-  ApiQuery,
-} from '@nestjs/swagger';
+import { Controller, Get, UseGuards } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AdminService } from '../services/admin.service';
-import { CreateAuditLogDto } from '../dto/create-audit-log.dto';
-import { AuditLogEntity } from '../entities/audit-log.entity';
-import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
@@ -56,57 +38,5 @@ export class AdminController {
   })
   getTodayEvents() {
     return this.adminService.getTodayEvents();
-  }
-
-  @Post('audit-logs')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Créer un nouveau journal d\'audit (Admin seulement)' })
-  @ApiResponse({
-    status: 201,
-    description: 'Journal d\'audit créé avec succès',
-    type: AuditLogEntity,
-  })
-  createAuditLog(@Body() createAuditLogDto: CreateAuditLogDto, @Request() req) {
-    return this.adminService.createAuditLog(createAuditLogDto, {
-      id: req.user.id,
-      kind: req.user.__authKind === 'web' ? 'web' : 'mobile',
-      role: req.user.role,
-    });
-  }
-
-  @Get('audit-logs')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Obtenir tous les journaux d\'audit (Admin seulement)' })
-  @ApiQuery({ type: PaginationDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Retourne tous les journaux d\'audit avec pagination',
-  })
-  findAllAuditLogs(@Query() paginationDto: PaginationDto) {
-    return this.adminService.findAllAuditLogs(
-      paginationDto.page,
-      paginationDto.limit,
-    );
-  }
-
-  @Get('audit-logs/:id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Obtenir un journal d\'audit (Admin seulement)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Retourne le journal d\'audit',
-    type: AuditLogEntity,
-  })
-  findOneAuditLog(@Param('id') id: string) {
-    return this.adminService.findOneAuditLog(id);
   }
 }

@@ -3,9 +3,7 @@ import {
   Get,
   Post,
   Body,
-  Patch,
   Param,
-  Delete,
   Query,
   UseGuards,
   Request,
@@ -20,8 +18,6 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { PaymentsService } from '../services/payments.service';
-import { CreateManualPaymentDto } from '../dto/create-manual-payment.dto';
-import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { CreatePaymentIntentDto, PreviewRechargeDto } from '../dto/create-payment-intent.dto';
 import { InitiatePaymentDto } from '../dto/initiate-payment.dto';
 import { PaymentEntity } from '../entities/payment.entity';
@@ -120,26 +116,6 @@ export class PaymentsController {
     return this.paymentsService.handleWebhook(rawBody, signature);
   }
 
-  @Post()
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({
-    summary: 'Créer un paiement manuellement (Admin web — ex: ajustement, régularisation)',
-    description:
-      "Réservé aux admins : un étudiant ne doit jamais pouvoir choisir librement ticketsReceived/amountFcfa. " +
-      'Pour recharger son wallet, un étudiant passe uniquement par POST /payments/intent.',
-  })
-  @ApiResponse({
-    status: 201,
-    description: 'Le paiement a été créé avec succès.',
-    type: PaymentEntity,
-  })
-  create(@Body() createPaymentDto: CreateManualPaymentDto, @Request() req) {
-    return this.paymentsService.create(createPaymentDto, req.user.id);
-  }
-
   @Get()
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
@@ -174,32 +150,4 @@ export class PaymentsController {
     return this.paymentsService.findOne(id, { id: req.user.id, role: req.user.role, kind: req.user.__authKind === 'web' ? 'web' : 'mobile' });
   }
 
-  @Patch(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Mettre à jour un paiement (Admin web)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Le paiement a été mis à jour avec succès.',
-    type: PaymentEntity,
-  })
-  update(@Param('id') id: string, @Body() updatePaymentDto: UpdatePaymentDto) {
-    return this.paymentsService.update(id, updatePaymentDto);
-  }
-
-  @Delete(':id')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Supprimer un paiement (Admin web)' })
-  @ApiResponse({
-    status: 200,
-    description: 'Le paiement a été supprimé avec succès.',
-  })
-  remove(@Param('id') id: string) {
-    return this.paymentsService.remove(id);
-  }
 }
