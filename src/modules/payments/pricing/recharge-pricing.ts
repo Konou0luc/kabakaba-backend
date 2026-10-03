@@ -27,7 +27,7 @@ const FEE_BRACKETS: Array<{ minTickets: number; maxTickets: number; fee: number 
   { minTickets: 10_000, maxTickets: 10_000, fee: 500 },
 ];
 
-export function feeForTickets(tickets: number): number {
+function feeForTickets(tickets: number): number {
   for (const b of FEE_BRACKETS) {
     if (tickets >= b.minTickets && tickets <= b.maxTickets) return b.fee;
   }

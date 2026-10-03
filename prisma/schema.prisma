@@ -771,9 +771,6 @@ model WebUser {
   updatedAt          DateTime    @updatedAt
   deletedAt          DateTime?
 
-  sessions                   WebUserSession[]
-  preferences                WebUserPreferences?
-  notificationSettings       WebUserNotificationSetting[]
   auditLogs                  AuditLog[]
   partnerApplicationsTreated PartnerApplication[]
   disputesTreated            Dispute[]
@@ -873,52 +870,6 @@ model WebUserDeletionApproval {
   approver WebUser                @relation(fields: [approverId], references: [id])
 
   @@unique([requestId, approverId])
-}
-
-model WebUserSession {
-  id           String    @id @default(uuid())
-  webUserId    String
-  browser      String?
-  os           String?
-  ipAddress    String?
-  city         String?
-  country      String?
-  createdAt    DateTime  @default(now())
-  lastActiveAt DateTime  @default(now())
-  revokedAt    DateTime?
-
-  webUser WebUser @relation(fields: [webUserId], references: [id])
-
-  @@index([webUserId])
-}
-
-model WebUserPreferences {
-  id                     String   @id @default(uuid())
-  webUserId              String   @unique
-  language               String   @default("fr")
-  timezone               String   @default("Africa/Lome")
-  currencyFormat         String   @default("FCFA")
-  defaultDashboardPeriod String   @default("30d")
-  dateFormat             String   @default("DD/MM/YYYY")
-  priorityKpis           Json?
-  createdAt              DateTime @default(now())
-  updatedAt              DateTime @updatedAt
-
-  webUser WebUser @relation(fields: [webUserId], references: [id])
-}
-
-model WebUserNotificationSetting {
-  id           String   @id @default(uuid())
-  webUserId    String
-  settingKey   String
-  emailEnabled Boolean  @default(true)
-  inAppEnabled Boolean  @default(true)
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-
-  webUser WebUser @relation(fields: [webUserId], references: [id])
-
-  @@unique([webUserId, settingKey])
 }
 
 enum WebUserRole {

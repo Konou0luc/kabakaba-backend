@@ -107,13 +107,6 @@ export class SuspensionsService {
     ]);
   }
 
-  getHistory(studentId: string) {
-    return this.prisma.suspensionEvent.findMany({
-      where: { studentId },
-      orderBy: { suspendedAt: 'desc' },
-    });
-  }
-
   countLast30Days() {
     return this.prisma.suspensionEvent.count({ where: { suspendedAt: { gte: windowStart(30) } } });
   }

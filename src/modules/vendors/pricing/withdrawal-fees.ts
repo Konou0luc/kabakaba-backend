@@ -18,8 +18,8 @@
 export type MobileOperator = 'FLOOZ' | 'MIXX';
 export type WithdrawalTier = 'UNDER_10K' | 'FROM_10K_TO_30K' | 'FROM_30K';
 
-export const KABAKABA_TIER_LOW = 10_000;
-export const KABAKABA_TIER_HIGH = 30_000;
+const KABAKABA_TIER_LOW = 10_000;
+const KABAKABA_TIER_HIGH = 30_000;
 
 /** Barème de frais conservé pour les retraits < 10 000 FCFA. */
 const FEDAPAY_PAYOUT_BRACKETS: Array<{ max: number; fee: number }> = [
@@ -67,7 +67,7 @@ function feeFromBrackets(amount: number, brackets: Array<{ max: number; fee: num
   return brackets[brackets.length - 1].fee;
 }
 
-export function fedapayPayoutFee(amountFcfa: number): number {
+function fedapayPayoutFee(amountFcfa: number): number {
   return feeFromBrackets(amountFcfa, FEDAPAY_PAYOUT_BRACKETS);
 }
 

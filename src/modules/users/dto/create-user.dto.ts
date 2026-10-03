@@ -4,8 +4,7 @@ import { IsEmail, IsOptional, IsPhoneNumber, IsString, MinLength, IsBoolean } fr
 /**
  * DTO de l'auto-inscription PUBLIQUE (POST /users). Le champ `role`
  * n'existe volontairement pas ici : il est toujours forcé à STUDENT côté
- * service, jamais pris depuis le client. Pour créer un compte ADMIN/VENDOR,
- * voir CreateStaffUserDto (endpoint gardé POST /users/staff).
+ * service, jamais pris depuis le client.
  */
 export class CreateUserDto {
   @ApiProperty({ example: '+22890000000', required: false, description: 'Numéro de téléphone' })

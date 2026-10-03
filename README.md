@@ -50,9 +50,6 @@ $ npm run start:prod
 # unit tests
 $ npm run test
 
-# e2e tests
-$ npm run test:e2e
-
 # test coverage
 $ npm run test:cov
 ```
@@ -144,3 +141,57 @@ Choix de sécurité :
   mot de passe.
 
 Migration à appliquer : `prisma/migrations/20260927190000_add_vendor_pin_auth`.
+
+## Journal des correctifs de sécurité
+
+Cette section reprend, sans changement de fond, le contenu des anciens fichiers `README_SECURITY_PATCH.md` et `SECURITY_PATCH_NOTES.md`.
+
+### Security patch SEC-20 to SEC-25
+
+Applied on top of the SEC-02 to SEC-19 build-fixed version.
+
+#### Required production actions
+
+No new environment variable is required by SEC-20/21/22/25.
+
+SEC-27 (partner application public endpoint enumeration risk) was explicitly accepted by the project owner and remains unchanged.
+
+### Security patch SEC-40 → SEC-44
+
+#### SEC-40 — Atomic refunds
+Refunds initiated by vendors and dispute resolutions now run at SERIALIZABLE transaction isolation to prevent concurrent refunds from racing on the vendor balance. The existing order/dispute claim remains atomic.
+
+#### SEC-41 — Withdrawal completion
+The admin status endpoint no longer permits an administrator to force a withdrawal to COMPLETED. Admins can move withdrawals to PROCESSING or FAILED only. COMPLETED must come from a future provider-confirmation flow.
+
+#### SEC-42 — Payout idempotency
+Withdrawals now have a unique optional payoutReference plus payoutRequestedAt/payoutCompletedAt. When an admin moves a withdrawal to PROCESSING, the withdrawal id is used as the stable idempotency reference and is recorded once.
+
+#### SEC-43/44 — Provider confirmation hardening
+No manual endpoint is added to fake a provider success. COMPLETED remains unavailable to the admin status endpoint until an authenticated provider/webhook confirmation flow is implemented. This avoids creating a false sense of payout verification.
+
+#### SEC-45 — Payout FedaPay réel et idempotent
+
+- Le passage manuel à `PROCESSING` déclenche désormais le payout FedaPay.
+- `merchant_reference` = ID interne du retrait pour rendre les retries idempotents.
+- Avant toute création, le backend recherche un payout existant par `merchant_reference`.
+- `COMPLETED` et `FAILED` ne sont plus pilotables manuellement : ils proviennent du statut FedaPay.
+- `POST /withdrawals/:id/sync` resynchronise le statut réel FedaPay.
+- Un payout FedaPay `failed` recrédite le montant exactement débité.
+- Un payout FedaPay `sent` clôture le retrait et la transaction miroir.
+- L'opérateur et le montant payout sont conservés au moment de la demande de retrait.
+
+##### Préproduction obligatoire
+
+- Activer la fonctionnalité Payout sur le compte FedaPay.
+- Configurer `FEDAPAY_SECRET_KEY` et `FEDAPAY_BASE_URL`.
+- Tester en sandbox avant toute activation live.
+- Vérifier les numéros Mobile Money et les méthodes `moov_tg` / `togocel`.
+
+> **Note (octobre 2026) — SEC-45 n'est plus en vigueur.** Le workflow de retrait est
+> aujourd'hui **manuel** : l'administrateur accepte la demande, le transfert Mobile Money
+> est fait à la main, puis il confirme ou fait échouer le retrait (routes `accept`, `proof`,
+> `confirm`, `fail`, `cancel`). Le payout FedaPay automatique et la route
+> `POST /withdrawals/:id/sync` n'existent plus ; les méthodes de payout de `FedapayService`
+> ont été retirées du code. SEC-41 à SEC-44 décrivent l'état intermédiaire du workflow
+> avant le passage au manuel et sont conservés ici à titre d'historique.
