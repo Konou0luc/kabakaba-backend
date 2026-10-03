@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, Length } from 'class-validator';
+import { IsNotEmpty, IsString } from 'class-validator';
 
 export class WebVerify2faDto {
   @ApiProperty({ description: 'Jeton de challenge renvoyé par POST /web-auth/login' })

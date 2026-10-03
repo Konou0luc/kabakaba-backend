@@ -4,7 +4,6 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
-import { RefundOrderDto } from '../dto/refund-order.dto';
 import { AbuseService } from '../../abuse/services/abuse.service';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 
@@ -339,11 +338,6 @@ export class OrdersService {
 
     return order;
   }
-
-  // Une commande est un objet financier : son propriétaire, son vendeur,
-  // son contenu et ses montants sont immuables après création. Le PATCH
-  // d'administration ne peut donc modifier que le statut et le motif.
-  private static readonly ORDER_UPDATE_FIELDS = ['status', 'reason'] as const;
 
   /**
    * Machine à états serveur. Le client ne peut jamais sauter une étape et

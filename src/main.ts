@@ -150,7 +150,7 @@ export async function createNestApp() {
   // un cache intermédiaire (proxy, CDN Vercel) pourrait mettre en cache une
   // réponse JSON authentifiée. Aucune route de cette API ne doit être mise
   // en cache — ce sont des données propres à l'utilisateur/l'admin connecté.
-  app.use((req: express.Request, res: express.Response, next: express.NextFunction) => {
+  app.use((_req: express.Request, res: express.Response, next: express.NextFunction) => {
     res.setHeader('Cache-Control', 'no-store');
     next();
   });

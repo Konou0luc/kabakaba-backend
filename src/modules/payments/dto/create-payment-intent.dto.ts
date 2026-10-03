@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsEnum, IsInt, IsNotEmpty, IsOptional, Min, Max, ValidateIf } from 'class-validator';
+import { IsEnum, IsInt, IsNotEmpty, Min, Max, ValidateIf } from 'class-validator';
 import { PaymentOperator } from '@prisma/client';
 import {
   MIN_RECHARGE_TICKETS,

@@ -3,7 +3,6 @@ import * as crypto from 'crypto';
 const PREFIX = 'enc:v1:';
 const ALGORITHM = 'aes-256-gcm';
 const IV_BYTES = 12;
-const TAG_BYTES = 16;
 
 function getKey(): Buffer {
   const raw = process.env.TOTP_ENCRYPTION_KEY;

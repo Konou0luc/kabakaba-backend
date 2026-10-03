@@ -20,7 +20,6 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { PaymentsService } from '../services/payments.service';
-import { CreatePaymentDto } from '../dto/create-payment.dto';
 import { CreateManualPaymentDto } from '../dto/create-manual-payment.dto';
 import { UpdatePaymentDto } from '../dto/update-payment.dto';
 import { CreatePaymentIntentDto, PreviewRechargeDto } from '../dto/create-payment-intent.dto';

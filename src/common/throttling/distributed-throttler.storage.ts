@@ -27,7 +27,6 @@ export class DistributedThrottlerStorage implements ThrottlerStorage {
     const windowStartMs = Math.floor(now / ttlMs) * ttlMs;
     const windowStart = new Date(windowStartMs);
     const expiresAt = new Date(windowStartMs + ttlMs);
-    const cleanupKey = `${key}:${throttlerName}`;
 
     // La clé primaire inclut la fenêtre temporelle : aucune course entre
     // deux fenêtres et un UPSERT atomique suffit pour compter les requêtes.

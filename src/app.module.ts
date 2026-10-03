@@ -22,7 +22,6 @@ import { AbuseModule } from './modules/abuse/abuse.module';
 import { AmbassadorsModule } from './modules/ambassadors/ambassadors.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminModule } from './modules/admin/admin.module';
-import { SupervisionModule } from './modules/supervision/supervision.module';
 import { SmsModule } from './modules/sms/sms.module';
 import { DisputesModule } from './modules/disputes/disputes.module';
 import { PartnerApplicationsModule } from './modules/partner-applications/partner-applications.module';
@@ -64,7 +63,6 @@ import { MediaModule } from './modules/media/media.module';
     AmbassadorsModule,
     NotificationsModule,
     AdminModule,
-    SupervisionModule,
     SmsModule,
     DisputesModule,
     PartnerApplicationsModule,

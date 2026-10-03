@@ -112,9 +112,6 @@ export class TransactionsController {
   @ApiResponse({ status: 200, description: 'Retourne la transaction.', type: TransactionEntity })
   @ApiResponse({ status: 404, description: 'Transaction introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
-    const isAdmin =
-      req.user.__authKind === 'web' &&
-      (req.user.role === WebUserRole.ADMIN || req.user.role === WebUserRole.SUPERVISION);
     return this.transactionsService.findOne(id, {
       id: req.user.id,
       kind: req.user.__authKind === 'web' ? 'web' : 'mobile',

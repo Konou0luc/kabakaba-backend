@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class WithdrawalReasonDto {
   @ApiProperty({ example: 'Numéro incorrect / transfert impossible', minLength: 3, maxLength: 500 })

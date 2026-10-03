@@ -61,7 +61,7 @@ export class NotificationsController {
   })
   findAll(@Query() paginationDto: PaginationDto, @Request() req) {
     let userId: string | undefined;
-    if (req.user.role !== UserRole.ADMIN && req.user.role !== UserRole.ADMIN) {
+    if (req.user.role !== UserRole.ADMIN) {
       userId = req.user.id;
     }
     return this.notificationsService.findAll(
