@@ -98,7 +98,7 @@ export class AmbassadorsController {
     @GetCurrentUserId() userId: string,
     @UploadedFile() file: { buffer: Buffer; size: number; originalname?: string },
   ) {
-    return this.cloudinary.uploadImage(file, 'school-card', userId);
+    return this.cloudinary.uploadSchoolCard(file, userId);
   }
 
   @Get('me')

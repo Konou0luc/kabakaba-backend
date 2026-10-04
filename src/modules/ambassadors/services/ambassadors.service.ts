@@ -179,7 +179,7 @@ export class AmbassadorsService {
       promoCode = await this.generatePromoCode(existing.userId);
     }
 
-    const { treatedByWebUserId: _treatedByWebUserId, suspendedAt: _suspendedAt, ...safeUpdate } = updateAmbassadorDto;
+    const { suspendedAt: _suspendedAt, ...safeUpdate } = updateAmbassadorDto;
     const updated = await this.prisma.ambassador.update({
       where: { id },
       data: {

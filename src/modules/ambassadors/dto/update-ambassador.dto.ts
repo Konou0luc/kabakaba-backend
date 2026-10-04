@@ -1,10 +1,14 @@
-import { ApiProperty, PartialType } from '@nestjs/swagger';
-import { CreateAmbassadorDto } from './create-ambassador.dto';
+import { ApiProperty } from '@nestjs/swagger';
 import { IsOptional, IsEnum, IsString, IsDateString } from 'class-validator';
 import { AmbassadorLevel, AmbassadorStatus } from '@prisma/client';
 
-export class UpdateAmbassadorDto extends PartialType(CreateAmbassadorDto) {
-  @ApiProperty({ enum: AmbassadorLevel, required: false })
+export class UpdateAmbassadorDto {
+  @ApiProperty({ example: 'KABA-LUC-24', required: false, description: 'Code promo unique (généré automatiquement à l\'approbation si absent)' })
+  @IsOptional()
+  @IsString()
+  promoCode?: string;
+
+  @ApiProperty({ enum: AmbassadorLevel, required: false, description: 'Niveau de l\'ambassadeur (BRONZE, SILVER, GOLD)' })
   @IsOptional()
   @IsEnum(AmbassadorLevel)
   level?: AmbassadorLevel;
@@ -19,12 +23,26 @@ export class UpdateAmbassadorDto extends PartialType(CreateAmbassadorDto) {
   @IsString()
   decisionReason?: string;
 
-  @ApiProperty({ required: false, description: 'Identifiant du WebUser ayant traité la candidature' })
+  @ApiProperty({ required: false, description: 'URL de la carte étudiante fournie en candidature' })
   @IsOptional()
   @IsString()
-  treatedByWebUserId?: string;
+  schoolCardUrl?: string;
 
-  @ApiProperty({ required: false, description: 'Date de suspension (à renseigner si status=SUSPENDED)' })
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  institution?: string;
+
+  @ApiProperty({ required: false })
+  @IsOptional()
+  @IsString()
+  faculty?: string;
+
+  @ApiProperty({
+    required: false,
+    deprecated: true,
+    description: 'Obsolète et ignoré : le serveur horodate lui-même la suspension. Accepté pour compatibilité avec les anciens clients.',
+  })
   @IsOptional()
   @IsDateString()
   suspendedAt?: Date;

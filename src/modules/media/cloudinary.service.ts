@@ -8,14 +8,10 @@ import {
   UploadedImageFile,
 } from '../../common/utils/image-type';
 
-export type MediaKind = 'logo' | 'banner' | 'dish' | 'school-card';
-
-const TRANSFORM: Record<MediaKind, UploadApiOptions['transformation']> = {
-  logo: [{ width: 400, height: 400, crop: 'fill', gravity: 'auto' }],
-  banner: [{ width: 1600, height: 640, crop: 'fill', gravity: 'auto' }],
-  dish: [{ width: 800, height: 800, crop: 'fill', gravity: 'auto' }],
-  'school-card': [{ width: 1200, height: 800, crop: 'limit' }],
-};
+// Carte étudiante : redimensionnée sans recadrage, 1200x800 maximum.
+const SCHOOL_CARD_TRANSFORMATION: UploadApiOptions['transformation'] = [
+  { width: 1200, height: 800, crop: 'limit' },
+];
 
 @Injectable()
 export class CloudinaryService {
@@ -60,28 +56,15 @@ export class CloudinaryService {
     }
   }
 
-  folderFor(kind: MediaKind, entityId: string) {
-    if (kind === 'dish') return `${this.rootFolder}/dishes/${entityId}`;
-    if (kind === 'school-card') return `${this.rootFolder}/students/${entityId}`;
-    return `${this.rootFolder}/canteens/${entityId}`;
-  }
-
-  publicIdFor(kind: MediaKind) {
-    if (kind === 'dish') return 'photo';
-    if (kind === 'school-card') return 'school-card';
-    return kind;
-  }
-
-  async uploadImage(
+  async uploadSchoolCard(
     file: UploadedImageFile,
-    kind: MediaKind,
-    entityId: string,
+    userId: string,
   ): Promise<{ url: string; publicId: string }> {
     this.assertConfigured();
     this.assertImage(file);
 
-    const folder = this.folderFor(kind, entityId);
-    const publicId = this.publicIdFor(kind);
+    const folder = `${this.rootFolder}/students/${userId}`;
+    const publicId = 'school-card';
 
     return new Promise((resolve, reject) => {
       const stream = cloudinary.uploader.upload_stream(
@@ -91,7 +74,7 @@ export class CloudinaryService {
           overwrite: true,
           invalidate: true,
           resource_type: 'image',
-          transformation: TRANSFORM[kind],
+          transformation: SCHOOL_CARD_TRANSFORMATION,
         },
         (error, result) => {
           if (error || !result?.secure_url) {
