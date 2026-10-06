@@ -169,8 +169,8 @@ export class TransactionsService {
       const isWebAdmin = actor.kind === 'web' &&
         (actor.role === WebUserRole.ADMIN || actor.role === WebUserRole.SUPERVISION);
       if (isWebAdmin) return transaction;
-      const isParty = transaction.senderId === actor.id || transaction.receiverId === actor.id;
-      if (!isParty) {
+      const isOwner = transaction.userId === actor.id;
+      if (!isOwner) {
         throw new ForbiddenException("Vous n'avez pas accès à cette transaction");
       }
     }

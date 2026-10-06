@@ -395,8 +395,6 @@ model PaymentWebhookEvent {
 model Transaction {
   id               String            @id @default(uuid())
   userId           String
-  senderId         String?
-  receiverId       String?
   type             TransactionType
   status           TransactionStatus @default(COMPLETED)
   amount           Decimal           @db.Decimal(10, 2)
@@ -411,8 +409,6 @@ model Transaction {
   relatedPayment Payment? @relation("TransactionPayment", fields: [relatedPaymentId], references: [id])
 
   @@index([userId])
-  @@index([senderId])
-  @@index([receiverId])
   @@index([type])
   @@index([status])
   @@index([createdAt])
