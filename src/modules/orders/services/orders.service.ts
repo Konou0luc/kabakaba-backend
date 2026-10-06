@@ -4,7 +4,6 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
-import { AbuseService } from '../../abuse/services/abuse.service';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 
 interface Actor {
@@ -34,7 +33,6 @@ export class OrdersService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly abuseService: AbuseService,
     private readonly notifications: NotificationsService,
   ) {}
 
@@ -766,9 +764,7 @@ export class OrdersService {
       return tx.order.findUnique({ where: { id: orderId } });
     });
 
-    const abuse = await this.abuseService.trackStudentCancellation(studentId);
-
-    return { order: updated, abuse };
+    return { order: updated };
   }
 
   /**

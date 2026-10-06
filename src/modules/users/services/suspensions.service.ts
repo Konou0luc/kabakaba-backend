@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
-import { Prisma, SuspensionStatus, SuspensionTrigger } from '@prisma/client';
+import { Prisma, SuspensionStatus } from '@prisma/client';
 
 const BAN_THRESHOLD = 3; // 3 suspensions / 30 j → ban définitif (règle anti-abus produit)
 const BAN_WINDOW_DAYS = 30;
@@ -13,10 +13,8 @@ interface Actor {
 interface SuspendParams {
   studentId: string;
   reason: string;
-  trigger: SuspensionTrigger;
   ruleCode?: string;
   detectionMetadata?: Record<string, unknown>;
-  relatedAbuseLogId?: string;
   suspendedUntil?: Date;
   actor?: Actor;
 }
@@ -30,8 +28,7 @@ export class SuspensionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async suspend(params: SuspendParams) {
-    const { studentId, reason, trigger, ruleCode, detectionMetadata, relatedAbuseLogId, suspendedUntil, actor } =
-      params;
+    const { studentId, reason, ruleCode, detectionMetadata, suspendedUntil, actor } = params;
 
     const student = await this.prisma.user.findUnique({ where: { id: studentId } });
     if (!student) throw new BadRequestException('Étudiant introuvable');
@@ -63,11 +60,9 @@ export class SuspensionsService {
       this.prisma.suspensionEvent.create({
         data: {
           studentId,
-          trigger,
           ruleCode,
           reason,
           detectionMetadata: detectionMetadata as Prisma.InputJsonValue | undefined,
-          relatedAbuseLogId,
           suspendedUntil,
           suspendedByUserId: actor?.kind === 'mobile' ? actor.id : null,
           suspendedByWebUserId: actor?.kind === 'web' ? actor.id : null,
@@ -111,11 +106,10 @@ export class SuspensionsService {
     return this.prisma.suspensionEvent.count({ where: { suspendedAt: { gte: windowStart(30) } } });
   }
 
-  async findAll(page = 1, limit = 20, status?: SuspensionStatus, trigger?: SuspensionTrigger, studentId?: string) {
+  async findAll(page = 1, limit = 20, status?: SuspensionStatus, studentId?: string) {
     const skip = (page - 1) * limit;
     const where = {
       ...(status ? { status } : {}),
-      ...(trigger ? { trigger } : {}),
       ...(studentId ? { studentId } : {}),
     };
 

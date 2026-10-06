@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEnum, IsOptional, IsString } from 'class-validator';
-import { SuspensionStatus, SuspensionTrigger } from '@prisma/client';
+import { SuspensionStatus } from '@prisma/client';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 
 export class FindSuspensionEventsQueryDto extends PaginationDto {
@@ -8,11 +8,6 @@ export class FindSuspensionEventsQueryDto extends PaginationDto {
   @IsOptional()
   @IsEnum(SuspensionStatus)
   status?: SuspensionStatus;
-
-  @ApiProperty({ enum: SuspensionTrigger, required: false, description: 'Filtrer par origine (manuel/automatique)' })
-  @IsOptional()
-  @IsEnum(SuspensionTrigger)
-  trigger?: SuspensionTrigger;
 
   @ApiProperty({ required: false, description: 'Filtrer sur un étudiant précis' })
   @IsOptional()

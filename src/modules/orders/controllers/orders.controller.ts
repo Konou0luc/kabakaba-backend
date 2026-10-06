@@ -130,9 +130,9 @@ export class OrdersController {
   @ApiOperation({
     summary: 'Annuler sa commande (étudiant) — uniquement PENDING',
     description:
-      'Restitue le séquestre et enregistre l\'événement anti-abus (avertissement / suspension 24h / ban).',
+      'Restitue le séquestre.',
   })
-  @ApiResponse({ status: 200, description: 'Commande annulée + info anti-abus' })
+  @ApiResponse({ status: 200, description: 'Commande annulée' })
   cancelByStudent(@Param('id') id: string, @Request() req) {
     return this.ordersService.cancelByStudent(id, req.user.id);
   }

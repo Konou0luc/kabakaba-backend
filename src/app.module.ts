@@ -16,7 +16,6 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
-import { AbuseModule } from './modules/abuse/abuse.module';
 import { AmbassadorsModule } from './modules/ambassadors/ambassadors.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminModule } from './modules/admin/admin.module';
@@ -56,7 +55,6 @@ import { MediaModule } from './modules/media/media.module';
     PaymentsModule,
     TransactionsModule,
     ReviewsModule,
-    AbuseModule,
     AmbassadorsModule,
     NotificationsModule,
     AdminModule,

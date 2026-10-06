@@ -199,7 +199,6 @@ export class UsersService {
       await this.suspensionsService.suspend({
         studentId: id,
         reason: payload.suspensionReason ?? 'Suspension manuelle',
-        trigger: 'MANUAL',
         suspendedUntil: payload.suspensionUntil
           ? new Date(payload.suspensionUntil)
           : undefined,

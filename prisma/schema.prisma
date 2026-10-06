@@ -101,11 +101,6 @@ enum DevicePlatform {
   WEB
 }
 
-enum SuspensionTrigger {
-  MANUAL
-  AUTOMATIC
-}
-
 enum SuspensionStatus {
   ACTIVE
   LIFTED
@@ -175,7 +170,6 @@ model User {
   refreshTokens        RefreshToken[]
   auditLogs            AuditLog[]
   payments             Payment[]
-  abuseLogs            AbuseLog[]
   affiliate            AmbassadorAffiliate?
   changedOrderStatuses OrderStatusHistory[]
   disputesAsStudent    Dispute[]            @relation("DisputeStudent")
@@ -531,37 +525,17 @@ model Review {
   vendor  Vendor @relation(fields: [vendorId], references: [id])
 }
 
-model AbuseLog {
-  id          String    @id @default(uuid())
-  studentId   String
-  count       Int       @default(0)
-  windowStart DateTime  @default(now())
-  warningSent Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  deletedAt   DateTime?
-
-  student          User              @relation(fields: [studentId], references: [id])
-  suspensionEvents SuspensionEvent[]
-
-  @@index([studentId])
-}
-
 /// Un simple booléen isSuspended sur User ne suffit pas : il est écrasé à
 /// chaque changement et ne garde aucune trace une fois la suspension levée.
-/// Ce modèle conserve l'historique complet (nombre de suspensions, motifs,
-/// origine manuelle/automatique) nécessaire au calcul du bannissement
-/// définitif (5 suspensions sur une fenêtre glissante de 30 jours).
+/// Ce modèle conserve l'historique complet (nombre de suspensions, motifs)
+/// nécessaire au calcul du bannissement définitif (5 suspensions sur une fenêtre glissante de 30 jours).
 model SuspensionEvent {
   id                   String            @id @default(uuid())
   studentId            String
   student              User              @relation(fields: [studentId], references: [id])
-  trigger              SuspensionTrigger
   ruleCode             String?
   reason               String
   detectionMetadata    Json?
-  relatedAbuseLogId    String?
-  relatedAbuseLog      AbuseLog?         @relation(fields: [relatedAbuseLogId], references: [id])
   status               SuspensionStatus  @default(ACTIVE)
   suspendedAt          DateTime          @default(now())
   suspendedUntil       DateTime?

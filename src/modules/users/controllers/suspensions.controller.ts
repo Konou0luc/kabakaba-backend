@@ -22,6 +22,6 @@ export class SuspensionsController {
   @ApiQuery({ type: FindSuspensionEventsQueryDto })
   @ApiResponse({ status: 200, description: 'Retourne les événements de suspension avec pagination.' })
   findAll(@Query() query: FindSuspensionEventsQueryDto) {
-    return this.suspensionsService.findAll(query.page, query.limit, query.status, query.trigger, query.studentId);
+    return this.suspensionsService.findAll(query.page, query.limit, query.status, query.studentId);
   }
 }
