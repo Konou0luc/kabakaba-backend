@@ -139,9 +139,6 @@ model User {
   suspendedAt        DateTime?
   suspensionUntil    DateTime?
   suspensionReason   String?
-  isBanned           Boolean   @default(false)
-  bannedAt           DateTime?
-  banReason          String?
   mustChangePassword Boolean   @default(false)
   // Authentification vendeur mobile par code PIN (voir VendorAuthService).
   // pinHash est un bcrypt appliqué NON PAS au PIN brut mais à son HMAC
@@ -527,15 +524,13 @@ model Review {
 
 /// Un simple booléen isSuspended sur User ne suffit pas : il est écrasé à
 /// chaque changement et ne garde aucune trace une fois la suspension levée.
-/// Ce modèle conserve l'historique complet (nombre de suspensions, motifs)
-/// nécessaire au calcul du bannissement définitif (5 suspensions sur une fenêtre glissante de 30 jours).
+/// Ce modèle conserve l'historique complet des suspensions (dates, motifs,
+/// auteur de la suspension et de sa levée).
 model SuspensionEvent {
   id                   String            @id @default(uuid())
   studentId            String
   student              User              @relation(fields: [studentId], references: [id])
-  ruleCode             String?
   reason               String
-  detectionMetadata    Json?
   status               SuspensionStatus  @default(ACTIVE)
   suspendedAt          DateTime          @default(now())
   suspendedUntil       DateTime?

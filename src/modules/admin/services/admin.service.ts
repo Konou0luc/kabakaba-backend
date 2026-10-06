@@ -31,7 +31,6 @@ export class AdminService {
       totalTransactions,
       activeSuspensions,
       suspensions30d,
-      totalBanned,
       activeStudentRows,
       activeVendorRows,
     ] = await Promise.all([
@@ -42,7 +41,6 @@ export class AdminService {
       this.prisma.transaction.count(),
       this.prisma.user.count({ where: { isSuspended: true } }),
       this.suspensionsService.countLast30Days(),
-      this.prisma.user.count({ where: { isBanned: true } }),
       // Étudiant actif = a passé au moins 1 commande dans les 30 derniers jours
       this.prisma.order.findMany({
         where: { createdAt: { gte: since30d } },
@@ -65,7 +63,6 @@ export class AdminService {
       totalTransactions,
       activeSuspensions,
       suspensions30d,
-      totalBanned,
       activeStudents30d: activeStudentRows.length,
       activeVendors30d: activeVendorRows.length,
     };

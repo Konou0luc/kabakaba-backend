@@ -39,7 +39,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       where: { id: payload.sub },
     });
 
-    if (!user || user.deletedAt || user.isBanned) return null;
+    if (!user || user.deletedAt) return null;
 
     // Les rôles ADMIN appartiennent exclusivement au back-office Web.
     // Refus explicite même si un ancien JWT mobile ou un token forgé avec la bonne
@@ -79,9 +79,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
           where: { id: payload.sub },
         });
 
-        // Re-contrôle défensif après relecture : le compte a pu être banni
-        // ou supprimé entre la première lecture et la levée de suspension.
-        if (!user || user.deletedAt || user.isBanned) return null;
+        // Re-contrôle défensif après relecture : le compte a pu être
+        // supprimé entre la première lecture et la levée de suspension.
+        if (!user || user.deletedAt) return null;
         if (user.role === UserRole.ADMIN) return null;
       } else {
         // Encore sous suspension : accès refusé → fonds gelés côté API

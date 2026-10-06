@@ -225,13 +225,12 @@ export class VendorAuthService {
   }
 
   private assertAccountUsable(user: {
-    isBanned: boolean;
     deletedAt: Date | null;
     isSuspended: boolean;
     suspensionUntil: Date | null;
     suspensionReason: string | null;
   }) {
-    if (user.deletedAt || user.isBanned) {
+    if (user.deletedAt) {
       throw new ForbiddenException(
         'Ce compte a été désactivé. Contacte un administrateur kabakaba.',
       );

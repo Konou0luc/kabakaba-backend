@@ -1,9 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
-import { Prisma, SuspensionStatus } from '@prisma/client';
-
-const BAN_THRESHOLD = 3; // 3 suspensions / 30 j → ban définitif (règle anti-abus produit)
-const BAN_WINDOW_DAYS = 30;
+import { SuspensionStatus } from '@prisma/client';
 
 interface Actor {
   id: string;
@@ -13,8 +10,6 @@ interface Actor {
 interface SuspendParams {
   studentId: string;
   reason: string;
-  ruleCode?: string;
-  detectionMetadata?: Record<string, unknown>;
   suspendedUntil?: Date;
   actor?: Actor;
 }
@@ -28,18 +23,10 @@ export class SuspensionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   async suspend(params: SuspendParams) {
-    const { studentId, reason, ruleCode, detectionMetadata, suspendedUntil, actor } = params;
+    const { studentId, reason, suspendedUntil, actor } = params;
 
     const student = await this.prisma.user.findUnique({ where: { id: studentId } });
     if (!student) throw new BadRequestException('Étudiant introuvable');
-    if (student.isBanned) throw new BadRequestException('Ce compte est déjà banni définitivement');
-
-    const recentCount = await this.prisma.suspensionEvent.count({
-      where: { studentId, suspendedAt: { gte: windowStart(BAN_WINDOW_DAYS) } },
-    });
-    const totalAfterThisOne = recentCount + 1;
-    const shouldBan = totalAfterThisOne >= BAN_THRESHOLD;
-
     const [, event] = await this.prisma.$transaction([
       this.prisma.user.update({
         where: { id: studentId },
@@ -48,42 +35,30 @@ export class SuspensionsService {
           suspendedAt: new Date(),
           suspensionReason: reason,
           suspensionUntil: suspendedUntil ?? null,
-          ...(shouldBan
-            ? {
-                isBanned: true,
-                bannedAt: new Date(),
-                banReason: `Bannissement automatique : ${totalAfterThisOne} suspensions en ${BAN_WINDOW_DAYS} jours`,
-              }
-            : {}),
         },
       }),
       this.prisma.suspensionEvent.create({
         data: {
           studentId,
-          ruleCode,
           reason,
-          detectionMetadata: detectionMetadata as Prisma.InputJsonValue | undefined,
           suspendedUntil,
           suspendedByUserId: actor?.kind === 'mobile' ? actor.id : null,
           suspendedByWebUserId: actor?.kind === 'web' ? actor.id : null,
         },
       }),
-      // Toute suspension/bannissement invalide les sessions mobiles existantes.
+      // Toute suspension invalide les sessions mobiles existantes.
       this.prisma.refreshToken.updateMany({
         where: { userId: studentId, revoked: false },
         data: { revoked: true },
       }),
     ]);
 
-    return { event, banned: shouldBan, recentSuspensionCount: totalAfterThisOne };
+    return { event };
   }
 
   async lift(studentId: string, actor?: Actor) {
     const student = await this.prisma.user.findUnique({ where: { id: studentId } });
     if (!student) throw new BadRequestException('Étudiant introuvable');
-    if (student.isBanned) {
-      throw new BadRequestException("Ce compte est banni définitivement — la levée normale ne s'applique pas");
-    }
 
     await this.prisma.$transaction([
       this.prisma.user.update({
@@ -121,7 +96,7 @@ export class SuspensionsService {
         take: limit,
         orderBy: { suspendedAt: 'desc' },
         include: {
-          student: { select: { id: true, firstName: true, lastName: true, phone: true, isBanned: true, campus: { select: { id: true, name: true } } } },
+          student: { select: { id: true, firstName: true, lastName: true, phone: true, campus: { select: { id: true, name: true } } } },
         },
       }),
     ]);
