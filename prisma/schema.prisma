@@ -82,7 +82,6 @@ enum WithdrawalAppealStatus {
   REJECTED
 }
 
-
 enum NotificationType {
   INFO
   SUCCESS
@@ -99,6 +98,11 @@ enum DevicePlatform {
   ANDROID
   IOS
   WEB
+}
+
+enum ConsumptionMode {
+  ON_SITE
+  TAKEAWAY
 }
 
 enum SuspensionStatus {
@@ -196,15 +200,16 @@ model Vendor {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  user        User             @relation(fields: [userId], references: [id])
-  campuses    VendorCampus[]
-  menuItems   MenuItem[]
-  orders      Order[]
-  withdrawals Withdrawal[]
-  debts       Debt[]
-  reviews     Review[]
-  disputes    Dispute[]
-  schedules   VendorSchedule[]
+  user            User             @relation(fields: [userId], references: [id])
+  campuses        VendorCampus[]
+  menuItems       MenuItem[]
+  orders          Order[]
+  withdrawals     Withdrawal[]
+  debts           Debt[]
+  reviews         Review[]
+  disputes        Dispute[]
+  schedules       VendorSchedule[]
+  takeawayOptions TakeawayOption[]
 
   @@index([canteenName])
   @@index([isOpen])
@@ -234,9 +239,8 @@ model MenuItem {
   updatedAt       DateTime     @updatedAt
   deletedAt       DateTime?
 
-  vendor     Vendor            @relation(fields: [vendorId], references: [id])
+  vendor     Vendor          @relation(fields: [vendorId], references: [id])
   components MenuComponent[]
-  packaging  PackagingOption[]
   orderItems OrderItem[]
 }
 
@@ -255,39 +259,43 @@ model MenuComponent {
   orderItemComponents OrderItemComponent[]
 }
 
-model PackagingOption {
-  id        String    @id @default(uuid())
-  itemId    String
-  name      String
-  extraCost Int       @default(0)
-  required  Boolean   @default(false)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+model TakeawayOption {
+  id           String    @id @default(uuid())
+  vendorId     String
+  name         String
+  priceTickets Int       @default(0)
+  isActive     Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  deletedAt    DateTime?
 
-  menuItem MenuItem @relation(fields: [itemId], references: [id])
-  orders   Order[]
+  vendor Vendor  @relation(fields: [vendorId], references: [id])
+  orders Order[]
+
+  @@index([vendorId])
 }
 
 model Order {
-  id                String      @id @default(uuid())
-  studentId         String
-  vendorId          String
-  status            OrderStatus @default(PENDING)
-  totalTickets      Int
-  escrowAmount      Decimal     @db.Decimal(10, 2)
-  packagingOptionId String?
-  reason            String?
-  readyAt           DateTime?
-  escrowReleasedAt  DateTime?
-  confirmedAt       DateTime?
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
-  deletedAt         DateTime?
+  id                 String          @id @default(uuid())
+  studentId          String
+  vendorId           String
+  status             OrderStatus     @default(PENDING)
+  totalTickets       Int
+  escrowAmount       Decimal         @db.Decimal(10, 2)
+  consumptionMode    ConsumptionMode
+  takeawayOptionId   String?
+  takeawayFeeTickets Int             @default(0)
+  reason             String?
+  readyAt            DateTime?
+  escrowReleasedAt   DateTime?
+  confirmedAt        DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  deletedAt          DateTime?
 
   student             User                 @relation("StudentOrders", fields: [studentId], references: [id])
   vendor              Vendor               @relation(fields: [vendorId], references: [id])
-  packagingOption     PackagingOption?     @relation(fields: [packagingOptionId], references: [id])
+  takeawayOption      TakeawayOption?      @relation(fields: [takeawayOptionId], references: [id])
   items               OrderItem[]
   review              Review?
   statusHistory       OrderStatusHistory[]
@@ -370,12 +378,12 @@ enum TransactionStatus {
 }
 
 model PaymentWebhookEvent {
-  id              String   @id @default(uuid())
-  providerEventKey String   @unique
-  paymentId       String
-  eventName       String
-  receivedAt      DateTime @default(now())
-  processedAt     DateTime?
+  id               String    @id @default(uuid())
+  providerEventKey String    @unique
+  paymentId        String
+  eventName        String
+  receivedAt       DateTime  @default(now())
+  processedAt      DateTime?
 
   payment Payment @relation(fields: [paymentId], references: [id])
 
@@ -406,49 +414,49 @@ model Transaction {
 }
 
 model Withdrawal {
-  id          String           @id @default(uuid())
-  vendorId    String
-  amount      Decimal          @db.Decimal(10, 2)
-  platformFee Decimal          @db.Decimal(10, 2)
-  operatorFee Decimal          @db.Decimal(10, 2)
+  id                     String           @id @default(uuid())
+  vendorId               String
+  amount                 Decimal          @db.Decimal(10, 2)
+  platformFee            Decimal          @db.Decimal(10, 2)
+  operatorFee            Decimal          @db.Decimal(10, 2)
   // Montant exact décrémenté de vendor.balanceFcfa à la création de ce
   // retrait (amount + éventuels frais à la charge du vendeur selon le
   // palier — voir withdrawal-fees.ts::computeWithdrawalFees.debitedFromBalance).
   // Stocké explicitement pour que updateStatus(FAILED) recrédite le montant
   // réel plutôt que de le reconstruire par déduction à partir du barème de
   // frais, qui peut évoluer.
-  debitedAmount Decimal        @db.Decimal(10, 2)
+  debitedAmount          Decimal          @db.Decimal(10, 2)
   // Frais réellement retenus par Kabakaba sur ce retrait. Avec le mode
   // manuel, ils ne sont plus payés à FedaPay : ils restent dans la caisse
   // de la plateforme (notamment le barème < 10 000 FCFA).
-  feeRetained Decimal         @default(0) @db.Decimal(10, 2)
-  operator      String?
+  feeRetained            Decimal          @default(0) @db.Decimal(10, 2)
+  operator               String?
   // Héritage du chantier FedaPay. payoutAmount est désormais le montant
   // exact à envoyer manuellement ; les champs payoutReference/payoutRequestedAt
   // restent conservés pour compatibilité avec les anciennes lignes.
-  payoutAmount  Decimal?       @db.Decimal(10, 2)
-  payoutReference String?      @unique
-  payoutRequestedAt DateTime?
-  payoutCompletedAt DateTime?
-  acceptedAt DateTime?
-  acceptedByWebUserId String?
-  paidAt DateTime?
+  payoutAmount           Decimal?         @db.Decimal(10, 2)
+  payoutReference        String?          @unique
+  payoutRequestedAt      DateTime?
+  payoutCompletedAt      DateTime?
+  acceptedAt             DateTime?
+  acceptedByWebUserId    String?
+  paidAt                 DateTime?
   confirmationDeadlineAt DateTime?
-  autoConfirmedAt DateTime?
-  cancelledAt DateTime?
-  cancelledByWebUserId String?
-  failureReason String?
-  cancellationReason String?
-  status      WithdrawalStatus @default(PENDING)
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-  deletedAt   DateTime?
+  autoConfirmedAt        DateTime?
+  cancelledAt            DateTime?
+  cancelledByWebUserId   String?
+  failureReason          String?
+  cancellationReason     String?
+  status                 WithdrawalStatus @default(PENDING)
+  createdAt              DateTime         @default(now())
+  updatedAt              DateTime         @updatedAt
+  deletedAt              DateTime?
 
-  vendor Vendor @relation(fields: [vendorId], references: [id])
-  acceptedByWebUser WebUser? @relation("WithdrawalAcceptedBy", fields: [acceptedByWebUserId], references: [id])
-  cancelledByWebUser WebUser? @relation("WithdrawalCancelledBy", fields: [cancelledByWebUserId], references: [id])
-  proof WithdrawalProof?
-  appeals WithdrawalAppeal[]
+  vendor             Vendor             @relation(fields: [vendorId], references: [id])
+  acceptedByWebUser  WebUser?           @relation("WithdrawalAcceptedBy", fields: [acceptedByWebUserId], references: [id])
+  cancelledByWebUser WebUser?           @relation("WithdrawalCancelledBy", fields: [cancelledByWebUserId], references: [id])
+  proof              WithdrawalProof?
+  appeals            WithdrawalAppeal[]
 
   @@index([status])
   @@index([confirmationDeadlineAt])
@@ -456,37 +464,37 @@ model Withdrawal {
 }
 
 model WithdrawalProof {
-  id String @id @default(uuid())
-  withdrawalId String @unique
+  id                  String   @id @default(uuid())
+  withdrawalId        String   @unique
   uploadedByWebUserId String
-  originalName String
-  contentType String
-  sizeBytes Int
-  sha256 String
-  data Bytes
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  originalName        String
+  contentType         String
+  sizeBytes           Int
+  sha256              String
+  data                Bytes
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
 
-  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id])
-  uploadedByWebUser WebUser @relation(fields: [uploadedByWebUserId], references: [id])
+  withdrawal        Withdrawal @relation(fields: [withdrawalId], references: [id])
+  uploadedByWebUser WebUser    @relation(fields: [uploadedByWebUserId], references: [id])
 
   @@index([uploadedByWebUserId])
 }
 
 model WithdrawalAppeal {
-  id String @id @default(uuid())
-  withdrawalId String
-  type WithdrawalAppealType
-  reason String
-  status WithdrawalAppealStatus @default(PENDING)
+  id                  String                 @id @default(uuid())
+  withdrawalId        String
+  type                WithdrawalAppealType
+  reason              String
+  status              WithdrawalAppealStatus @default(PENDING)
   resolvedByWebUserId String?
-  resolutionNote String?
-  resolvedAt DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  resolutionNote      String?
+  resolvedAt          DateTime?
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
 
-  withdrawal Withdrawal @relation(fields: [withdrawalId], references: [id])
-  resolvedByWebUser WebUser? @relation("WithdrawalAppealResolvedBy", fields: [resolvedByWebUserId], references: [id])
+  withdrawal        Withdrawal @relation(fields: [withdrawalId], references: [id])
+  resolvedByWebUser WebUser?   @relation("WithdrawalAppealResolvedBy", fields: [resolvedByWebUserId], references: [id])
 
   @@index([withdrawalId, status])
   @@index([createdAt])
@@ -527,19 +535,19 @@ model Review {
 /// Ce modèle conserve l'historique complet des suspensions (dates, motifs,
 /// auteur de la suspension et de sa levée).
 model SuspensionEvent {
-  id                   String            @id @default(uuid())
+  id                   String           @id @default(uuid())
   studentId            String
-  student              User              @relation(fields: [studentId], references: [id])
+  student              User             @relation(fields: [studentId], references: [id])
   reason               String
-  status               SuspensionStatus  @default(ACTIVE)
-  suspendedAt          DateTime          @default(now())
+  status               SuspensionStatus @default(ACTIVE)
+  suspendedAt          DateTime         @default(now())
   suspendedUntil       DateTime?
   liftedAt             DateTime?
   suspendedByUserId    String?
   suspendedByWebUserId String?
   liftedByUserId       String?
   liftedByWebUserId    String?
-  createdAt            DateTime          @default(now())
+  createdAt            DateTime         @default(now())
 
   @@index([studentId])
   @@index([suspendedAt])
@@ -735,17 +743,17 @@ model WebUser {
   partnerApplicationsTreated PartnerApplication[]
   disputesTreated            Dispute[]
   ambassadorsTreated         Ambassador[]
-  withdrawalsAccepted       Withdrawal[] @relation("WithdrawalAcceptedBy")
-  withdrawalsCancelled      Withdrawal[] @relation("WithdrawalCancelledBy")
-  withdrawalProofsUploaded  WithdrawalProof[]
-  withdrawalAppealsResolved WithdrawalAppeal[] @relation("WithdrawalAppealResolvedBy")
+  withdrawalsAccepted        Withdrawal[]             @relation("WithdrawalAcceptedBy")
+  withdrawalsCancelled       Withdrawal[]             @relation("WithdrawalCancelledBy")
+  withdrawalProofsUploaded   WithdrawalProof[]
+  withdrawalAppealsResolved  WithdrawalAppeal[]       @relation("WithdrawalAppealResolvedBy")
   deletionRequestsAsTarget   WebUserDeletionRequest[] @relation("DeletionTarget")
   deletionRequestsInitiated  WebUserDeletionRequest[] @relation("DeletionInitiator")
   deletionRequestsConfirmed  WebUserDeletionRequest[] @relation("DeletionConfirmer")
 
-  deletionApprovals          WebUserDeletionApproval[]
-  backupCodes                WebUserBackupCode[]
-  authChallenges             WebAuthChallenge[]
+  deletionApprovals WebUserDeletionApproval[]
+  backupCodes       WebUserBackupCode[]
+  authChallenges    WebAuthChallenge[]
 
   @@index([email])
   @@index([role])
@@ -797,21 +805,21 @@ enum WebUserDeletionStatus {
 ///   (status EXPIRED). Le vote de l'initiateur est ajouté automatiquement.
 /// Le compte root est protégé et ne peut jamais être ciblé.
 model WebUserDeletionRequest {
-  id                   String                 @id @default(uuid())
+  id                   String                @id @default(uuid())
   targetWebUserId      String
   initiatedByWebUserId String
   confirmedByWebUserId String?
   reason               String?
-  status               WebUserDeletionStatus  @default(PENDING)
+  status               WebUserDeletionStatus @default(PENDING)
   expiresAt            DateTime
-  createdAt            DateTime               @default(now())
+  createdAt            DateTime              @default(now())
   confirmedAt          DateTime?
   cancelledAt          DateTime?
 
-  targetWebUser  WebUser                   @relation("DeletionTarget", fields: [targetWebUserId], references: [id])
-  initiatedBy    WebUser                   @relation("DeletionInitiator", fields: [initiatedByWebUserId], references: [id])
-  confirmedBy    WebUser?                  @relation("DeletionConfirmer", fields: [confirmedByWebUserId], references: [id])
-  approvals      WebUserDeletionApproval[]
+  targetWebUser WebUser                   @relation("DeletionTarget", fields: [targetWebUserId], references: [id])
+  initiatedBy   WebUser                   @relation("DeletionInitiator", fields: [initiatedByWebUserId], references: [id])
+  confirmedBy   WebUser?                  @relation("DeletionConfirmer", fields: [confirmedByWebUserId], references: [id])
+  approvals     WebUserDeletionApproval[]
 
   @@index([targetWebUserId])
   @@index([status])
@@ -932,5 +940,3 @@ model VendorSchedule {
 
   @@index([vendorId])
 }
-
-

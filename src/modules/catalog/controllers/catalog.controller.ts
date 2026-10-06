@@ -22,11 +22,11 @@ import { CreateMenuItemDto } from '../dto/create-menu-item.dto';
 import { UpdateMenuItemDto } from '../dto/update-menu-item.dto';
 import { CreateMenuComponentDto } from '../dto/create-menu-component.dto';
 import { UpdateMenuComponentDto } from '../dto/update-menu-component.dto';
-import { CreatePackagingOptionDto } from '../dto/create-packaging-option.dto';
-import { UpdatePackagingOptionDto } from '../dto/update-packaging-option.dto';
+import { CreateTakeawayOptionDto } from '../dto/create-takeaway-option.dto';
+import { UpdateTakeawayOptionDto } from '../dto/update-takeaway-option.dto';
 import { MenuItemEntity } from '../entities/menu-item.entity';
 import { MenuComponentEntity } from '../entities/menu-component.entity';
-import { PackagingOptionEntity } from '../entities/packaging-option.entity';
+import { TakeawayOptionEntity } from '../entities/takeaway-option.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { FindMenuItemsQueryDto } from '../dto/find-menu-items-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -191,80 +191,89 @@ export class CatalogController {
     return this.catalogService.removeMenuComponent(id, actorFromRequest(req));
   }
 
-  // Packaging Options
-  @Post('packaging-options')
+  // Options d'emporté
+  @Post('takeaway-options')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Create a new packaging option (Admin or Vendor)' })
+  @ApiOperation({ summary: "Créer une option d'emporté (Admin ou Vendeuse)" })
   @ApiResponse({
     status: 201,
-    description: 'The packaging option has been successfully created.',
-    type: PackagingOptionEntity,
+    description: "L'option d'emporté a été créée.",
+    type: TakeawayOptionEntity,
   })
-  createPackagingOption(@Body() createPackagingOptionDto: CreatePackagingOptionDto, @Request() req) {
-    return this.catalogService.createPackagingOption(createPackagingOptionDto, actorFromRequest(req));
+  createTakeawayOption(@Body() createTakeawayOptionDto: CreateTakeawayOptionDto, @Request() req) {
+    return this.catalogService.createTakeawayOption(createTakeawayOptionDto, actorFromRequest(req));
   }
 
-  @Get('packaging-options/:itemId')
-  @Public()
-  @ApiOperation({ summary: 'Get all active packaging options for a menu item' })
+  @Get('takeaway-options/manage/:vendorId')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.VENDOR)
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({ summary: "Lister toutes les options d'emporté d'une cantine, actives ou non (Admin ou Vendeuse propriétaire)" })
   @ApiQuery({ type: PaginationDto })
-  @ApiResponse({
-    status: 200,
-    description: 'Return all active packaging options with pagination.',
-  })
-  findAllPackagingOptions(
-    @Param('itemId') itemId: string,
+  @ApiResponse({ status: 200, description: "Retourne les options d'emporté non supprimées, avec pagination." })
+  findManagedTakeawayOptions(
+    @Param('vendorId') vendorId: string,
+    @Request() req,
     @Query() paginationDto?: PaginationDto,
   ) {
-    return this.catalogService.findAllPackagingOptions(
-      itemId,
+    return this.catalogService.findManagedTakeawayOptions(
+      vendorId,
+      actorFromRequest(req),
       paginationDto?.page,
       paginationDto?.limit,
     );
   }
 
-  @Get('packaging-options/detail/:id')
+  @Get('takeaway-options/:vendorId')
   @Public()
-  @ApiOperation({ summary: 'Get a single active packaging option' })
-  @ApiResponse({ status: 200, description: 'Return the packaging option.', type: PackagingOptionEntity })
-  @ApiResponse({ status: 404, description: 'Packaging option not found.' })
-  findOnePackagingOption(@Param('id') id: string) {
-    return this.catalogService.findOnePackagingOption(id);
+  @ApiOperation({ summary: "Lister les options d'emporté actives d'une cantine" })
+  @ApiQuery({ type: PaginationDto })
+  @ApiResponse({ status: 200, description: "Retourne les options d'emporté actives, avec pagination. Liste vide : l'emporté n'est pas disponible." })
+  findActiveTakeawayOptions(
+    @Param('vendorId') vendorId: string,
+    @Query() paginationDto?: PaginationDto,
+  ) {
+    return this.catalogService.findActiveTakeawayOptions(
+      vendorId,
+      paginationDto?.page,
+      paginationDto?.limit,
+    );
   }
 
-  @Patch('packaging-options/:id')
+  @Patch('takeaway-options/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Update a packaging option (Admin or Vendor)' })
+  @ApiOperation({ summary: "Modifier une option d'emporté : nom, prix, activation (Admin ou Vendeuse propriétaire)" })
   @ApiResponse({
     status: 200,
-    description: 'The packaging option has been successfully updated.',
-    type: PackagingOptionEntity,
+    description: "L'option d'emporté a été modifiée.",
+    type: TakeawayOptionEntity,
   })
-  updatePackagingOption(
+  updateTakeawayOption(
     @Param('id') id: string,
-    @Body() updatePackagingOptionDto: UpdatePackagingOptionDto,
+    @Body() updateTakeawayOptionDto: UpdateTakeawayOptionDto,
     @Request() req,
   ) {
-    return this.catalogService.updatePackagingOption(id, updatePackagingOptionDto, actorFromRequest(req));
+    return this.catalogService.updateTakeawayOption(id, updateTakeawayOptionDto, actorFromRequest(req));
   }
 
-  @Delete('packaging-options/:id')
+  @Delete('takeaway-options/:id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Soft delete a packaging option (Admin or Vendor)' })
+  @ApiOperation({ summary: "Supprimer (suppression logique) une option d'emporté (Admin ou Vendeuse propriétaire)" })
   @ApiResponse({
     status: 200,
-    description: 'The packaging option has been successfully soft deleted.',
+    description: "L'option d'emporté a été supprimée logiquement.",
   })
-  removePackagingOption(@Param('id') id: string, @Request() req) {
-    return this.catalogService.removePackagingOption(id, actorFromRequest(req));
+  removeTakeawayOption(@Param('id') id: string, @Request() req) {
+    return this.catalogService.removeTakeawayOption(id, actorFromRequest(req));
   }
 }

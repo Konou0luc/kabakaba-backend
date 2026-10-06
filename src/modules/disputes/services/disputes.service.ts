@@ -172,7 +172,7 @@ export class DisputesService {
           include: {
             statusHistory: { orderBy: { createdAt: 'asc' } },
             review: true,
-            packagingOption: { select: { name: true } },
+            takeawayOption: { select: { name: true } },
           },
         },
       },
@@ -266,7 +266,8 @@ export class DisputesService {
         id: dispute.order.id,
         status: dispute.order.status,
         totalTickets: dispute.order.totalTickets,
-        packagingOptionName: dispute.order.packagingOption?.name ?? null,
+        consumptionMode: dispute.order.consumptionMode,
+        takeawayOptionName: dispute.order.takeawayOption?.name ?? null,
         createdAt: dispute.order.createdAt,
         readyAt: dispute.order.readyAt,
         confirmedAt: dispute.order.confirmedAt,

@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { BaseEntity } from '../../../common/entities/base.entity';
-import { OrderStatus } from '@prisma/client';
+import { OrderStatus, ConsumptionMode } from '@prisma/client';
 
 export class OrderEntity extends BaseEntity {
   @ApiProperty({ example: 'student-uuid' })
@@ -18,8 +18,14 @@ export class OrderEntity extends BaseEntity {
   @ApiProperty({ example: 150.00 })
   escrowAmount: number;
 
-  @ApiProperty({ example: 'packaging-option-uuid', required: false })
-  packagingOptionId?: string;
+  @ApiProperty({ enum: ConsumptionMode })
+  consumptionMode: ConsumptionMode;
+
+  @ApiProperty({ required: false, description: "Option d'emporté choisie (si TAKEAWAY)" })
+  takeawayOptionId?: string;
+
+  @ApiProperty({ example: 1, description: "Prix de l'option d'emporté figé à la commande, en tickets (0 sur place)" })
+  takeawayFeeTickets: number;
 
   @ApiProperty({ example: 'Raison de refus', required: false })
   reason?: string;

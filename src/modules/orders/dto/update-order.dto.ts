@@ -5,8 +5,8 @@ import { OrderStatus } from '@prisma/client';
 /**
  * Une commande est financièrement immuable après sa création.
  * Le PATCH ne permet donc de modifier que son statut et, éventuellement,
- * son motif opérationnel. Les montants, le vendeur, les articles et
- * l'emballage sont définitivement ceux calculés lors de la création.
+ * son motif opérationnel. Les montants, le vendeur et les articles
+ * sont définitivement ceux calculés lors de la création.
  */
 export class UpdateOrderDto {
   @ApiProperty({ enum: OrderStatus, required: false })

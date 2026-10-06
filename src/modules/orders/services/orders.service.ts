@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrderStatus, UserRole, Prisma, NotificationType } from '@prisma/client';
+import { OrderStatus, UserRole, Prisma, NotificationType, ConsumptionMode } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
@@ -62,7 +62,7 @@ export class OrdersService {
   }
 
   async create(createOrderDto: CreateOrderDto, studentId: string) {
-    const { vendorId, items, packagingOptionId } = createOrderDto;
+    const { vendorId, items, consumptionMode, takeawayOptionId } = createOrderDto;
 
     const order = await this.prisma.$transaction(async (tx) => {
       const vendor = await tx.vendor.findUnique({ where: { id: vendorId, deletedAt: null } });
@@ -155,29 +155,31 @@ export class OrdersService {
         });
       }
 
-      let packagingExtraCost = 0;
-      if (packagingOptionId) {
-        const packaging = await tx.packagingOption.findUnique({
-          where: { id: packagingOptionId, deletedAt: null },
-        });
-        if (!packaging) throw new NotFoundException("Option d'emballage introuvable");
-        if (!menuItemIds.includes(packaging.itemId)) {
-          throw new BadRequestException(
-            "Cette option d'emballage ne correspond à aucun des articles commandés",
-          );
+      // Mode de consommation. Sur place : aucune option admise. À emporter :
+      // l'option doit appartenir à la cantine de la commande, être active et
+      // non supprimée ; son prix est ajouté UNE SEULE fois au total et figé
+      // dans takeawayFeeTickets (l'historique ne bouge pas si la vendeuse
+      // modifie ensuite son tarif).
+      let takeawayFeeTickets = 0;
+      let takeawayOptionIdToSave: string | null = null;
+      if (consumptionMode === ConsumptionMode.ON_SITE) {
+        if (takeawayOptionId !== undefined && takeawayOptionId !== null) {
+          throw new BadRequestException("Une option d'emporté ne peut pas être choisie pour une commande sur place");
         }
-        packagingExtraCost = packaging.extraCost;
       } else {
-        // Aucun emballage choisi : vérifier qu'aucun item commandé n'en impose un.
-        const requiredPackaging = await tx.packagingOption.findFirst({
-          where: { itemId: { in: menuItemIds }, required: true, deletedAt: null },
-        });
-        if (requiredPackaging) {
-          throw new BadRequestException("Un choix d'emballage est requis pour cette commande");
+        if (!takeawayOptionId) {
+          throw new BadRequestException("Une option d'emporté est requise pour une commande à emporter");
         }
+        const takeawayOption = await tx.takeawayOption.findFirst({
+          where: { id: takeawayOptionId, vendorId, isActive: true, deletedAt: null },
+        });
+        if (!takeawayOption) {
+          throw new NotFoundException("Option d'emporté introuvable ou indisponible pour cette cantine");
+        }
+        takeawayFeeTickets = takeawayOption.priceTickets;
+        takeawayOptionIdToSave = takeawayOption.id;
       }
-
-      totalTickets += packagingExtraCost;
+      totalTickets += takeawayFeeTickets;
 
       // Tickets = FCFA en séquestre, conversion 1:1 : aucune commission sur
       // les commandes (contrairement aux recharges wallet, qui ont leur
@@ -204,7 +206,9 @@ export class OrdersService {
           vendorId,
           totalTickets,
           escrowAmount,
-          packagingOptionId: packagingOptionId ?? null,
+          consumptionMode,
+          takeawayOptionId: takeawayOptionIdToSave,
+          takeawayFeeTickets,
           items: {
             create: orderItemsData.map((item) => ({
               itemId: item.itemId,
@@ -292,10 +296,7 @@ export class OrdersService {
           },
           student: { select: { id: true, firstName: true, lastName: true, campus: { select: { id: true, name: true } } } },
           vendor: { select: { id: true, canteenName: true } },
-          // Le vendeur doit savoir si la commande est à emporter ou sur
-          // place : sans ce nom, le client ne dispose que de la clé
-          // étrangère packagingOptionId et ne peut que le deviner.
-          packagingOption: { select: { id: true, name: true } },
+          takeawayOption: { select: { id: true, name: true } },
         },
       }),
     ]);
@@ -325,7 +326,7 @@ export class OrdersService {
           },
         },
         vendor: { select: { id: true, canteenName: true } },
-        packagingOption: { select: { id: true, name: true } },
+        takeawayOption: { select: { id: true, name: true } },
       },
     });
 
