@@ -189,8 +189,7 @@ export class OrdersService {
       // MISE EN SÉQUESTRE : avant ce correctif, aucune ligne de ce service
       // ne vérifiait le solde de l'étudiant ni ne débitait son wallet à la
       // commande — Order.escrowAmount n'était qu'un nombre stocké sans
-      // aucun effet financier réel. Débit conditionnel atomique (même
-      // pattern que wallet.service.ts pour les transferts) : la clause
+      // aucun effet financier réel. Débit conditionnel atomique : la clause
       // walletBalance >= totalTickets dans le where empêche toute commande
       // au-delà du solde disponible, y compris en cas de requêtes concurrentes.
       const debited = await tx.user.updateMany({

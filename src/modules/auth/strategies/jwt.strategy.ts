@@ -85,7 +85,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         if (user.role === UserRole.ADMIN) return null;
       } else {
         // Encore sous suspension : accès refusé → fonds gelés côté API
-        // (aucune commande / transfert / recharge possible).
+        // (aucune commande / recharge possible).
         return null;
       }
     }

@@ -106,8 +106,6 @@ export class TransactionsService {
 
   private readonly displayInclude = {
     user: { select: { id: true, firstName: true, lastName: true, role: true, campus: { select: { name: true } } } },
-    sender: { select: { id: true, firstName: true, lastName: true } },
-    receiver: { select: { id: true, firstName: true, lastName: true } },
     relatedOrder: {
       select: { id: true, totalTickets: true, status: true, vendor: { select: { id: true, canteenName: true } } },
     },

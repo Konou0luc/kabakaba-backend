@@ -61,7 +61,6 @@ enum TransactionType {
   COMMISSION
   AMBASSADOR_COMMISSION
   DEBT_RECOVERY
-  TRANSFER
 }
 
 enum WithdrawalStatus {
@@ -168,8 +167,6 @@ model User {
   campus               Campus?              @relation(fields: [campusId], references: [id])
   orders               Order[]              @relation("StudentOrders")
   transactions         Transaction[]        @relation("TransactionUser")
-  sentTransfers        Transaction[]        @relation("TransferSender")
-  receivedTransfers    Transaction[]        @relation("TransferReceiver")
   reviews              Review[]
   vendor               Vendor?
   ambassador           Ambassador?
@@ -410,8 +407,6 @@ model Transaction {
   createdAt        DateTime          @default(now())
 
   user           User     @relation("TransactionUser", fields: [userId], references: [id])
-  sender         User?    @relation("TransferSender", fields: [senderId], references: [id])
-  receiver       User?    @relation("TransferReceiver", fields: [receiverId], references: [id])
   relatedOrder   Order?   @relation("TransactionOrder", fields: [relatedOrderId], references: [id])
   relatedPayment Payment? @relation("TransactionPayment", fields: [relatedPaymentId], references: [id])
 
