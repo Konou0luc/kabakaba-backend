@@ -11,7 +11,7 @@ import { WithdrawalsService } from '../../vendors/services/withdrawals.service';
  * Jobs métier :
  * - heartbeat : sonde infra
  * - orders-timeout : PENDING > 5 min + READY > 1 h (CDC 4.3 / 4.6)
- * - withdrawals-auto-confirm : clôture automatique après 1 h sans contestation
+ * - withdrawals-auto-confirm : clôture automatique après 1 h
  */
 @ApiExcludeController()
 @Controller('internal/cron')

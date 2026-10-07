@@ -10,15 +10,12 @@ import {
   Prisma,
   UserRole,
   WebUserRole,
-  WithdrawalAppealStatus,
-  WithdrawalAppealType,
   WithdrawalStatus,
 } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { CreateWithdrawalDto } from '../dto/create-withdrawal.dto';
-import { CreateWithdrawalAppealDto, WithdrawalAppealTypeDto } from '../dto/withdrawal-action.dto';
 import { computeWithdrawalFees, MobileOperator } from '../pricing/withdrawal-fees';
 
 interface UploadedProofFile {
@@ -193,7 +190,6 @@ export class WithdrawalsService {
             },
           },
           proof: { select: { id: true, originalName: true, contentType: true, sizeBytes: true, sha256: true, createdAt: true } },
-          appeals: { orderBy: { createdAt: 'desc' }, take: 5 },
         },
       }),
     ]);
@@ -213,7 +209,6 @@ export class WithdrawalsService {
           },
         },
         proof: { select: { id: true, originalName: true, contentType: true, sizeBytes: true, sha256: true, createdAt: true } },
-        appeals: { orderBy: { createdAt: 'desc' } },
       },
     });
     if (!withdrawal) throw new NotFoundException('Retrait introuvable');
@@ -357,7 +352,7 @@ export class WithdrawalsService {
       await this.notifications.notifyUser(
         vendor.userId,
         'Retrait envoyé',
-        `Votre retrait de ${Number(result!.amount)} FCFA a été envoyé sur ${result!.operator === 'FLOOZ' ? 'Flooz' : 'Mixx'}. Si le montant est incorrect ou si vous ne l’avez pas reçu, signalez-le dans l’heure suivant cette notification.`,
+        `Votre retrait de ${Number(result!.amount)} FCFA a été envoyé sur ${result!.operator === 'FLOOZ' ? 'Flooz' : 'Mixx'}.`,
         NotificationType.SUCCESS,
       );
     }
@@ -424,62 +419,6 @@ export class WithdrawalsService {
     return result;
   }
 
-  async createAppeal(id: string, dto: CreateWithdrawalAppealDto, actor: Actor) {
-    if (actor.role !== UserRole.VENDOR || actor.kind === 'web') {
-      throw new ForbiddenException('Action réservée au vendeur concerné');
-    }
-    const withdrawal = await this.prisma.withdrawal.findUnique({ where: { id, deletedAt: null }, include: { vendor: true } });
-    if (!withdrawal) throw new NotFoundException('Retrait introuvable');
-    if (withdrawal.vendor.userId !== actor.id) throw new ForbiddenException('Vous ne pouvez contester que vos propres retraits');
-    if (withdrawal.status !== WithdrawalStatus.COMPLETED || !withdrawal.confirmationDeadlineAt) {
-      throw new ConflictException('Ce retrait ne peut plus être contesté');
-    }
-    if (withdrawal.autoConfirmedAt || withdrawal.confirmationDeadlineAt.getTime() <= Date.now()) {
-      throw new ConflictException('Le délai d’une heure pour signaler un problème est écoulé');
-    }
-
-    const type = dto.type === WithdrawalAppealTypeDto.NOT_RECEIVED
-      ? WithdrawalAppealType.NOT_RECEIVED
-      : WithdrawalAppealType.AMOUNT_MISMATCH;
-
-    const pending = await this.prisma.withdrawalAppeal.findFirst({ where: { withdrawalId: id, status: WithdrawalAppealStatus.PENDING } });
-    if (pending) throw new ConflictException('Une contestation est déjà en cours pour ce retrait');
-
-    const appeal = await this.prisma.withdrawalAppeal.create({
-      data: { withdrawalId: id, type, reason: dto.reason },
-    });
-    await this.notifications.notifyUser(
-      actor.id,
-      'Signalement de retrait reçu',
-      'Votre signalement a été transmis. Un administrateur va vérifier la transaction.',
-      NotificationType.INFO,
-    );
-    return appeal;
-  }
-
-  async resolveAppeal(id: string, resolutionNote: string, approved: boolean, actor: Actor) {
-    this.assertAdmin(actor);
-    const appeal = await this.prisma.withdrawalAppeal.findUnique({ where: { id }, include: { withdrawal: true } });
-    if (!appeal) throw new NotFoundException('Contestation introuvable');
-    if (appeal.status !== WithdrawalAppealStatus.PENDING) throw new ConflictException('Cette contestation est déjà traitée');
-
-    const updated = await this.prisma.withdrawalAppeal.update({
-      where: { id },
-      data: {
-        status: approved ? WithdrawalAppealStatus.APPROVED : WithdrawalAppealStatus.REJECTED,
-        resolutionNote,
-        resolvedAt: new Date(),
-        resolvedByWebUserId: actor.id,
-      },
-    });
-    await this.audit(actor.id, approved ? 'WITHDRAWAL_APPEAL_APPROVED' : 'WITHDRAWAL_APPEAL_REJECTED', appeal.withdrawalId, {
-      appealId: id,
-      type: appeal.type,
-      resolutionNote,
-    });
-    return updated;
-  }
-
   async autoConfirmDue() {
     const due = await this.prisma.withdrawal.findMany({
       where: {
@@ -487,7 +426,6 @@ export class WithdrawalsService {
         confirmationDeadlineAt: { lte: new Date() },
         autoConfirmedAt: null,
         deletedAt: null,
-        appeals: { none: { status: WithdrawalAppealStatus.PENDING } },
       },
       select: { id: true, vendorId: true },
     });
@@ -498,8 +436,7 @@ export class WithdrawalsService {
           id: withdrawal.id,
           status: WithdrawalStatus.COMPLETED,
           autoConfirmedAt: null,
-          appeals: { none: { status: WithdrawalAppealStatus.PENDING } },
-        },
+          },
         data: { autoConfirmedAt: new Date() },
       });
       if (result.count === 1) {

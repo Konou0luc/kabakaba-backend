@@ -58,17 +58,6 @@ enum WithdrawalStatus {
   CANCELLED
 }
 
-enum WithdrawalAppealType {
-  NOT_RECEIVED
-  AMOUNT_MISMATCH
-}
-
-enum WithdrawalAppealStatus {
-  PENDING
-  APPROVED
-  REJECTED
-}
-
 enum NotificationType {
   INFO
   SUCCESS
@@ -440,7 +429,6 @@ model Withdrawal {
   acceptedByWebUser  WebUser?           @relation("WithdrawalAcceptedBy", fields: [acceptedByWebUserId], references: [id])
   cancelledByWebUser WebUser?           @relation("WithdrawalCancelledBy", fields: [cancelledByWebUserId], references: [id])
   proof              WithdrawalProof?
-  appeals            WithdrawalAppeal[]
 
   @@index([status])
   @@index([confirmationDeadlineAt])
@@ -463,25 +451,6 @@ model WithdrawalProof {
   uploadedByWebUser WebUser    @relation(fields: [uploadedByWebUserId], references: [id])
 
   @@index([uploadedByWebUserId])
-}
-
-model WithdrawalAppeal {
-  id                  String                 @id @default(uuid())
-  withdrawalId        String
-  type                WithdrawalAppealType
-  reason              String
-  status              WithdrawalAppealStatus @default(PENDING)
-  resolvedByWebUserId String?
-  resolutionNote      String?
-  resolvedAt          DateTime?
-  createdAt           DateTime               @default(now())
-  updatedAt           DateTime               @updatedAt
-
-  withdrawal        Withdrawal @relation(fields: [withdrawalId], references: [id])
-  resolvedByWebUser WebUser?   @relation("WithdrawalAppealResolvedBy", fields: [resolvedByWebUserId], references: [id])
-
-  @@index([withdrawalId, status])
-  @@index([createdAt])
 }
 
 model Debt {
@@ -699,7 +668,6 @@ model WebUser {
   withdrawalsAccepted        Withdrawal[]             @relation("WithdrawalAcceptedBy")
   withdrawalsCancelled       Withdrawal[]             @relation("WithdrawalCancelledBy")
   withdrawalProofsUploaded   WithdrawalProof[]
-  withdrawalAppealsResolved  WithdrawalAppeal[]       @relation("WithdrawalAppealResolvedBy")
   deletionRequestsAsTarget   WebUserDeletionRequest[] @relation("DeletionTarget")
   deletionRequestsInitiated  WebUserDeletionRequest[] @relation("DeletionInitiator")
   deletionRequestsConfirmed  WebUserDeletionRequest[] @relation("DeletionConfirmer")

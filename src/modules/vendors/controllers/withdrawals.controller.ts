@@ -29,7 +29,7 @@ import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { CreateWithdrawalDto } from '../dto/create-withdrawal.dto';
-import { CreateWithdrawalAppealDto, WithdrawalReasonDto, ResolveWithdrawalAppealDto } from '../dto/withdrawal-action.dto';
+import { WithdrawalReasonDto } from '../dto/withdrawal-action.dto';
 import { WithdrawalsService } from '../services/withdrawals.service';
 
 @ApiTags('Withdrawals')
@@ -102,7 +102,7 @@ export class WithdrawalsController {
   @Get(':id')
   @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN, WebUserRole.SUPERVISION)
-  @ApiOperation({ summary: 'Détail d’un retrait avec montant brut/net, opérateur, preuve et contestations' })
+  @ApiOperation({ summary: 'Détail d’un retrait avec montant brut/net, opérateur, preuve' })
   findOne(@Param('id') id: string) { return this.withdrawalsService.findOneAdmin(id); }
 
   @Patch(':id/accept')
@@ -159,25 +159,5 @@ export class WithdrawalsController {
   @ApiOperation({ summary: 'Annuler une demande et recréditer le vendeur' })
   cancel(@Param('id') id: string, @Body() dto: WithdrawalReasonDto, @Request() req: any) {
     return this.withdrawalsService.cancel(id, dto.reason, { id: req.user.id, role: req.user.role, kind: 'web' });
-  }
-
-  @Post(':id/appeal')
-  @Roles(UserRole.VENDOR)
-  @ApiOperation({ summary: 'Signaler un retrait non reçu ou un montant incorrect dans l’heure suivant le paiement' })
-  createAppeal(@Param('id') id: string, @Body() dto: CreateWithdrawalAppealDto, @Request() req: any) {
-    return this.withdrawalsService.createAppeal(id, dto, { id: req.user.id, role: req.user.role, kind: 'mobile' });
-  }
-
-  @Patch('appeals/:appealId/resolve')
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Traiter une contestation de retrait après vérification' })
-  resolveAppeal(@Param('appealId') appealId: string, @Body() dto: ResolveWithdrawalAppealDto, @Query('approved') approved = 'false', @Request() req: any) {
-    return this.withdrawalsService.resolveAppeal(
-      appealId,
-      dto.resolutionNote,
-      approved === 'true',
-      { id: req.user.id, role: req.user.role, kind: 'web' },
-    );
   }
 }
