@@ -208,7 +208,6 @@ model Vendor {
   debts           Debt[]
   reviews         Review[]
   disputes        Dispute[]
-  schedules       VendorSchedule[]
   takeawayOptions TakeawayOption[]
 
   @@index([canteenName])
@@ -914,29 +913,5 @@ model Dispute {
 
   @@index([status])
   @@index([studentId])
-  @@index([vendorId])
-}
-
-enum Weekday {
-  MONDAY
-  TUESDAY
-  WEDNESDAY
-  THURSDAY
-  FRIDAY
-  SATURDAY
-  SUNDAY
-}
-
-model VendorSchedule {
-  id        String   @id @default(uuid())
-  vendorId  String
-  day       Weekday
-  startTime String
-  endTime   String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  vendor Vendor @relation(fields: [vendorId], references: [id])
-
   @@index([vendorId])
 }

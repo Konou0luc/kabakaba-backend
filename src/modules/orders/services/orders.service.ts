@@ -70,8 +70,8 @@ export class OrdersService {
       if (!vendor.isActive) {
         throw new BadRequestException("Cette cantine n'accepte pas de commandes actuellement");
       }
-      // CDC 3.3 : une cantine fermée par le vendeur (bascule manuelle ou
-      // horaires programmés) ne doit jamais pouvoir recevoir de commande,
+      // CDC 3.3 : une cantine fermée par le vendeur (bascule manuelle)
+      // ne doit jamais pouvoir recevoir de commande,
       // même si le mobile a un affichage périmé côté client.
       if (!vendor.isOpen) {
         throw new BadRequestException("Ce vendeur n'est pas disponible pour le moment");
