@@ -59,6 +59,5 @@ appellent les routes `internal/cron/*` (authentifiées par `CRON_SECRET`) et `GE
 | Workflow | Fréquence |
 |---|---|
 | Expiration des commandes (PENDING 5 min / READY 1 h) | chaque minute |
-| Confirmation automatique des retraits (1 h) | chaque minute |
 | Keep-alive Neon | toutes les 4 minutes |
 | Heartbeat infra | toutes les 5 minutes |

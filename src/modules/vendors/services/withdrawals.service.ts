@@ -31,8 +31,6 @@ interface Actor {
   isAdmin?: boolean;
 }
 
-const APPEAL_WINDOW_MS = 60 * 60 * 1000;
-
 @Injectable()
 export class WithdrawalsService {
   constructor(
@@ -319,7 +317,6 @@ export class WithdrawalsService {
   async confirmManualPayment(id: string, actor: Actor) {
     this.assertAdmin(actor);
     const now = new Date();
-    const deadline = new Date(now.getTime() + APPEAL_WINDOW_MS);
 
     const result = await this.prisma.$transaction(async (tx) => {
       const withdrawal = await tx.withdrawal.findUnique({ where: { id, deletedAt: null } });
@@ -336,7 +333,6 @@ export class WithdrawalsService {
           status: WithdrawalStatus.COMPLETED,
           paidAt: now,
           payoutCompletedAt: now,
-          confirmationDeadlineAt: deadline,
         },
       });
       if (updated.count !== 1) throw new ConflictException('Le retrait a déjà été validé');
@@ -358,7 +354,6 @@ export class WithdrawalsService {
     }
     await this.audit(actor.id, 'WITHDRAWAL_MANUAL_PAYMENT_CONFIRMED', id, {
       paidAt: now.toISOString(),
-      confirmationDeadlineAt: deadline.toISOString(),
       amountToSend: Number(result!.payoutAmount ?? result!.amount),
       operator: result!.operator,
     });
@@ -417,45 +412,6 @@ export class WithdrawalsService {
     }
     await this.audit(actor.id, target === WithdrawalStatus.CANCELLED ? 'WITHDRAWAL_CANCELLED' : 'WITHDRAWAL_FAILED', id, { reason });
     return result;
-  }
-
-  async autoConfirmDue() {
-    const due = await this.prisma.withdrawal.findMany({
-      where: {
-        status: WithdrawalStatus.COMPLETED,
-        confirmationDeadlineAt: { lte: new Date() },
-        autoConfirmedAt: null,
-        deletedAt: null,
-      },
-      select: { id: true, vendorId: true },
-    });
-    let confirmed = 0;
-    for (const withdrawal of due) {
-      const result = await this.prisma.withdrawal.updateMany({
-        where: {
-          id: withdrawal.id,
-          status: WithdrawalStatus.COMPLETED,
-          autoConfirmedAt: null,
-          },
-        data: { autoConfirmedAt: new Date() },
-      });
-      if (result.count === 1) {
-        confirmed++;
-        const current = await this.prisma.withdrawal.findUnique({ where: { id: withdrawal.id }, select: { vendorId: true, amount: true } });
-        if (current) {
-          const vendor = await this.prisma.vendor.findUnique({ where: { id: current.vendorId }, select: { userId: true } });
-          if (vendor) {
-            await this.notifications.notifyUser(
-              vendor.userId,
-              'Retrait confirmé',
-              `Le délai de signalement d’une heure pour votre retrait de ${Number(current.amount)} FCFA est écoulé. Le retrait est considéré comme reçu.`,
-              NotificationType.SUCCESS,
-            );
-          }
-        }
-      }
-    }
-    return { found: due.length, confirmed };
   }
 
   private toRecap(fees: ReturnType<typeof computeWithdrawalFees>) {
