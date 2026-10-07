@@ -4,15 +4,11 @@ import { PrismaService } from '../../../database/services/prisma.service';
 import { FedapayService } from './fedapay.service';
 import { UsersService } from '../../users/services/users.service';
 import { NotificationsService } from '../../notifications/services/notifications.service';
-import { AmbassadorStatus, PaymentStatus, UserRole, NotificationType } from '@prisma/client';
+import { PaymentStatus, UserRole, NotificationType } from '@prisma/client';
 import {
   computeRechargeAmountFcfa,
   quoteRechargeFromAmountFcfa,
 } from '../pricing/recharge-pricing';
-import {
-  COMMISSION_RATE_BY_LEVEL,
-  computeCommissionTickets,
-} from '../../ambassadors/pricing/ambassador-commission';
 
 interface Actor {
   id: string;
@@ -286,64 +282,6 @@ export class PaymentsService {
             relatedPaymentId: payment.id,
           },
         });
-
-        const affiliate = await tx.ambassadorAffiliate.findUnique({
-          where: { studentId: payment.userId },
-          select: {
-            id: true,
-            ambassadorId: true,
-            ambassador: {
-              select: {
-                id: true,
-                userId: true,
-                level: true,
-                status: true,
-              },
-            },
-          },
-        });
-
-        if (
-          affiliate?.ambassador &&
-          affiliate.ambassador.status === AmbassadorStatus.ACTIVE
-        ) {
-          const level = affiliate.ambassador.level;
-          const rate = COMMISSION_RATE_BY_LEVEL[level];
-          const commissionTickets = computeCommissionTickets(
-            Number(payment.amountFcfa),
-            level,
-          );
-
-          if (commissionTickets > 0) {
-            await tx.ambassadorCommission.create({
-              data: {
-                ambassadorId: affiliate.ambassadorId,
-                paymentId: payment.id,
-                affiliateId: affiliate.id,
-                amount: commissionTickets,
-                commissionRate: rate,
-                levelApplied: level,
-              },
-            });
-
-            await tx.user.update({
-              where: { id: affiliate.ambassador.userId },
-              data: { walletBalance: { increment: commissionTickets } },
-            });
-
-            await tx.transaction.create({
-              data: {
-                userId: affiliate.ambassador.userId,
-                type: 'AMBASSADOR_COMMISSION',
-                status: 'COMPLETED',
-                amount: commissionTickets,
-                reference: crypto.randomUUID(),
-                description: `Commission ambassadeur (${level}) — recharge affilié ${payment.id}`,
-                relatedPaymentId: payment.id,
-              },
-            });
-          }
-        }
       }
 
       if (opts?.providerEventKey) {

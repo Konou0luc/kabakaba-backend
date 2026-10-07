@@ -16,7 +16,6 @@ import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
-import { AmbassadorsModule } from './modules/ambassadors/ambassadors.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SmsModule } from './modules/sms/sms.module';
@@ -25,7 +24,6 @@ import { PartnerApplicationsModule } from './modules/partner-applications/partne
 import { WebAuthModule } from './modules/web-auth/web-auth.module';
 import { InternalCronModule } from './modules/internal-cron/internal-cron.module';
 import { DevicesModule } from './modules/devices/devices.module';
-import { MediaModule } from './modules/media/media.module';
 
 @Module({
   imports: [
@@ -55,7 +53,6 @@ import { MediaModule } from './modules/media/media.module';
     PaymentsModule,
     TransactionsModule,
     ReviewsModule,
-    AmbassadorsModule,
     NotificationsModule,
     AdminModule,
     SmsModule,
@@ -64,7 +61,6 @@ import { MediaModule } from './modules/media/media.module';
     WebAuthModule,
     InternalCronModule,
     DevicesModule,
-    MediaModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

@@ -37,7 +37,6 @@ consulter `src/` pour les valeurs par défaut et le caractère obligatoire de ch
 | Documentation Swagger | `SWAGGER_USER`, `SWAGGER_PASSWORD` |
 | Paiements (FedaPay) | `FEDAPAY_SECRET_KEY`, `FEDAPAY_WEBHOOK_SECRET`, `FEDAPAY_BASE_URL` |
 | SMS (AfriqSMS) | `AFRIQSMS_API_KEY`, `AFRIQSMS_CLIENT_ID`, `AFRIQSMS_SENDER_ID`, `AFRIQSMS_BASE_URL` |
-| Médias (Cloudinary) | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER` |
 | Notifications push (Firebase) | `FIREBASE_SERVICE_ACCOUNT_JSON` ou `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` |
 
 ## Documentation de l'API
@@ -63,4 +62,3 @@ appellent les routes `internal/cron/*` (authentifiées par `CRON_SECRET`) et `GE
 | Confirmation automatique des retraits (1 h) | chaque minute |
 | Keep-alive Neon | toutes les 4 minutes |
 | Heartbeat infra | toutes les 5 minutes |
-| Ambassadeurs (volume, niveau, inactivité) | chaque jour à 01:00 UTC |

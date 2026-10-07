@@ -1,7 +1,6 @@
 import { Controller, Logger, Post, UseGuards } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { CronAuthGuard } from '../../../common/guards/cron-auth.guard';
-import { AmbassadorsService } from '../../ambassadors/services/ambassadors.service';
 import { OrdersService } from '../../orders/services/orders.service';
 import { WithdrawalsService } from '../../vendors/services/withdrawals.service';
 
@@ -11,7 +10,6 @@ import { WithdrawalsService } from '../../vendors/services/withdrawals.service';
  *
  * Jobs métier :
  * - heartbeat : sonde infra
- * - ambassador-daily : volume30d / level / suspension inactivité (CDC 10.3–10.5)
  * - orders-timeout : PENDING > 5 min + READY > 1 h (CDC 4.3 / 4.6)
  * - withdrawals-auto-confirm : clôture automatique après 1 h sans contestation
  */
@@ -22,7 +20,6 @@ export class InternalCronController {
   private readonly logger = new Logger(InternalCronController.name);
 
   constructor(
-    private readonly ambassadorsService: AmbassadorsService,
     private readonly ordersService: OrdersService,
     private readonly withdrawalsService: WithdrawalsService,
   ) {}
@@ -32,13 +29,6 @@ export class InternalCronController {
     const timestamp = new Date().toISOString();
     this.logger.log(`Heartbeat cron reçu à ${timestamp}`);
     return { ok: true, timestamp };
-  }
-
-  @Post('ambassador-daily')
-  async ambassadorDaily() {
-    this.logger.log('Cron ambassador-daily démarré');
-    const summary = await this.ambassadorsService.recalculateDailyStats();
-    return { ok: true, ...summary };
   }
 
   /**
