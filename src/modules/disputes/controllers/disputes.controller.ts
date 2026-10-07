@@ -64,18 +64,6 @@ export class DisputesController {
     return this.disputesService.getStats();
   }
 
-  @Get(':id/context')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
-  @ApiOperation({ summary: "Détail enrichi d'un litige pour la fiche admin : parties, timeline de commande, signaux de confiance" })
-  @ApiResponse({ status: 200, description: 'Contexte complet du litige.' })
-  @ApiResponse({ status: 404, description: 'Litige introuvable.' })
-  findContext(@Param('id') id: string) {
-    return this.disputesService.findContext(id);
-  }
-
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
@@ -93,10 +81,9 @@ export class DisputesController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Traiter un litige : statut, décision, note (Admin seulement)' })
+  @ApiOperation({ summary: 'Changer le statut d\'un litige (Admin seulement)' })
   @ApiResponse({ status: 200, description: 'Le litige a été mis à jour avec succès.', type: DisputeEntity })
   @ApiResponse({ status: 404, description: 'Litige introuvable.' })
-  @ApiResponse({ status: 409, description: 'Ce litige a déjà une décision définitive.' })
   update(@Param('id') id: string, @Body() updateDisputeDto: UpdateDisputeDto) {
     return this.disputesService.update(id, updateDisputeDto);
   }

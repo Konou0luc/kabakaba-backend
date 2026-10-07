@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { DisputeStatus, DisputeDecision } from '@prisma/client';
+import { DisputeStatus } from '@prisma/client';
 
 export class DisputeEntity {
   @ApiProperty({ example: '550e8400-e29b-41d4-a716-446655440000' })
@@ -22,12 +22,6 @@ export class DisputeEntity {
 
   @ApiProperty({ enum: DisputeStatus, default: DisputeStatus.OPEN })
   status: DisputeStatus;
-
-  @ApiProperty({ enum: DisputeDecision, required: false })
-  decision?: DisputeDecision;
-
-  @ApiProperty({ required: false, description: 'Note de résolution rédigée par l\'équipe support' })
-  decisionNote?: string;
 
   @ApiProperty({ required: false, description: 'Identifiant du WebUser ayant traité le litige' })
   treatedByWebUserId?: string;

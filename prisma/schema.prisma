@@ -792,12 +792,6 @@ enum DisputeStatus {
   RESOLVED
 }
 
-enum DisputeDecision {
-  REFUND
-  SUSPENSION_ADJUSTMENT
-  CLOSE_NO_ACTION
-}
-
 model Dispute {
   id                 String           @id @default(uuid())
   orderId            String
@@ -806,8 +800,6 @@ model Dispute {
   reason             String
   ticketAmount       Int?
   status             DisputeStatus    @default(OPEN)
-  decision           DisputeDecision?
-  decisionNote       String?
   treatedByWebUserId String?
   createdAt          DateTime         @default(now())
   resolvedAt         DateTime?

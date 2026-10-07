@@ -1,8 +1,14 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { DisputeStatus, DisputeDecision, OrderStatus, TransactionType, TransactionStatus, UserRole, WebUserRole, Prisma } from '@prisma/client';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { DisputeStatus, UserRole, WebUserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateDisputeDto } from '../dto/create-dispute.dto';
 import { UpdateDisputeDto } from '../dto/update-dispute.dto';
+
+const DISPUTE_WEB_INCLUDE = {
+  student: { select: { id: true, firstName: true, lastName: true, phone: true } },
+  vendor: { select: { id: true, canteenName: true } },
+  order: { select: { id: true, status: true, totalTickets: true, consumptionMode: true } },
+} as const;
 
 @Injectable()
 export class DisputesService {
@@ -27,10 +33,8 @@ export class DisputesService {
       }
     }
 
-    // SÉCURITÉ : ticketAmount est fourni par le client — il ne doit jamais
-    // pouvoir dépasser le montant réel de la commande contestée, sous peine
-    // de permettre un remboursement supérieur au préjudice réel si le litige
-    // est accepté par un administrateur.
+    // ticketAmount est fourni par le client : il ne doit jamais dépasser le
+    // montant réel de la commande signalée.
     if (
       createDisputeDto.ticketAmount !== undefined &&
       createDisputeDto.ticketAmount > order.totalTickets
@@ -120,11 +124,10 @@ export class DisputesService {
       this.prisma.dispute.count({ where: { status: 'IN_PROGRESS' } }),
       this.prisma.dispute.findMany({
         where: { status: 'RESOLVED', resolvedAt: { gte: startOfMonth } },
-        select: { decision: true, createdAt: true, resolvedAt: true },
+        select: { createdAt: true, resolvedAt: true },
       }),
     ]);
 
-    const refundedCount = resolvedThisMonth.filter((d) => d.decision === 'REFUND').length;
     const resolutionDelaysMs = resolvedThisMonth
       .filter((d) => d.resolvedAt !== null)
       .map((d) => d.resolvedAt!.getTime() - d.createdAt.getTime());
@@ -136,163 +139,7 @@ export class DisputesService {
       open: openCount,
       inProgress: inProgressCount,
       resolvedThisMonth: resolvedThisMonth.length,
-      refundedThisMonth: refundedCount,
       avgResolutionMinutes: avgResolutionMs != null ? Math.round(avgResolutionMs / 60000) : null,
-    };
-  }
-
-  /**
-   * Détail enrichi pour LitigeDetail.jsx : parties, timeline de la commande,
-   * et signaux de confiance calculés à partir de l'historique réel — pas de
-   * texte généré ("analyse automatique" façon IA), seulement des faits
-   * comptés en base. La maquette imaginait aussi une "version du vendeur"
-   * en texte libre : aucun champ de ce type n'existe sur Dispute (seul
-   * `reason`, rempli par l'auteur du litige, existe), donc ce n'est pas
-   * reconstruit ici.
-   */
-  async findContext(id: string) {
-    const dispute = await this.prisma.dispute.findUnique({
-      where: { id },
-      include: {
-        student: {
-          select: {
-            id: true, firstName: true, lastName: true, createdAt: true,
-            isSuspended: true, suspensionReason: true, suspensionUntil: true,
-            campus: { select: { name: true } },
-          },
-        },
-        vendor: {
-          select: {
-            id: true, canteenName: true, balanceFcfa: true, isActive: true,
-            user: { select: { firstName: true, lastName: true } },
-            campuses: { select: { campus: { select: { name: true } } } },
-          },
-        },
-        order: {
-          include: {
-            statusHistory: { orderBy: { createdAt: 'asc' } },
-            review: true,
-            takeawayOption: { select: { name: true } },
-          },
-        },
-      },
-    });
-    if (!dispute) throw new NotFoundException(`Litige avec l'identifiant ${id} introuvable`);
-
-    const sixMonthsAgo = new Date(Date.now() - 180 * 24 * 60 * 60 * 1000);
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const startOfMonth = new Date();
-    startOfMonth.setDate(1);
-    startOfMonth.setHours(0, 0, 0, 0);
-
-    const [
-      disputesThisMonth,
-      totalStudentOrders,
-      disputedOrderIdsRows,
-      suspensionCount,
-      ordersWithThisVendor,
-      vendorTotalOrders,
-      vendorRefusedOrders,
-      similarVendorDisputes,
-      vendorReadyOrders,
-      vendorReviewsAgg,
-    ] = await Promise.all([
-      this.prisma.dispute.count({
-        where: { studentId: dispute.studentId, createdAt: { gte: startOfMonth }, id: { not: id } },
-      }),
-      this.prisma.order.count({ where: { studentId: dispute.studentId, deletedAt: null } }),
-      this.prisma.dispute.findMany({ where: { studentId: dispute.studentId }, select: { orderId: true } }),
-      this.prisma.suspensionEvent.count({ where: { studentId: dispute.studentId } }),
-      this.prisma.order.count({ where: { studentId: dispute.studentId, vendorId: dispute.vendorId, deletedAt: null } }),
-      this.prisma.order.count({ where: { vendorId: dispute.vendorId, deletedAt: null } }),
-      this.prisma.order.count({
-        where: { vendorId: dispute.vendorId, deletedAt: null, status: { in: ['REFUSED', 'CANCELLED_VENDOR'] } },
-      }),
-      this.prisma.dispute.count({
-        where: { vendorId: dispute.vendorId, createdAt: { gte: sixMonthsAgo }, id: { not: id } },
-      }),
-      this.prisma.order.findMany({
-        where: { vendorId: dispute.vendorId, deletedAt: null, readyAt: { not: null }, createdAt: { gte: thirtyDaysAgo } },
-        select: { createdAt: true, readyAt: true },
-      }),
-      this.prisma.review.aggregate({
-        where: { vendorId: dispute.vendorId, deletedAt: null, createdAt: { gte: thirtyDaysAgo } },
-        _avg: { rating: true },
-        _count: true,
-      }),
-    ]);
-
-    const distinctDisputedOrders = new Set(disputedOrderIdsRows.map((r) => r.orderId)).size;
-    const incidentFreeOrders = Math.max(0, totalStudentOrders - distinctDisputedOrders);
-
-    const acceptanceRate = vendorTotalOrders > 0
-      ? Math.round(((vendorTotalOrders - vendorRefusedOrders) / vendorTotalOrders) * 100)
-      : null;
-
-    const prepDelaysMin = vendorReadyOrders.map((o) => (o.readyAt!.getTime() - o.createdAt.getTime()) / 60000);
-    const avgPrepMinutes = prepDelaysMin.length > 0
-      ? Math.round(prepDelaysMin.reduce((s, m) => s + m, 0) / prepDelaysMin.length)
-      : null;
-
-    return {
-      dispute: {
-        id: dispute.id,
-        reason: dispute.reason,
-        ticketAmount: dispute.ticketAmount,
-        status: dispute.status,
-        decision: dispute.decision,
-        decisionNote: dispute.decisionNote,
-        createdAt: dispute.createdAt,
-        resolvedAt: dispute.resolvedAt,
-      },
-      student: {
-        id: dispute.student.id,
-        name: `${dispute.student.firstName ?? ''} ${dispute.student.lastName ?? ''}`.trim(),
-        campusName: dispute.student.campus?.name ?? null,
-        memberSince: dispute.student.createdAt,
-        isSuspended: dispute.student.isSuspended,
-        suspensionReason: dispute.student.suspensionReason,
-        suspensionUntil: dispute.student.suspensionUntil,
-      },
-      vendor: {
-        id: dispute.vendor.id,
-        canteenName: dispute.vendor.canteenName,
-        ownerName: `${dispute.vendor.user?.firstName ?? ''} ${dispute.vendor.user?.lastName ?? ''}`.trim(),
-        campusName: dispute.vendor.campuses[0]?.campus.name ?? null,
-        balanceFcfa: Number(dispute.vendor.balanceFcfa),
-        isActive: dispute.vendor.isActive,
-      },
-      order: {
-        id: dispute.order.id,
-        status: dispute.order.status,
-        totalTickets: dispute.order.totalTickets,
-        consumptionMode: dispute.order.consumptionMode,
-        takeawayOptionName: dispute.order.takeawayOption?.name ?? null,
-        createdAt: dispute.order.createdAt,
-        readyAt: dispute.order.readyAt,
-        confirmedAt: dispute.order.confirmedAt,
-        statusHistory: dispute.order.statusHistory,
-        review: dispute.order.review
-          ? { rating: dispute.order.review.rating, comment: dispute.order.review.comment }
-          : null,
-      },
-      signals: {
-        student: {
-          disputesThisMonth,
-          incidentFreeOrders,
-          neverSuspended: suspensionCount === 0,
-          suspensionCount,
-          ordersWithThisVendor,
-          thisOrderAutoReceived: dispute.order.status === 'AUTO_RECEIVED',
-        },
-        vendor: {
-          acceptanceRate,
-          similarDisputesLast6Months: similarVendorDisputes,
-          avgPrepMinutes,
-          avgRating30d: vendorReviewsAgg._avg.rating != null ? Number(vendorReviewsAgg._avg.rating.toFixed(1)) : null,
-          reviewCount30d: vendorReviewsAgg._count,
-        },
-      },
     };
   }
 
@@ -305,7 +152,11 @@ export class DisputesService {
     id: string,
     actor?: { id: string; kind: 'mobile' | 'web'; role?: UserRole | WebUserRole },
   ) {
-    const dispute = await this.prisma.dispute.findUnique({ where: { id } });
+    // Relations simples pour la fiche admin web ; les clients mobiles reçoivent le litige seul.
+    const dispute = await this.prisma.dispute.findUnique({
+      where: { id },
+      include: actor?.kind === 'web' ? DISPUTE_WEB_INCLUDE : undefined,
+    });
     if (!dispute) throw new NotFoundException(`Litige avec l'identifiant ${id} introuvable`);
 
     if (!actor) throw new ForbiddenException('Accès refusé à ce litige');
@@ -335,139 +186,19 @@ export class DisputesService {
     return dispute;
   }
 
-  /**
-   * Traite la décision d'un litige.
-   *
-   * REFUND est automatisé : la maquette (LitigeDetail.jsx) donne un montant
-   * explicite et un langage de "débit immédiat" — le mouvement d'argent est
-   * mécanique et non ambigu, donc on l'exécute dans la même transaction DB
-   * que la mise à jour du litige. Si le solde vendeur est insuffisant, la
-   * plateforme avance la différence : elle est enregistrée comme dette du
-   * vendeur (Vendor.debtFcfa), pas laissée orpheline — la maquette dit
-   * explicitement "la plateforme avance", ce qui implique une créance à
-   * recouvrer, pas un cadeau.
-   *
-   * SUSPENSION_ADJUSTMENT n'est PAS automatisé : contrairement au
-   * remboursement, ni le sens (lever/prolonger une suspension) ni la durée
-   * ne sont fournis par cette décision seule. Deviner reviendrait à inventer
-   * une règle métier. L'admin applique le changement via PATCH /users/:id
-   * (déjà disponible) et documente son geste dans decisionNote.
-   */
   async update(id: string, updateDisputeDto: UpdateDisputeDto) {
     const existing = await this.prisma.dispute.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Litige avec l'identifiant ${id} introuvable`);
 
-    if (existing.decision && updateDisputeDto.decision && updateDisputeDto.decision !== existing.decision) {
-      throw new ConflictException(
-        `Ce litige a déjà une décision (${existing.decision}) — une décision de litige est définitive et ne peut pas être changée`,
-      );
-    }
-
     const resolvedAt =
       updateDisputeDto.status === DisputeStatus.RESOLVED && !existing.resolvedAt ? new Date() : undefined;
 
-    const isNewRefund = updateDisputeDto.decision === DisputeDecision.REFUND && !existing.decision;
-
-    if (!isNewRefund) {
-      return this.prisma.dispute.update({
-        where: { id },
-        data: {
-          ...updateDisputeDto,
-          ...(resolvedAt ? { resolvedAt } : {}),
-        },
-      });
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      const order = await tx.order.findUnique({ where: { id: existing.orderId } });
-      if (!order) throw new NotFoundException(`Commande liée au litige introuvable`);
-
-      // SÉCURITÉ FINANCIÈRE : verrou anti-double-remboursement. Un
-      // remboursement (via ce litige OU via orders.service.ts::refundByVendor,
-      // déclenché directement par le vendeur mobile) ne doit pouvoir arriver
-      // qu'une seule fois par commande. On ne fait confiance ni à l'absence
-      // de décision sur CE litige (un autre canal a pu déjà rembourser la
-      // commande), ni à une lecture préalable du statut : le verrou est cet
-      // updateMany conditionnel, exécuté dans la même transaction que le
-      // crédit qui suit — count === 0 signifie qu'un autre remboursement a
-      // gagné la course ou que la commande n'est de toute façon plus dans un
-      // état où de l'argent reste "chez le vendeur" à rembourser (une
-      // commande REFUSED/CANCELLED a déjà rendu ses tickets automatiquement
-      // à l'étudiant ; y créditer à nouveau serait un double remboursement).
-      const claim = await tx.order.updateMany({
-        where: {
-          id: order.id,
-          status: { in: [OrderStatus.READY, OrderStatus.RECEIVED, OrderStatus.AUTO_RECEIVED] },
-        },
-        data: { status: OrderStatus.REFUNDED },
-      });
-      if (claim.count === 0) {
-        throw new ConflictException(
-          `Commande ${order.id} déjà remboursée ou dans un statut incompatible (${order.status}) — aucun mouvement d'argent effectué`,
-        );
-      }
-
-      await tx.orderStatusHistory.create({
-        data: {
-          orderId: order.id,
-          oldStatus: order.status,
-          newStatus: OrderStatus.REFUNDED,
-          changedById: null,
-        },
-      });
-
-      const refundAmount = existing.ticketAmount ?? order.totalTickets;
-
-      const vendor = await tx.vendor.findUnique({ where: { id: existing.vendorId } });
-      if (!vendor) throw new NotFoundException(`Vendeur lié au litige introuvable`);
-
-      const vendorBalance = Number(vendor.balanceFcfa);
-      const debitFromVendor = Math.min(vendorBalance, refundAmount);
-      const platformAdvance = refundAmount - debitFromVendor;
-
-      await tx.vendor.update({
-        where: { id: vendor.id },
-        data: {
-          balanceFcfa: { decrement: debitFromVendor },
-          ...(platformAdvance > 0 ? { debtFcfa: { increment: platformAdvance } } : {}),
-        },
-      });
-
-      if (platformAdvance > 0) {
-        await tx.debt.create({
-          data: {
-            vendorId: vendor.id,
-            amount: platformAdvance,
-            remainingAmount: platformAdvance,
-            reason: `Avance plateforme — remboursement litige ${existing.id} (solde vendeur insuffisant)`,
-          },
-        });
-      }
-
-      await tx.user.update({
-        where: { id: existing.studentId },
-        data: { walletBalance: { increment: refundAmount } },
-      });
-
-      await tx.transaction.create({
-        data: {
-          userId: existing.studentId,
-          type: TransactionType.REFUND,
-          status: TransactionStatus.COMPLETED,
-          amount: refundAmount,
-          reference: `DISPUTE-REFUND-${existing.id}`,
-          description: `Remboursement suite au litige ${existing.id} (commande ${existing.orderId})`,
-          relatedOrderId: existing.orderId,
-        },
-      });
-
-      return tx.dispute.update({
-        where: { id },
-        data: {
-          ...updateDisputeDto,
-          resolvedAt: resolvedAt ?? existing.resolvedAt ?? new Date(),
-        },
-      });
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    return this.prisma.dispute.update({
+      where: { id },
+      data: {
+        ...updateDisputeDto,
+        ...(resolvedAt ? { resolvedAt } : {}),
+      },
+    });
   }
 }
