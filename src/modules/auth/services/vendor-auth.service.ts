@@ -218,7 +218,7 @@ export class VendorAuthService {
 
     const vendor = await this.prisma.vendor.findFirst({
       where: { userId: user.id, deletedAt: null },
-      select: { id: true, canteenName: true, isActive: true, isOpen: true },
+      select: { id: true, canteenName: true, isActive: true, capacityStatus: true },
     });
 
     return { user: sanitize(user), vendor, ...tokens };

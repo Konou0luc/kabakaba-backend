@@ -1,5 +1,5 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { UserRole, VendorCapacity } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
@@ -23,7 +23,7 @@ const PUBLIC_VENDOR_SELECT = {
   bannerUrl: true,
   description: true,
   isActive: true,
-  isOpen: true,
+  capacityStatus: true,
   createdAt: true,
 } as const;
 
@@ -41,7 +41,7 @@ export class VendorsService {
   async create(createVendorDto: CreateVendorDto) {
     const { vendor: personDto, canteen: canteenDto } = createVendorDto;
     const { firstName, lastName, phone, email, temporaryPassword } = personDto;
-    const { canteenName, campusIds, logoUrl, bannerUrl, description, isActive, isOpen } = canteenDto;
+    const { canteenName, campusIds, logoUrl, bannerUrl, description, isActive, capacityStatus } = canteenDto;
 
     const campuses = await this.prisma.campus.findMany({ where: { id: { in: campusIds } } });
     if (campuses.length !== campusIds.length) {
@@ -74,7 +74,7 @@ export class VendorsService {
             bannerUrl,
             description,
             isActive: isActive ?? true,
-            isOpen: isOpen ?? false,
+            capacityStatus: capacityStatus ?? VendorCapacity.CLOSED,
           },
         });
 
@@ -158,7 +158,7 @@ export class VendorsService {
           id: true,
           canteenName: true,
           isActive: true,
-          isOpen: true,
+          capacityStatus: true,
           debtFcfa: true,
           createdAt: true,
           user: { select: { firstName: true, lastName: true } },
@@ -188,7 +188,7 @@ export class VendorsService {
       owner: [v.user?.firstName, v.user?.lastName].filter(Boolean).join(' ') || null,
       campuses: v.campuses.map((vc) => vc.campus),
       isActive: v.isActive,
-      isOpen: v.isOpen,
+      capacityStatus: v.capacityStatus,
       debtFcfa: Number(v.debtFcfa),
       todayOrders: todayOrdersByVendor.get(v.id) ?? 0,
       createdAt: v.createdAt,
@@ -216,7 +216,7 @@ export class VendorsService {
         debtFcfa: true,
         balanceFcfa: true,
         isActive: true,
-        isOpen: true,
+        capacityStatus: true,
         suspendedAt: true,
         suspensionReason: true,
         createdAt: true,
@@ -303,7 +303,7 @@ export class VendorsService {
   }
 
   /**
-   * Profil vendeur connecté — solde, créance, ouverture (mobile vendeur).
+   * Profil vendeur connecté — solde, créance, statut de capacité (mobile vendeur).
    */
   async findMe(userId: string) {
     const vendor = await this.prisma.vendor.findUnique({
@@ -318,7 +318,7 @@ export class VendorsService {
         balanceFcfa: true,
         debtFcfa: true,
         isActive: true,
-        isOpen: true,
+        capacityStatus: true,
         suspendedAt: true,
         suspensionReason: true,
         createdAt: true,
@@ -344,10 +344,10 @@ export class VendorsService {
   }
 
   /**
-   * Le vendeur ne peut modifier que l'ouverture de sa cantine et les champs
+   * Le vendeur ne peut modifier que le statut de capacité de sa cantine et les champs
    * de présentation (pas isActive / campuses — réservés admin).
    */
-  async updateMe(userId: string, dto: { isOpen?: boolean; description?: string; logoUrl?: string; bannerUrl?: string; canteenName?: string }) {
+  async updateMe(userId: string, dto: { capacityStatus?: VendorCapacity; description?: string; logoUrl?: string; bannerUrl?: string; canteenName?: string }) {
     const vendor = await this.prisma.vendor.findUnique({ where: { userId } });
     if (!vendor || vendor.deletedAt) {
       throw new NotFoundException('Profil vendeur introuvable pour ce compte');
@@ -357,7 +357,7 @@ export class VendorsService {
     }
 
     const data: Record<string, unknown> = {};
-    if (dto.isOpen !== undefined) data.isOpen = dto.isOpen;
+    if (dto.capacityStatus !== undefined) data.capacityStatus = dto.capacityStatus;
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.logoUrl !== undefined) data.logoUrl = dto.logoUrl;
     if (dto.bannerUrl !== undefined) data.bannerUrl = dto.bannerUrl;

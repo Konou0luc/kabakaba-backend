@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { ArrayMinSize, IsArray, IsBoolean, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsEnum, IsNotEmpty, IsOptional, IsString, ValidateIf } from 'class-validator';
+import { VendorCapacity } from '@prisma/client';
 
 /**
  * Informations publiques de la cantine elle-même — deviennent des attributs
@@ -41,8 +42,8 @@ export class CreateCanteenDto {
   @IsBoolean()
   isActive?: boolean;
 
-  @ApiProperty({ example: false, default: false, required: false })
-  @IsOptional()
-  @IsBoolean()
-  isOpen?: boolean;
+  @ApiProperty({ enum: VendorCapacity, default: VendorCapacity.CLOSED, required: false, description: 'Statut de capacité initial (défaut : CLOSED)' })
+  @ValidateIf((_, value) => value !== undefined)
+  @IsEnum(VendorCapacity)
+  capacityStatus?: VendorCapacity;
 }

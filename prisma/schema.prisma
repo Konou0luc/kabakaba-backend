@@ -15,6 +15,13 @@ enum UserRole {
   VENDOR
 }
 
+// Statut de capacité de la vendeuse (cahier, section 24), modifiable par elle à tout moment.
+enum VendorCapacity {
+  OPEN
+  BUSY
+  CLOSED
+}
+
 enum ComponentUnit {
   PORTION
   UNIT
@@ -175,7 +182,7 @@ model Vendor {
   balanceFcfa      Decimal   @default(0) @db.Decimal(10, 2)
   debtFcfa         Decimal   @default(0) @db.Decimal(10, 2)
   isActive         Boolean   @default(true)
-  isOpen           Boolean   @default(false)
+  capacityStatus   VendorCapacity @default(CLOSED)
   suspendedAt      DateTime?
   suspensionReason String?
   createdAt        DateTime  @default(now())
@@ -196,7 +203,7 @@ model Vendor {
   menus               Menu[]
 
   @@index([canteenName])
-  @@index([isOpen])
+  @@index([capacityStatus])
   @@index([isActive])
 }
 

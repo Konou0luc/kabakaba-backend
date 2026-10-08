@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { ArrayMinSize, IsArray, IsBoolean, IsOptional, IsString } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsEnum, IsOptional, IsString, ValidateIf } from 'class-validator';
+import { VendorCapacity } from '@prisma/client';
 
 /**
  * Volontairement distinct de CreateVendorDto : les champs d'identité/de
@@ -32,10 +33,10 @@ export class UpdateVendorDto {
   @IsBoolean()
   isActive?: boolean;
 
-  @ApiProperty({ required: false })
-  @IsOptional()
-  @IsBoolean()
-  isOpen?: boolean;
+  @ApiProperty({ enum: VendorCapacity, required: false, description: 'Statut de capacité : OPEN (ouverte), BUSY (occupée), CLOSED (fermée)' })
+  @ValidateIf((_, value) => value !== undefined)
+  @IsEnum(VendorCapacity)
+  capacityStatus?: VendorCapacity;
 
   @ApiProperty({ required: false, description: 'Motif de la suspension — requis en pratique quand isActive passe à false' })
   @IsOptional()

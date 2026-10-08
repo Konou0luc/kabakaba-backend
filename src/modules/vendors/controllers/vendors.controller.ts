@@ -78,7 +78,7 @@ export class VendorsController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.VENDOR)
   @ApiOperation({
-    summary: 'Profil de la cantine du vendeur connecté (solde, créance, ouvert/fermé)',
+    summary: 'Profil de la cantine du vendeur connecté (solde, créance, statut de capacité)',
   })
   @ApiResponse({ status: 200, description: 'Profil vendeur enrichi.' })
   findMe(@Request() req) {
@@ -90,11 +90,11 @@ export class VendorsController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.VENDOR)
   @ApiOperation({
-    summary: 'Mettre à jour sa cantine (isOpen, description, logo…) — vendeur mobile',
+    summary: 'Mettre à jour sa cantine (capacityStatus : OPEN, BUSY ou CLOSED, description, logo…) — vendeur mobile',
   })
   updateMe(@Body() body: UpdateVendorDto, @Request() req) {
     return this.vendorsService.updateMe(req.user.id, {
-      isOpen: body.isOpen,
+      capacityStatus: body.capacityStatus,
       description: body.description,
       logoUrl: body.logoUrl,
       bannerUrl: body.bannerUrl,

@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrderStatus, UserRole, Prisma, NotificationType, ConsumptionMode } from '@prisma/client';
+import { OrderStatus, UserRole, Prisma, NotificationType, ConsumptionMode, VendorCapacity } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
@@ -70,11 +70,15 @@ export class OrdersService {
       if (!vendor.isActive) {
         throw new BadRequestException("Cette cantine n'accepte pas de commandes actuellement");
       }
-      // CDC 3.3 : une cantine fermée par le vendeur (bascule manuelle)
-      // ne doit jamais pouvoir recevoir de commande,
-      // même si le mobile a un affichage périmé côté client.
-      if (!vendor.isOpen) {
-        throw new BadRequestException("Ce vendeur n'est pas disponible pour le moment");
+      // CDC 24 : statut de capacité choisi par la vendeuse. Règle PROVISOIRE
+      // (jusqu'aux commandes programmées) : seule une cantine « Ouverte » reçoit
+      // des commandes, même si le mobile a un affichage périmé côté client.
+      if (vendor.capacityStatus !== VendorCapacity.OPEN) {
+        throw new BadRequestException(
+          vendor.capacityStatus === VendorCapacity.BUSY
+            ? 'Ce vendeur est momentanément indisponible'
+            : 'Ce vendeur est fermé pour le moment',
+        );
       }
 
       const menuItemIds = items.map((i) => i.menuItemId);

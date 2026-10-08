@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { VendorCapacity } from '@prisma/client';
 import { BaseEntity } from '../../../common/entities/base.entity';
 
 export class VendorEntity extends BaseEntity {
@@ -26,6 +27,6 @@ export class VendorEntity extends BaseEntity {
   @ApiProperty({ example: true })
   isActive: boolean;
 
-  @ApiProperty({ example: false })
-  isOpen: boolean;
+  @ApiProperty({ enum: VendorCapacity, example: VendorCapacity.OPEN })
+  capacityStatus: VendorCapacity;
 }
