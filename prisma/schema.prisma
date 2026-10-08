@@ -129,7 +129,6 @@ model User {
   pinLockedUntil     DateTime?
   pinUpdatedAt       DateTime?
   notifyOrders       Boolean   @default(true)
-  notifyAmbassador   Boolean   @default(true)
   notifyPromotions   Boolean   @default(false)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt

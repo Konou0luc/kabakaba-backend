@@ -34,7 +34,7 @@ export class AnalyticsController {
   }
 
   @Get('revenue')
-  @ApiOperation({ summary: 'Décomposition des revenus (surplus recharges, frais non couverts, commissions)' })
+  @ApiOperation({ summary: 'Décomposition des revenus (surplus recharges, frais non couverts)' })
   @ApiQuery({ type: AnalyticsQueryDto })
   @ApiResponse({ status: 200, description: 'Revenus décomposés, par campus et tendance 7 jours.' })
   getRevenueBreakdown(@Query() query: AnalyticsQueryDto) {

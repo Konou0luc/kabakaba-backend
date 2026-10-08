@@ -22,7 +22,6 @@ const SELF_UPDATABLE_FIELDS = [
   'avatarUrl',
   'password',
   'notifyOrders',
-  'notifyAmbassador',
   'notifyPromotions',
 ] as const;
 

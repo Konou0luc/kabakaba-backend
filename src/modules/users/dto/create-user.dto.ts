@@ -46,11 +46,6 @@ export class CreateUserDto {
   @IsBoolean()
   notifyOrders?: boolean;
 
-  @ApiProperty({ default: true, description: 'Recevoir des notifications pour le programme ambassadeur' })
-  @IsOptional()
-  @IsBoolean()
-  notifyAmbassador?: boolean;
-
   @ApiProperty({ default: false, description: 'Recevoir des notifications pour les promotions' })
   @IsOptional()
   @IsBoolean()

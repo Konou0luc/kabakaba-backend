@@ -42,9 +42,6 @@ export class UserEntity extends BaseEntity {
   @ApiProperty({ default: true, description: 'Recevoir des notifications pour les commandes' })
   notifyOrders: boolean;
 
-  @ApiProperty({ default: true, description: 'Recevoir des notifications pour le programme ambassadeur' })
-  notifyAmbassador: boolean;
-
   @ApiProperty({ default: false, description: 'Recevoir des notifications pour les promotions' })
   notifyPromotions: boolean;
 }

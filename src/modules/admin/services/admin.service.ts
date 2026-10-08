@@ -75,7 +75,7 @@ export class AdminService {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    const [newStudents, newVendors, badReviews, suspensions, newAmbassadors, resolvedDisputes] = await Promise.all([
+    const [newStudents, newVendors, badReviews, suspensions, resolvedDisputes] = await Promise.all([
       this.prisma.user.findMany({
         where: { role: 'STUDENT', createdAt: { gte: startOfDay } },
         select: { id: true, firstName: true, lastName: true, createdAt: true },
@@ -100,11 +100,6 @@ export class AdminService {
           student: { select: { firstName: true, lastName: true } },
         },
         orderBy: { suspendedAt: 'desc' },
-      }),
-      this.prisma.ambassador.findMany({
-        where: { status: 'ACTIVE', updatedAt: { gte: startOfDay } },
-        select: { id: true, updatedAt: true, user: { select: { firstName: true, lastName: true } } },
-        orderBy: { updatedAt: 'desc' },
       }),
       this.prisma.dispute.findMany({
         where: { status: 'RESOLVED', resolvedAt: { gte: startOfDay } },
@@ -140,12 +135,6 @@ export class AdminService {
         type: 'SUSPENSION' as const,
         message: `Compte suspendu : ${fullName(s.student)} (${s.reason})`,
         occurredAt: s.suspendedAt,
-      })),
-      ...newAmbassadors.map((a) => ({
-        id: `ambassador-${a.id}`,
-        type: 'NEW_AMBASSADOR' as const,
-        message: `Nouvel ambassadeur validé : ${fullName(a.user)}`,
-        occurredAt: a.updatedAt,
       })),
       ...resolvedDisputes.map((d) => ({
         id: `dispute-${d.id}`,

@@ -305,14 +305,14 @@ export class AnalyticsService {
       campusIdsByVendor.get(link.vendorId)!.push(link.campusId);
     }
 
-    type CampusAgg = { surplus: number; uncoveredFees: number; commissions: number; rechargesGross: number };
+    type CampusAgg = { surplus: number; uncoveredFees: number; rechargesGross: number };
     const byCampus = new Map<string, CampusAgg>();
     const ensure = (id: string) => {
-      if (!byCampus.has(id)) byCampus.set(id, { surplus: 0, uncoveredFees: 0, commissions: 0, rechargesGross: 0 });
+      if (!byCampus.has(id)) byCampus.set(id, { surplus: 0, uncoveredFees: 0, rechargesGross: 0 });
       return byCampus.get(id)!;
     };
 
-    let totalSurplus = 0, totalUncoveredFees = 0, totalCommissions = 0, totalGross = 0;
+    let totalSurplus = 0, totalUncoveredFees = 0, totalGross = 0;
 
     for (const p of payments) {
       const rate = FEE_RATE_BY_OPERATOR[p.operator] ?? 0;
@@ -335,11 +335,11 @@ export class AnalyticsService {
     }
 
     const perCampus = campuses.map((c) => {
-      const agg = byCampus.get(c.id) ?? { surplus: 0, uncoveredFees: 0, commissions: 0, rechargesGross: 0 };
+      const agg = byCampus.get(c.id) ?? { surplus: 0, uncoveredFees: 0, rechargesGross: 0 };
       // uncoveredFees = frais de retrait que la plateforme absorbe à la place du
       // vendeur (montant sous les seuils 10k/30k FCFA) : c'est un COÛT, donc on
       // le soustrait du surplus (et non l'inverse, comme c'était fait par erreur avant).
-      return { id: c.id, name: c.name, rechargesGross: agg.rechargesGross, surplus: agg.surplus, commissions: agg.commissions, net: agg.surplus - agg.uncoveredFees - agg.commissions };
+      return { id: c.id, name: c.name, rechargesGross: agg.rechargesGross, surplus: agg.surplus, net: agg.surplus - agg.uncoveredFees };
     });
 
     const dayKeys = buildDayKeys(since, until);
@@ -357,7 +357,7 @@ export class AnalyticsService {
     }
 
     return {
-      summary: { surplus: totalSurplus, uncoveredFees: totalUncoveredFees, commissions: totalCommissions, net: totalSurplus - totalUncoveredFees - totalCommissions, rechargesGross: totalGross },
+      summary: { surplus: totalSurplus, uncoveredFees: totalUncoveredFees, net: totalSurplus - totalUncoveredFees, rechargesGross: totalGross },
       perCampus,
       dailyNet: { labels: dayKeys, values: dailyNet },
     };
