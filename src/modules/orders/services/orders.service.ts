@@ -1,9 +1,10 @@
 import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrderStatus, UserRole, Prisma, NotificationType, ConsumptionMode, VendorCapacity } from '@prisma/client';
+import { OrderStatus, OrderCancelledBy, UserRole, NotificationType, ConsumptionMode, VendorCapacity } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
+import { CancelOrderDto } from '../dto/cancel-order.dto';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 
 interface Actor {
@@ -185,17 +186,11 @@ export class OrdersService {
       }
       totalTickets += takeawayFeeTickets;
 
-      // Tickets = FCFA en séquestre, conversion 1:1 : aucune commission sur
-      // les commandes (contrairement aux recharges wallet, qui ont leur
-      // propre barème — voir recharge-pricing.ts).
-      const escrowAmount = totalTickets;
-
-      // MISE EN SÉQUESTRE : avant ce correctif, aucune ligne de ce service
-      // ne vérifiait le solde de l'étudiant ni ne débitait son wallet à la
-      // commande — Order.escrowAmount n'était qu'un nombre stocké sans
-      // aucun effet financier réel. Débit conditionnel atomique : la clause
+      // Paiement : tickets = FCFA, conversion 1:1, aucune commission sur les
+      // commandes. Débit conditionnel atomique : la clause
       // walletBalance >= totalTickets dans le where empêche toute commande
       // au-delà du solde disponible, y compris en cas de requêtes concurrentes.
+      // La commande naît directement CONFIRMED (statut par défaut du schéma).
       const debited = await tx.user.updateMany({
         where: { id: studentId, walletBalance: { gte: totalTickets } },
         data: { walletBalance: { decrement: totalTickets } },
@@ -209,7 +204,6 @@ export class OrdersService {
           studentId,
           vendorId,
           totalTickets,
-          escrowAmount,
           consumptionMode,
           takeawayOptionId: takeawayOptionIdToSave,
           takeawayFeeTickets,
@@ -233,11 +227,11 @@ export class OrdersService {
       await tx.transaction.create({
         data: {
           userId: studentId,
-          type: 'ESCROW_LOCK',
+          type: 'PAYMENT',
           status: 'COMPLETED',
-          amount: escrowAmount,
+          amount: totalTickets,
           reference: crypto.randomUUID(),
-          description: `Mise en séquestre pour la commande ${order.id}`,
+          description: `Paiement de la commande ${order.id}`,
           relatedOrderId: order.id,
         },
       });
@@ -245,7 +239,7 @@ export class OrdersService {
       return order;
     });
 
-    await this.notifyStudentOrderStatus(studentId, OrderStatus.PENDING, vendorId);
+    await this.notifyStudentOrderStatus(studentId, OrderStatus.CONFIRMED, vendorId);
     return order;
   }
 
@@ -342,125 +336,56 @@ export class OrdersService {
   }
 
   /**
-   * Machine à états serveur. Le client ne peut jamais sauter une étape et
-   * une commande déjà entrée dans un état terminal ne peut pas être ramenée
-   * en arrière pour provoquer un second mouvement financier.
+   * Machine à états serveur : CONFIRMED → IN_PREPARATION → READY → RECEIVED,
+   * dans l'ordre strict, sans saut ni retour en arrière. L'annulation ne passe
+   * jamais par ici : voir cancel().
    */
-  private static readonly ALLOWED_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
-    [OrderStatus.PENDING]: [
-      OrderStatus.ACCEPTED,
-      OrderStatus.REFUSED,
-      OrderStatus.CANCELLED_VENDOR,
-    ],
-    [OrderStatus.ACCEPTED]: [
-      OrderStatus.IN_PREPARATION,
-      OrderStatus.CANCELLED_VENDOR,
-    ],
-    [OrderStatus.IN_PREPARATION]: [
-      OrderStatus.READY,
-      OrderStatus.CANCELLED_VENDOR,
-    ],
-    [OrderStatus.READY]: [OrderStatus.RECEIVED, OrderStatus.AUTO_RECEIVED],
-    [OrderStatus.RECEIVED]: [],
-    [OrderStatus.AUTO_RECEIVED]: [],
-    [OrderStatus.REFUSED]: [],
-    [OrderStatus.CANCELLED_VENDOR]: [],
-    [OrderStatus.CANCELLED_STUDENT]: [],
-    [OrderStatus.REFUNDED]: [],
+  private static readonly NEXT_STATUS: Partial<Record<OrderStatus, OrderStatus>> = {
+    [OrderStatus.CONFIRMED]: OrderStatus.IN_PREPARATION,
+    [OrderStatus.IN_PREPARATION]: OrderStatus.READY,
+    [OrderStatus.READY]: OrderStatus.RECEIVED,
   };
 
-  private assertAllowedTransition(
-    oldStatus: OrderStatus,
-    newStatus: OrderStatus,
-    actor: Actor,
-  ) {
-    if (oldStatus === newStatus) return;
-
-    // REFUNDED est volontairement exclu du PATCH générique : les remboursements
-    // passent par refundByVendor() ou le service de litiges, avec leurs propres
-    // garde-fous financiers.
-    if (newStatus === OrderStatus.REFUNDED) {
-      throw new BadRequestException(
-        "Un remboursement doit passer par le flux de remboursement dédié, pas par cet endpoint",
-      );
-    }
-
-    const allowed = OrdersService.ALLOWED_TRANSITIONS[oldStatus] ?? [];
-    if (!allowed.includes(newStatus)) {
-      throw new BadRequestException(
-        `Transition de commande interdite : ${oldStatus} → ${newStatus}`,
-      );
-    }
-
-    // Le vendeur ne pilote que le cycle opérationnel de sa propre commande.
-    // Une annulation PENDING/une intervention administrative reste possible
-    // pour ADMIN, mais elle ne permet jamais de revenir en arrière.
-    if (!actor.isAdmin && actor.role === UserRole.VENDOR) {
-      const vendorAllowed: readonly OrderStatus[] = [
-        OrderStatus.ACCEPTED,
-        OrderStatus.REFUSED,
-        OrderStatus.CANCELLED_VENDOR,
-        OrderStatus.IN_PREPARATION,
-        OrderStatus.READY,
-      ];
-      if (!vendorAllowed.includes(newStatus)) {
-        throw new ForbiddenException('Cette transition n’est pas autorisée pour un vendeur');
-      }
-    }
-  }
-
   async update(id: string, updateOrderDto: UpdateOrderDto, actor: Actor) {
+    // L'étudiant ne change jamais le statut d'une commande.
+    if (!actor.isAdmin && actor.role !== UserRole.VENDOR) {
+      throw new ForbiddenException('Seuls la vendeuse et l’administrateur peuvent changer le statut d’une commande');
+    }
+
+    // findOne vérifie aussi que la commande appartient à la cantine de la vendeuse.
     const existing = await this.findOne(id, actor);
 
-    // Ne jamais accepter de champs financiers/propriétaires venant du client,
-    // y compris pour un admin. Ils sont définitivement issus de la création.
-    const data: { status?: OrderStatus; reason?: string } = {};
-    if (updateOrderDto.status !== undefined) data.status = updateOrderDto.status;
-    if ((updateOrderDto as any).reason !== undefined) data.reason = (updateOrderDto as any).reason;
+    const newStatus = updateOrderDto.status;
+    if (newStatus === existing.status) return existing;
 
-    const newStatus = data.status;
-    if (!newStatus || newStatus === existing.status) {
-      if (Object.keys(data).length === 0) return existing;
-      return this.prisma.order.update({ where: { id }, data });
+    if (newStatus === OrderStatus.CANCELLED) {
+      throw new BadRequestException('Pour annuler une commande, utilisez POST /orders/:id/cancel');
     }
-
-    this.assertAllowedTransition(existing.status, newStatus, actor);
+    if (OrdersService.NEXT_STATUS[existing.status] !== newStatus) {
+      throw new BadRequestException(
+        `Transition de commande interdite : ${existing.status} → ${newStatus}`,
+      );
+    }
 
     const changedById = actor.authKind === 'web' ? null : actor.id;
 
     const order = await this.prisma.$transaction(async (tx) => {
       const now = new Date();
 
-      // Le passage à READY est une opération financière. On le "claim" avec
-      // escrowReleasedAt IS NULL dans la même écriture que la transition de
-      // statut. Une requête concurrente ne peut donc pas libérer deux fois le
-      // même séquestre.
-      let claim;
-      if (newStatus === OrderStatus.READY) {
-        claim = await tx.order.updateMany({
-          where: {
-            id,
-            status: existing.status,
-            escrowReleasedAt: null,
-          },
-          data: {
-            status: newStatus,
-            readyAt: now,
-            escrowReleasedAt: now,
-            ...(data.reason !== undefined ? { reason: data.reason } : {}),
-          },
-        });
-      } else {
-        claim = await tx.order.updateMany({
-          where: { id, status: existing.status },
-          data,
-        });
-      }
-
+      // Le changement de statut est « réclamé » avec la condition sur le statut
+      // précédent, dans la même écriture. Une requête concurrente trouve un
+      // statut déjà changé (count = 0) et échoue : le crédit de la vendeuse
+      // ci-dessous ne peut donc jamais être appliqué deux fois.
+      const claim = await tx.order.updateMany({
+        where: { id, status: existing.status },
+        data: {
+          status: newStatus,
+          ...(newStatus === OrderStatus.READY ? { readyAt: now } : {}),
+          ...(newStatus === OrderStatus.RECEIVED ? { receivedAt: now } : {}),
+        },
+      });
       if (claim.count !== 1) {
-        throw new BadRequestException(
-          'La commande a été modifiée entre-temps ou son séquestre a déjà été libéré',
-        );
+        throw new BadRequestException('La commande a été modifiée entre-temps');
       }
 
       const order = await tx.order.findUnique({ where: { id } });
@@ -470,108 +395,27 @@ export class OrdersService {
         data: { orderId: id, oldStatus: existing.status, newStatus, changedById },
       });
 
-      // LIBÉRATION D'ESCROW : uniquement lors de la transition atomique vers
-      // READY. Comme escrowReleasedAt est posé par le claim ci-dessus, aucun
-      // second passage ne peut déclencher ce bloc.
+      // Crédit de la vendeuse : uniquement au passage à READY, tickets = FCFA
+      // 1:1, sans commission, dans la transaction du changement de statut.
       if (newStatus === OrderStatus.READY) {
-        const credit = Number(order.escrowAmount);
-
-        const vendor = await tx.vendor.findUnique({
-          where: { id: order.vendorId },
-        });
+        const vendor = await tx.vendor.findUnique({ where: { id: order.vendorId } });
         if (!vendor) {
           throw new NotFoundException(`Vendeur de la commande ${order.id} introuvable`);
         }
 
-        const openDebts = await tx.debt.findMany({
-          where: {
-            vendorId: order.vendorId,
-            isRecovered: false,
-            deletedAt: null,
-            remainingAmount: { gt: 0 },
-          },
-          orderBy: { createdAt: 'asc' },
-        });
-
-        let remainingCredit = credit;
-        let totalRecovered = 0;
-
-        for (const debt of openDebts) {
-          if (remainingCredit <= 0) break;
-
-          const debtRemaining = Number(debt.remainingAmount);
-          const recovered = Math.min(remainingCredit, debtRemaining);
-          const newRemaining = debtRemaining - recovered;
-
-          await tx.debt.update({
-            where: { id: debt.id },
-            data: {
-              remainingAmount: newRemaining,
-              ...(newRemaining <= 0 ? { isRecovered: true } : {}),
-            },
-          });
-
-          remainingCredit -= recovered;
-          totalRecovered += recovered;
-        }
-
-        const currentDebtFcfa = Number(vendor.debtFcfa);
-        const newDebtFcfa = Math.max(0, currentDebtFcfa - totalRecovered);
-
         await tx.vendor.update({
           where: { id: order.vendorId },
-          data: {
-            balanceFcfa: { increment: remainingCredit },
-            debtFcfa: newDebtFcfa,
-          },
+          data: { balanceFcfa: { increment: order.totalTickets } },
         });
 
         await tx.transaction.create({
           data: {
             userId: vendor.userId,
-            type: 'ESCROW_RELEASE',
-            status: 'COMPLETED',
-            amount: credit,
-            reference: crypto.randomUUID(),
-            description: `Libération du séquestre à la préparation de la commande ${order.id}`,
-            relatedOrderId: order.id,
-          },
-        });
-
-        if (totalRecovered > 0) {
-          await tx.transaction.create({
-            data: {
-              userId: vendor.userId,
-              type: 'DEBT_RECOVERY',
-              status: 'COMPLETED',
-              amount: totalRecovered,
-              reference: crypto.randomUUID(),
-              description: `Recouvrement automatique de créance sur libération séquestre commande ${order.id}`,
-              relatedOrderId: order.id,
-            },
-          });
-        }
-      }
-
-      // Une commande refusée/annulée avant READY restitue le séquestre.
-      // READY ne peut plus revenir ici grâce à la machine à états.
-      if (
-        (newStatus === OrderStatus.REFUSED || newStatus === OrderStatus.CANCELLED_VENDOR) &&
-        existing.status !== OrderStatus.REFUSED &&
-        existing.status !== OrderStatus.CANCELLED_VENDOR
-      ) {
-        await tx.user.update({
-          where: { id: order.studentId },
-          data: { walletBalance: { increment: order.totalTickets } },
-        });
-        await tx.transaction.create({
-          data: {
-            userId: order.studentId,
-            type: 'REFUND',
+            type: 'SALE',
             status: 'COMPLETED',
             amount: order.totalTickets,
             reference: crypto.randomUUID(),
-            description: `Annulation de la commande ${order.id}, séquestre restitué à l'étudiant`,
+            description: `Vente : commande ${order.id} prête`,
             relatedOrderId: order.id,
           },
         });
@@ -585,270 +429,92 @@ export class OrdersService {
   }
 
   /**
-   * CDC 4.3 — commandes PENDING depuis plus de 5 minutes → CANCELLED_VENDOR
-   * + restitution du séquestre à l'étudiant. Déclenché par cron interne.
+   * Annulation (tous rôles).
+   * - étudiant : ses propres commandes, tant qu'elles sont CONFIRMED ;
+   * - vendeuse : les commandes de sa cantine, avant READY (CONFIRMED ou
+   *   IN_PREPARATION), motif obligatoire : elle n'est créditée qu'à READY ;
+   * - administrateur : mêmes conditions que la vendeuse, sur toutes les commandes.
+   * Remboursement intégral en tickets, appliqué une seule fois : le changement
+   * de statut conditionnel et le remboursement sont dans la même transaction.
    */
-  async processPendingTimeouts() {
-    const cutoff = new Date(Date.now() - 5 * 60 * 1000);
-    const expired = await this.prisma.order.findMany({
-      where: {
-        status: OrderStatus.PENDING,
-        deletedAt: null,
-        createdAt: { lte: cutoff },
-      },
-      select: { id: true, studentId: true, totalTickets: true, vendorId: true },
-    });
-
-    let processed = 0;
-    for (const order of expired) {
-      try {
-        const claimed = await this.prisma.$transaction(async (tx) => {
-          const claim = await tx.order.updateMany({
-            where: { id: order.id, status: OrderStatus.PENDING },
-            data: { status: OrderStatus.CANCELLED_VENDOR },
-          });
-          if (claim.count === 0) return false;
-
-          await tx.orderStatusHistory.create({
-            data: {
-              orderId: order.id,
-              oldStatus: OrderStatus.PENDING,
-              newStatus: OrderStatus.CANCELLED_VENDOR,
-              changedById: null,
-            },
-          });
-
-          await tx.user.update({
-            where: { id: order.studentId },
-            data: { walletBalance: { increment: order.totalTickets } },
-          });
-
-          await tx.transaction.create({
-            data: {
-              userId: order.studentId,
-              type: 'REFUND',
-              status: 'COMPLETED',
-              amount: order.totalTickets,
-              reference: crypto.randomUUID(),
-              description: `Timeout 5 min — vendeur indisponible, séquestre restitué (commande ${order.id})`,
-              relatedOrderId: order.id,
-            },
-          });
-          return true;
-        });
-        if (claimed) {
-          processed += 1;
-          await this.notifyStudentOrderStatus(
-            order.studentId,
-            OrderStatus.CANCELLED_VENDOR,
-            order.vendorId,
-            'Le vendeur n’a pas répondu. Tes tickets ont été recrédités.',
-          );
-        }
-      } catch (err) {
-        this.logger.error(`Timeout PENDING échoué pour ${order.id}: ${err}`);
-      }
-    }
-
-    const summary = { scanned: expired.length, processed, at: new Date().toISOString() };
-    this.logger.log(`Cron order-pending-timeout: ${JSON.stringify(summary)}`);
-    return summary;
-  }
-
-  /**
-   * CDC 4.6 — commandes READY depuis plus d'1 heure → AUTO_RECEIVED
-   * (aucun mouvement financier : le débit a déjà eu lieu à READY).
-   */
-  async processReadyAutoReceive() {
-    const cutoff = new Date(Date.now() - 60 * 60 * 1000);
-    // ready_at n'est pas forcément rempli : on s'appuie sur updatedAt du passage READY
-    // via OrderStatusHistory si disponible, sinon updatedAt de la commande.
-    const readyOrders = await this.prisma.order.findMany({
-      where: {
-        status: OrderStatus.READY,
-        deletedAt: null,
-        updatedAt: { lte: cutoff },
-      },
-      select: { id: true, studentId: true, vendorId: true },
-    });
-
-    let processed = 0;
-    for (const order of readyOrders) {
-      try {
-        // Vérifie que le passage à READY date bien de plus d'1h
-        const readyEvent = await this.prisma.orderStatusHistory.findFirst({
-          where: { orderId: order.id, newStatus: OrderStatus.READY },
-          orderBy: { createdAt: 'desc' },
-        });
-        const readyAt = readyEvent?.createdAt ?? null;
-        if (readyAt && readyAt > cutoff) continue;
-
-        const claim = await this.prisma.order.updateMany({
-          where: { id: order.id, status: OrderStatus.READY },
-          data: { status: OrderStatus.AUTO_RECEIVED },
-        });
-        if (claim.count === 0) continue;
-
-        await this.prisma.orderStatusHistory.create({
-          data: {
-            orderId: order.id,
-            oldStatus: OrderStatus.READY,
-            newStatus: OrderStatus.AUTO_RECEIVED,
-            changedById: null,
-          },
-        });
-        processed += 1;
-        await this.notifyStudentOrderStatus(
-          order.studentId,
-          OrderStatus.AUTO_RECEIVED,
-          order.vendorId,
-        );
-      } catch (err) {
-        this.logger.error(`AUTO_RECEIVED échoué pour ${order.id}: ${err}`);
-      }
-    }
-
-    const summary = { scanned: readyOrders.length, processed, at: new Date().toISOString() };
-    this.logger.log(`Cron order-auto-receive: ${JSON.stringify(summary)}`);
-    return summary;
-  }
-
-  /**
-   * Annulation par l'étudiant — uniquement en PENDING (avant acceptation vendeur).
-   * Restitue le séquestre + enregistre l'anti-abus.
-   */
-  async cancelByStudent(orderId: string, studentId: string) {
+  async cancel(orderId: string, dto: CancelOrderDto, actor: Actor) {
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, deletedAt: null },
     });
     if (!order) throw new NotFoundException(`Commande ${orderId} introuvable`);
-    if (order.studentId !== studentId) {
-      throw new ForbiddenException('Vous ne pouvez annuler que vos propres commandes');
+
+    const reason = dto.reason?.trim() || undefined;
+
+    let cancelledBy: OrderCancelledBy;
+    let cancellableFrom: readonly OrderStatus[];
+    if (actor.isAdmin) {
+      cancelledBy = OrderCancelledBy.ADMIN;
+      cancellableFrom = [OrderStatus.CONFIRMED, OrderStatus.IN_PREPARATION];
+    } else if (actor.role === UserRole.STUDENT) {
+      if (order.studentId !== actor.id) {
+        throw new ForbiddenException('Vous ne pouvez annuler que vos propres commandes');
+      }
+      cancelledBy = OrderCancelledBy.STUDENT;
+      cancellableFrom = [OrderStatus.CONFIRMED];
+    } else if (actor.role === UserRole.VENDOR) {
+      const vendor = await this.prisma.vendor.findUnique({ where: { userId: actor.id } });
+      if (!vendor || vendor.id !== order.vendorId) {
+        throw new ForbiddenException('Vous ne pouvez annuler que les commandes de votre cantine');
+      }
+      cancelledBy = OrderCancelledBy.VENDOR;
+      cancellableFrom = [OrderStatus.CONFIRMED, OrderStatus.IN_PREPARATION];
+    } else {
+      throw new ForbiddenException('Vous ne pouvez pas annuler cette commande');
     }
-    if (order.status !== OrderStatus.PENDING) {
+
+    if (cancelledBy !== OrderCancelledBy.STUDENT && !reason) {
+      throw new BadRequestException('Un motif est obligatoire pour annuler une commande');
+    }
+
+    if (order.status === OrderStatus.CANCELLED) {
+      throw new BadRequestException('Cette commande est déjà annulée');
+    }
+    if (!cancellableFrom.includes(order.status)) {
       throw new BadRequestException(
-        'Seules les commandes en attente (PENDING) peuvent être annulées par l\'étudiant',
+        cancelledBy === OrderCancelledBy.STUDENT
+          ? 'Vous ne pouvez annuler une commande que tant qu’elle est confirmée'
+          : 'Une commande ne peut plus être annulée une fois prête ou récupérée',
       );
     }
+
+    const changedById = actor.authKind === 'web' ? null : actor.id;
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      // Réclamation conditionnelle sur le statut lu ci-dessus : en cas de
+      // double annulation ou de passage concurrent à READY, une seule des
+      // requêtes aboutit, donc le remboursement n'est appliqué qu'une fois.
       const claim = await tx.order.updateMany({
-        where: { id: orderId, status: OrderStatus.PENDING },
-        data: { status: OrderStatus.CANCELLED_STUDENT },
-      });
-      if (claim.count === 0) {
-        throw new BadRequestException('La commande n\'est plus en attente');
-      }
-
-      await tx.orderStatusHistory.create({
+        where: { id: orderId, status: order.status },
         data: {
-          orderId,
-          oldStatus: OrderStatus.PENDING,
-          newStatus: OrderStatus.CANCELLED_STUDENT,
-          changedById: studentId,
+          status: OrderStatus.CANCELLED,
+          cancelledAt: new Date(),
+          cancelledBy,
+          cancelledById: changedById,
+          cancellationReason: reason ?? null,
+          refundedTickets: order.totalTickets,
         },
       });
-
-      await tx.user.update({
-        where: { id: studentId },
-        data: { walletBalance: { increment: order.totalTickets } },
-      });
-
-      await tx.transaction.create({
-        data: {
-          userId: studentId,
-          type: 'REFUND',
-          status: 'COMPLETED',
-          amount: order.totalTickets,
-          reference: crypto.randomUUID(),
-          description: `Annulation étudiant — séquestre restitué (commande ${orderId})`,
-          relatedOrderId: orderId,
-        },
-      });
-
-      return tx.order.findUnique({ where: { id: orderId } });
-    });
-
-    return { order: updated };
-  }
-
-  /**
-   * CDC 4.7 — remboursement post-READY déclenché par le vendeur (mobile).
-   * Solde suffisant → débit vendeur + crédit étudiant.
-   * Solde insuffisant → avance plateforme + Debt + debtFcfa.
-   */
-  async refundByVendor(orderId: string, vendorUserId: string, dto: { reason: string }) {
-    const reason = dto.reason?.trim();
-    if (!reason || reason.length < 3) {
-      throw new BadRequestException('Motif de remboursement obligatoire');
-    }
-
-    const vendor = await this.prisma.vendor.findUnique({ where: { userId: vendorUserId } });
-    if (!vendor) throw new NotFoundException('Profil vendeur introuvable');
-
-    const order = await this.prisma.order.findFirst({
-      where: { id: orderId, deletedAt: null },
-    });
-    if (!order) throw new NotFoundException(`Commande ${orderId} introuvable`);
-    if (order.vendorId !== vendor.id) {
-      throw new ForbiddenException('Cette commande ne appartient pas à votre cantine');
-    }
-    if (order.status !== OrderStatus.READY && order.status !== OrderStatus.RECEIVED && order.status !== OrderStatus.AUTO_RECEIVED) {
-      throw new BadRequestException(
-        'Un remboursement vendeur n\'est possible qu\'après l\'état READY (commande prête ou reçue)',
-      );
-    }
-
-    const refundAmount = order.totalTickets;
-
-    const result = await this.prisma.$transaction(async (tx) => {
-      const claim = await tx.order.updateMany({
-        where: {
-          id: orderId,
-          status: { in: [OrderStatus.READY, OrderStatus.RECEIVED, OrderStatus.AUTO_RECEIVED] },
-        },
-        data: { status: OrderStatus.REFUNDED },
-      });
-      if (claim.count === 0) {
-        throw new BadRequestException('Commande déjà remboursée ou statut incompatible');
+      if (claim.count !== 1) {
+        throw new BadRequestException('La commande a été modifiée entre-temps : annulation impossible');
       }
 
       await tx.orderStatusHistory.create({
         data: {
           orderId,
           oldStatus: order.status,
-          newStatus: OrderStatus.REFUNDED,
-          changedById: vendorUserId,
+          newStatus: OrderStatus.CANCELLED,
+          changedById,
         },
       });
-
-      const freshVendor = await tx.vendor.findUnique({ where: { id: vendor.id } });
-      const vendorBalance = Number(freshVendor!.balanceFcfa);
-      const debitFromVendor = Math.min(vendorBalance, refundAmount);
-      const platformAdvance = refundAmount - debitFromVendor;
-
-      await tx.vendor.update({
-        where: { id: vendor.id },
-        data: {
-          balanceFcfa: { decrement: debitFromVendor },
-          ...(platformAdvance > 0 ? { debtFcfa: { increment: platformAdvance } } : {}),
-        },
-      });
-
-      if (platformAdvance > 0) {
-        await tx.debt.create({
-          data: {
-            vendorId: vendor.id,
-            amount: platformAdvance,
-            remainingAmount: platformAdvance,
-            reason: `Avance plateforme — remboursement vendeur commande ${orderId} : ${reason}`,
-          },
-        });
-      }
 
       await tx.user.update({
         where: { id: order.studentId },
-        data: { walletBalance: { increment: refundAmount } },
+        data: { walletBalance: { increment: order.totalTickets } },
       });
 
       await tx.transaction.create({
@@ -856,49 +522,24 @@ export class OrdersService {
           userId: order.studentId,
           type: 'REFUND',
           status: 'COMPLETED',
-          amount: refundAmount,
+          amount: order.totalTickets,
           reference: crypto.randomUUID(),
-          description: `Remboursement vendeur post-READY (commande ${orderId}) : ${reason}`,
+          description: `Annulation de la commande ${orderId} : tickets remboursés`,
           relatedOrderId: orderId,
         },
       });
 
-      if (debitFromVendor > 0) {
-        await tx.transaction.create({
-          data: {
-            userId: vendor.userId,
-            type: 'PAYMENT',
-            status: 'COMPLETED',
-            amount: debitFromVendor,
-            reference: crypto.randomUUID(),
-            description: `Débit remboursement commande ${orderId}`,
-            relatedOrderId: orderId,
-          },
-        });
-      }
+      return tx.order.findUnique({ where: { id: orderId } });
+    });
 
-      return {
-        order: await tx.order.findUnique({ where: { id: orderId } }),
-        refundAmount,
-        debitFromVendor,
-        platformAdvance,
-        reason,
-      };
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
-
-    await this.notifyStudentOrderStatus(
-      order.studentId,
-      OrderStatus.REFUNDED,
-      order.vendorId,
-    );
-    return result;
+    await this.notifyStudentOrderStatus(order.studentId, OrderStatus.CANCELLED, order.vendorId);
+    return { order: updated };
   }
 
   private async notifyStudentOrderStatus(
     studentId: string,
     status: OrderStatus,
     vendorId: string,
-    overrideMessage?: string,
   ) {
     const vendor = await this.prisma.vendor.findUnique({
       where: { id: vendorId },
@@ -908,14 +549,9 @@ export class OrdersService {
     const copy: Partial<
       Record<OrderStatus, { title: string; message: string; type: NotificationType }>
     > = {
-      [OrderStatus.PENDING]: {
-        title: 'Commande envoyée',
-        message: `${place} a reçu ta commande. Tu seras prévenu dès qu’elle sera acceptée.`,
-        type: NotificationType.INFO,
-      },
-      [OrderStatus.ACCEPTED]: {
-        title: 'Commande acceptée',
-        message: `${place} a accepté ta commande. Elle est en préparation.`,
+      [OrderStatus.CONFIRMED]: {
+        title: 'Commande confirmée',
+        message: `Ta commande chez ${place} est confirmée.`,
         type: NotificationType.SUCCESS,
       },
       [OrderStatus.IN_PREPARATION]: {
@@ -928,27 +564,10 @@ export class OrdersService {
         message: `Ta commande chez ${place} est prête. Va la récupérer.`,
         type: NotificationType.SUCCESS,
       },
-      [OrderStatus.REFUSED]: {
-        title: 'Commande refusée',
-        message: `${place} a refusé ta commande. Tes tickets ont été recrédités.`,
-        type: NotificationType.ERROR,
-      },
-      [OrderStatus.CANCELLED_VENDOR]: {
+      [OrderStatus.CANCELLED]: {
         title: 'Commande annulée',
-        message:
-          overrideMessage ??
-          `Ta commande chez ${place} a été annulée. Tes tickets ont été recrédités.`,
+        message: `Ta commande chez ${place} a été annulée. Tes tickets ont été remboursés.`,
         type: NotificationType.WARNING,
-      },
-      [OrderStatus.REFUNDED]: {
-        title: 'Commande remboursée',
-        message: `Ta commande chez ${place} a été remboursée. Tes tickets sont de nouveau sur ton portefeuille.`,
-        type: NotificationType.SUCCESS,
-      },
-      [OrderStatus.AUTO_RECEIVED]: {
-        title: 'Commande récupérée',
-        message: `Ta commande chez ${place} a été marquée comme récupérée.`,
-        type: NotificationType.INFO,
       },
     };
     const payload = copy[status];

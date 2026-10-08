@@ -11,7 +11,7 @@ const SORT_MAP: Record<string, { field: string; direction: 'asc' | 'desc' }> = {
 };
 
 // Statuts de commande éligibles à un avis (commande effectivement reçue).
-const REVIEW_ELIGIBLE_ORDER_STATUSES = ['RECEIVED', 'AUTO_RECEIVED'];
+const REVIEW_ELIGIBLE_ORDER_STATUSES = ['RECEIVED'];
 
 // SÉCURITÉ : projection publique — ne renvoie jamais les identifiants
 // internes studentId/vendorId/orderId sur les routes publiques (GET

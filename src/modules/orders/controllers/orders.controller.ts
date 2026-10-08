@@ -19,7 +19,7 @@ import {
 import { OrdersService } from '../services/orders.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
-import { RefundOrderDto } from '../dto/refund-order.dto';
+import { CancelOrderDto } from '../dto/cancel-order.dto';
 import { OrderEntity } from '../entities/order.entity';
 import { FindOrdersQueryDto } from '../dto/find-orders-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
@@ -107,7 +107,7 @@ export class OrdersController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN, UserRole.VENDOR)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Mettre à jour une commande (Admin web ou Vendeur)' })
+  @ApiOperation({ summary: "Faire avancer le statut d'une commande, dans l'ordre (Admin web ou Vendeuse)" })
   @ApiResponse({
     status: 200,
     description: 'La commande a été mise à jour avec succès.',
@@ -126,33 +126,20 @@ export class OrdersController {
   @Post(':id/cancel')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.STUDENT)
+  @Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
   @ApiOperation({
-    summary: 'Annuler sa commande (étudiant) — uniquement PENDING',
+    summary: 'Annuler une commande (étudiant, vendeuse ou administrateur)',
     description:
-      'Restitue le séquestre.',
+      "Étudiant : ses commandes tant qu'elles sont CONFIRMED. Vendeuse : les commandes de sa cantine en CONFIRMED ou IN_PREPARATION, motif obligatoire. Administrateur : mêmes conditions que la vendeuse, sur toutes les commandes, motif obligatoire. Remboursement intégral en tickets, une seule fois.",
   })
-  @ApiResponse({ status: 200, description: 'Commande annulée' })
-  cancelByStudent(@Param('id') id: string, @Request() req) {
-    return this.ordersService.cancelByStudent(id, req.user.id);
+  @ApiResponse({ status: 200, description: 'Commande annulée et remboursée : { order }' })
+  cancel(@Param('id') id: string, @Body() dto: CancelOrderDto, @Request() req) {
+    return this.ordersService.cancel(id, dto, {
+      id: req.user.id,
+      role: req.user.role,
+      isAdmin: req.user.role === UserRole.ADMIN,
+      authKind: req.user.__authKind,
+    });
   }
-
-  @Post(':id/refund')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.VENDOR)
-  @ApiOperation({
-    summary: 'Remboursement post-READY (vendeur mobile) — CDC 4.7',
-    description:
-      'Motif obligatoire. Débite le solde vendeur ou crée une créance si insuffisant.',
-  })
-  @ApiResponse({ status: 200, description: 'Remboursement effectué' })
-  refundByVendor(
-    @Param('id') id: string,
-    @Body() dto: RefundOrderDto,
-    @Request() req,
-  ) {
-    return this.ordersService.refundByVendor(id, req.user.id, dto);
-  }
-
 }

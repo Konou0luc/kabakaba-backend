@@ -36,16 +36,17 @@ enum MenuItemType {
 }
 
 enum OrderStatus {
-  PENDING
-  ACCEPTED
+  CONFIRMED
   IN_PREPARATION
   READY
   RECEIVED
-  AUTO_RECEIVED
-  REFUSED
-  CANCELLED_VENDOR
-  CANCELLED_STUDENT
-  REFUNDED
+  CANCELLED
+}
+
+enum OrderCancelledBy {
+  STUDENT
+  VENDOR
+  ADMIN
 }
 
 enum PaymentStatus {
@@ -56,9 +57,8 @@ enum PaymentStatus {
 
 enum TransactionType {
   DEPOSIT
-  ESCROW_LOCK
-  ESCROW_RELEASE
   PAYMENT
+  SALE
   REFUND
   WITHDRAWAL
   COMMISSION
@@ -151,6 +151,7 @@ model User {
 
   campus               Campus?              @relation(fields: [campusId], references: [id])
   orders               Order[]              @relation("StudentOrders")
+  cancelledOrders      Order[]              @relation("OrderCancelledByUser")
   transactions         Transaction[]        @relation("TransactionUser")
   reviews              Review[]
   vendor               Vendor?
@@ -339,16 +340,18 @@ model Order {
   id                 String          @id @default(uuid())
   studentId          String
   vendorId           String
-  status             OrderStatus     @default(PENDING)
+  status             OrderStatus     @default(CONFIRMED)
   totalTickets       Int
-  escrowAmount       Decimal         @db.Decimal(10, 2)
   consumptionMode    ConsumptionMode
   takeawayOptionId   String?
   takeawayFeeTickets Int             @default(0)
-  reason             String?
+  cancellationReason String?
   readyAt            DateTime?
-  escrowReleasedAt   DateTime?
-  confirmedAt        DateTime?
+  receivedAt         DateTime?
+  cancelledAt        DateTime?
+  cancelledBy        OrderCancelledBy?
+  cancelledById      String?
+  refundedTickets    Int             @default(0)
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
   deletedAt          DateTime?
@@ -356,6 +359,7 @@ model Order {
   student             User                 @relation("StudentOrders", fields: [studentId], references: [id])
   vendor              Vendor               @relation(fields: [vendorId], references: [id])
   takeawayOption      TakeawayOption?      @relation(fields: [takeawayOptionId], references: [id])
+  cancelledByUser     User?                @relation("OrderCancelledByUser", fields: [cancelledById], references: [id])
   items               OrderItem[]
   review              Review?
   statusHistory       OrderStatusHistory[]

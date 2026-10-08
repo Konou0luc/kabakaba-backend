@@ -19,7 +19,7 @@ export class FindTransactionsQueryDto extends PaginationDto {
   @IsString()
   userId?: string;
 
-  @ApiProperty({ required: false, description: 'Filtrer par cantine (commandes/séquestres/remboursements liés à cette cantine, ou retraits de cette cantine)' })
+  @ApiProperty({ required: false, description: 'Filtrer par cantine (commandes/paiements/remboursements liés à cette cantine, ou retraits de cette cantine)' })
   @IsOptional()
   @IsString()
   vendorId?: string;

@@ -5,9 +5,9 @@ import { Type } from 'class-transformer';
 import { CreateOrderItemDto } from './create-order-item.dto';
 
 /**
- * `totalTickets` et `escrowAmount` n'existent plus dans ce DTO : ce sont
- * des montants calculés par le serveur (voir OrdersService.create), jamais
- * fournis par le client. Le client décrit uniquement CE QU'IL COMMANDE
+ * `totalTickets` n'existe pas dans ce DTO : c'est un montant calculé par
+ * le serveur (voir OrdersService.create), jamais
+ * fourni par le client. Le client décrit uniquement CE QU'IL COMMANDE
  * (items, composants) ; le prix est déterminé à partir des
  * valeurs fixées par le vendeur en base (MenuItem.priceTickets,
  * MenuComponent.unitPriceTickets).

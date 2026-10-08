@@ -2,15 +2,10 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { platformCoveredWithdrawalFee } from '../../vendors/pricing/withdrawal-fees';
 
-const COMPLETED_STATUSES = ['RECEIVED', 'AUTO_RECEIVED'];
-const DECIDED_STATUSES = ['RECEIVED', 'AUTO_RECEIVED', 'REFUSED', 'CANCELLED_VENDOR'];
-const ACCEPTED_LINEAGE_STATUSES = ['ACCEPTED', 'IN_PREPARATION', 'READY', 'RECEIVED', 'AUTO_RECEIVED', 'REFUNDED'];
-const DECISION_STATUSES = ['ACCEPTED', 'IN_PREPARATION', 'READY', 'RECEIVED', 'AUTO_RECEIVED', 'REFUNDED', 'REFUSED', 'CANCELLED_VENDOR'];
+const COMPLETED_STATUS = 'RECEIVED';
+const CANCELLED_STATUS = 'CANCELLED';
 
 const FEE_RATE_BY_OPERATOR: Record<string, number> = { FLOOZ: 0.025, MIXX: 0.035 };
-
-const ALERT_THRESHOLD_SECONDS = 5 * 60;
-const WATCH_THRESHOLD_SECONDS = 3 * 60;
 
 const RATING_ALERT_THRESHOLD = 3.5;
 
@@ -132,9 +127,9 @@ export class AnalyticsService {
       this.prisma.user.findMany({ where: { role: 'STUDENT', campusId: { not: null } }, select: { id: true, campusId: true } }),
       this.prisma.order.findMany({
         where: { createdAt: { gte: since, lte: until } },
-        select: { status: true, escrowAmount: true, studentId: true, student: { select: { campusId: true } } },
+        select: { status: true, totalTickets: true, studentId: true, student: { select: { campusId: true } } },
       }),
-      this.prisma.order.findMany({ where: { createdAt: { gte: prevSince, lte: prevUntil } }, select: { status: true, escrowAmount: true } }),
+      this.prisma.order.findMany({ where: { createdAt: { gte: prevSince, lte: prevUntil } }, select: { status: true, totalTickets: true } }),
       this.prisma.order.findMany({ where: { createdAt: { gte: chartStart, lte: until } }, select: { createdAt: true, student: { select: { campusId: true } } } }),
       this.prisma.vendorCampus.findMany({ select: { campusId: true, vendor: { select: { isActive: true } } } }),
     ]);
@@ -152,25 +147,19 @@ export class AnalyticsService {
     for (const s of students) if (s.campusId) enrolledByCampus.set(s.campusId, (enrolledByCampus.get(s.campusId) ?? 0) + 1);
 
     const activeStudentIdsByCampus = new Map<string, Set<string>>();
-    const statsByCampus = new Map<string, { orders: number; completed: number; revenue: number; decided: number; accepted: number }>();
+    const statsByCampus = new Map<string, { orders: number; completed: number; cancelled: number; revenue: number }>();
     for (const o of ordersWindow) {
       const campusId = o.student?.campusId;
       if (!campusId) continue;
       if (!activeStudentIdsByCampus.has(campusId)) activeStudentIdsByCampus.set(campusId, new Set());
       activeStudentIdsByCampus.get(campusId)!.add(o.studentId);
-      const entry = statsByCampus.get(campusId) ?? { orders: 0, completed: 0, revenue: 0, decided: 0, accepted: 0 };
+      const entry = statsByCampus.get(campusId) ?? { orders: 0, completed: 0, cancelled: 0, revenue: 0 };
       entry.orders += 1;
-      if (COMPLETED_STATUSES.includes(o.status)) {
+      if (o.status === COMPLETED_STATUS) {
         entry.completed += 1;
-        entry.revenue += Number(o.escrowAmount);
-      }
-      // Taux d'acceptation : parmi les commandes tranchées par le vendeur
-      // (acceptées ou refusées — DECIDED_STATUSES), quelle proportion a été
-      // acceptée (ACCEPTED_LINEAGE_STATUSES) ? Même définition que
-      // getVendorPerformance, agrégée par campus plutôt que par vendeur.
-      if (DECIDED_STATUSES.includes(o.status)) {
-        entry.decided += 1;
-        if (ACCEPTED_LINEAGE_STATUSES.includes(o.status)) entry.accepted += 1;
+        entry.revenue += o.totalTickets;
+      } else if (o.status === CANCELLED_STATUS) {
+        entry.cancelled += 1;
       }
       statsByCampus.set(campusId, entry);
     }
@@ -179,7 +168,7 @@ export class AnalyticsService {
     let prevTotalRevenue = 0;
     for (const o of ordersPrevWindow) {
       prevTotalOrders += 1;
-      if (COMPLETED_STATUSES.includes(o.status)) prevTotalRevenue += Number(o.escrowAmount);
+      if (o.status === COMPLETED_STATUS) prevTotalRevenue += o.totalTickets;
     }
 
     const dailyByCampus = new Map<string, number[]>();
@@ -195,14 +184,14 @@ export class AnalyticsService {
     }
 
     const campusRows = campuses.map((c) => {
-      const stats = statsByCampus.get(c.id) ?? { orders: 0, completed: 0, revenue: 0, decided: 0, accepted: 0 };
+      const stats = statsByCampus.get(c.id) ?? { orders: 0, completed: 0, cancelled: 0, revenue: 0 };
       return {
         id: c.id,
         name: c.name,
         cantines: cantinesByCampus.get(c.id) ?? 0,
         orders: stats.orders,
-        completionRate: stats.orders > 0 ? Math.round((stats.completed / stats.orders) * 100) : 0,
-        acceptanceRate: stats.decided > 0 ? Math.round((stats.accepted / stats.decided) * 100) : 0,
+        // Taux de complétion : RECEIVED / (RECEIVED + CANCELLED).
+        completionRate: stats.completed + stats.cancelled > 0 ? Math.round((stats.completed / (stats.completed + stats.cancelled)) * 100) : 0,
         revenue: stats.revenue,
         enrolled: enrolledByCampus.get(c.id) ?? 0,
         active: activeStudentIdsByCampus.get(c.id)?.size ?? 0,
@@ -232,7 +221,7 @@ export class AnalyticsService {
   private async getTopCanteensUncached(days = 30, limit = 10, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
     const [orders, vendors, reviews, vendorCampusLinks, campuses] = await Promise.all([
-      this.prisma.order.findMany({ where: { createdAt: { gte: since, lte: until } }, select: { vendorId: true, status: true } }),
+      this.prisma.order.findMany({ where: { createdAt: { gte: since, lte: until } }, select: { vendorId: true } }),
       this.prisma.vendor.findMany({ select: { id: true, canteenName: true } }),
       this.prisma.review.findMany({ where: { deletedAt: null }, select: { vendorId: true, rating: true } }),
       this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
@@ -247,16 +236,8 @@ export class AnalyticsService {
       if (name) campusNamesByVendor.get(link.vendorId)!.push(name);
     }
 
-    const statsByVendor = new Map<string, { orders: number; decided: number; accepted: number }>();
-    for (const o of orders) {
-      const entry = statsByVendor.get(o.vendorId) ?? { orders: 0, decided: 0, accepted: 0 };
-      entry.orders += 1;
-      if (DECIDED_STATUSES.includes(o.status)) {
-        entry.decided += 1;
-        if (COMPLETED_STATUSES.includes(o.status)) entry.accepted += 1;
-      }
-      statsByVendor.set(o.vendorId, entry);
-    }
+    const ordersByVendor = new Map<string, number>();
+    for (const o of orders) ordersByVendor.set(o.vendorId, (ordersByVendor.get(o.vendorId) ?? 0) + 1);
 
     const ratingsByVendor = new Map<string, { sum: number; count: number }>();
     for (const r of reviews) {
@@ -268,14 +249,12 @@ export class AnalyticsService {
 
     return vendors
       .map((v) => {
-        const stats = statsByVendor.get(v.id) ?? { orders: 0, decided: 0, accepted: 0 };
         const ratings = ratingsByVendor.get(v.id);
         return {
           id: v.id,
           name: v.canteenName,
           campusName: campusNamesByVendor.get(v.id)?.join(', ') ?? '—',
-          orders: stats.orders,
-          acceptanceRate: stats.decided > 0 ? Math.round((stats.accepted / stats.decided) * 100) : 0,
+          orders: ordersByVendor.get(v.id) ?? 0,
           avgRating: ratings && ratings.count > 0 ? Number((ratings.sum / ratings.count).toFixed(1)) : null,
         };
       })
@@ -365,11 +344,10 @@ export class AnalyticsService {
 
   private async getVendorPerformanceUncached(days = 30, from?: string, to?: string) {
     const { since, until } = resolveRange(days, from, to);
-    const [orders, acceptanceEvents, vendors, vendorCampusLinks, campuses] = await Promise.all([
-      this.prisma.order.findMany({ where: { createdAt: { gte: since, lte: until } }, select: { vendorId: true, status: true } }),
-      this.prisma.orderStatusHistory.findMany({
-        where: { newStatus: 'ACCEPTED', order: { createdAt: { gte: since, lte: until } } },
-        select: { createdAt: true, order: { select: { vendorId: true, createdAt: true } } },
+    const [orders, vendors, vendorCampusLinks, campuses] = await Promise.all([
+      this.prisma.order.findMany({
+        where: { createdAt: { gte: since, lte: until } },
+        select: { vendorId: true, status: true, cancelledBy: true },
       }),
       this.prisma.vendor.findMany({ select: { id: true, canteenName: true } }),
       this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
@@ -384,69 +362,40 @@ export class AnalyticsService {
       if (name) campusNamesByVendor.get(link.vendorId)!.push(name);
     }
 
-    type Stats = { orders: number; decided: number; accepted: number; refused: number; cancelled: number };
+    // Commandes tranchées = RECEIVED ou CANCELLED. Annulation côté cantine =
+    // annulée par la vendeuse ou par l'administrateur (pas par l'étudiant).
+    type Stats = { orders: number; decided: number; cancelledBySide: number };
     const statsByVendor = new Map<string, Stats>();
     for (const o of orders) {
-      const entry = statsByVendor.get(o.vendorId) ?? { orders: 0, decided: 0, accepted: 0, refused: 0, cancelled: 0 };
+      const entry = statsByVendor.get(o.vendorId) ?? { orders: 0, decided: 0, cancelledBySide: 0 };
       entry.orders += 1;
-      if (DECISION_STATUSES.includes(o.status)) {
+      if (o.status === COMPLETED_STATUS || o.status === CANCELLED_STATUS) {
         entry.decided += 1;
-        if (ACCEPTED_LINEAGE_STATUSES.includes(o.status)) entry.accepted += 1;
-        if (o.status === 'REFUSED') entry.refused += 1;
-        if (o.status === 'CANCELLED_VENDOR') entry.cancelled += 1;
+        if (o.status === CANCELLED_STATUS && (o.cancelledBy === 'VENDOR' || o.cancelledBy === 'ADMIN')) {
+          entry.cancelledBySide += 1;
+        }
       }
       statsByVendor.set(o.vendorId, entry);
     }
 
-    const acceptanceTimesByVendor = new Map<string, number[]>();
-    let allAcceptanceTimes: number[] = [];
-    for (const e of acceptanceEvents) {
-      const vendorId = e.order.vendorId;
-      const seconds = (e.createdAt.getTime() - e.order.createdAt.getTime()) / 1000;
-      if (!acceptanceTimesByVendor.has(vendorId)) acceptanceTimesByVendor.set(vendorId, []);
-      acceptanceTimesByVendor.get(vendorId)!.push(seconds);
-      allAcceptanceTimes.push(seconds);
-    }
-
-    const avg = (arr: number[]) => (arr.length > 0 ? arr.reduce((s, v) => s + v, 0) / arr.length : null);
-
     const rows = vendors
       .map((v) => {
-        const stats = statsByVendor.get(v.id) ?? { orders: 0, decided: 0, accepted: 0, refused: 0, cancelled: 0 };
-        const avgSeconds = avg(acceptanceTimesByVendor.get(v.id) ?? []);
-        let status: 'green' | 'orange' | 'red' = 'green';
-        if (avgSeconds !== null) {
-          if (avgSeconds > ALERT_THRESHOLD_SECONDS) status = 'red';
-          else if (avgSeconds > WATCH_THRESHOLD_SECONDS) status = 'orange';
-        }
+        const stats = statsByVendor.get(v.id) ?? { orders: 0, decided: 0, cancelledBySide: 0 };
         return {
           id: v.id,
           name: v.canteenName,
           campusName: campusNamesByVendor.get(v.id)?.join(', ') ?? '—',
           orders: stats.orders,
-          acceptanceRate: stats.decided > 0 ? Math.round((stats.accepted / stats.decided) * 100) : 0,
-          refusalRate: stats.decided > 0 ? Math.round((stats.refused / stats.decided) * 100) : 0,
-          cancellationRate: stats.decided > 0 ? Math.round((stats.cancelled / stats.decided) * 100) : 0,
-          avgAcceptanceSeconds: avgSeconds,
-          status,
+          cancellationRate: stats.decided > 0 ? Math.round((stats.cancelledBySide / stats.decided) * 100) : 0,
         };
       })
       .filter((v) => v.orders > 0)
-      .sort((a, b) => (a.avgAcceptanceSeconds ?? 0) - (b.avgAcceptanceSeconds ?? 0));
-
-    const totalDecided = rows.reduce((s, v) => s + (statsByVendor.get(v.id)?.decided ?? 0), 0);
-    const totalAccepted = rows.reduce((s, v) => s + (statsByVendor.get(v.id)?.accepted ?? 0), 0);
-    const overallAcceptance = totalDecided > 0 ? Math.round((totalAccepted / totalDecided) * 100) : 0;
-    const overallAvgSeconds = avg(allAcceptanceTimes);
+      .sort((a, b) => b.orders - a.orders);
 
     return {
       summary: {
         activeVendors: rows.length,
         totalVendors: vendors.length,
-        avgAcceptanceRate: overallAcceptance,
-        avgAcceptanceSeconds: overallAvgSeconds,
-        watchCount: rows.filter((v) => v.status === 'orange').length,
-        alertCount: rows.filter((v) => v.status === 'red').length,
       },
       vendors: rows,
     };

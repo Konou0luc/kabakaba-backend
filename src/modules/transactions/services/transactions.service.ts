@@ -17,39 +17,38 @@ export class TransactionsService {
   constructor(private readonly prisma: PrismaService) {}
 
   // KPIs de la page Transactions (dashboard admin web) : volume du jour,
-  // séquestre en cours (Order, pas Transaction — le séquestre est un état
-  // courant de la commande, pas un événement du grand livre), débits
-  // complétés, remboursements, créances actives.
+  // montants en attente (commandes pas encore prêtes : Order, pas Transaction,
+  // car c'est un état courant de la commande et non un événement du grand
+  // livre), débits complétés, remboursements, créances actives.
   async getStats() {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    // La libération d'escrow (crédit du vendeur) se produit dès READY,
-    // pas à RECEIVED/AUTO_RECEIVED qui ne sont que des confirmations sans
-    // effet financier — voir orders.service.ts.
-    const ESCROWED_STATUSES: OrderStatus[] = ['PENDING', 'ACCEPTED', 'IN_PREPARATION'];
-    const DEBITED_STATUSES: OrderStatus[] = ['READY', 'RECEIVED', 'AUTO_RECEIVED'];
+    // Le crédit de la vendeuse se produit dès READY, pas à RECEIVED qui n'est
+    // qu'une remise sans effet financier — voir orders.service.ts.
+    const PENDING_STATUSES: OrderStatus[] = ['CONFIRMED', 'IN_PREPARATION'];
+    const DEBITED_STATUSES: OrderStatus[] = ['READY', 'RECEIVED'];
 
     const [
       transactionsToday,
-      escrowedOrders,
+      pendingOrders,
       debitedOrders,
       refundedOrders,
       activeDebts,
     ] = await Promise.all([
       this.prisma.transaction.count({ where: { createdAt: { gte: startOfToday } } }),
       this.prisma.order.aggregate({
-        where: { deletedAt: null, status: { in: ESCROWED_STATUSES } },
-        _sum: { escrowAmount: true },
+        where: { deletedAt: null, status: { in: PENDING_STATUSES } },
+        _sum: { totalTickets: true },
         _count: true,
       }),
       this.prisma.order.aggregate({
         where: { deletedAt: null, status: { in: DEBITED_STATUSES } },
-        _sum: { escrowAmount: true },
+        _sum: { totalTickets: true },
       }),
       this.prisma.order.aggregate({
-        where: { deletedAt: null, status: 'REFUNDED' },
-        _sum: { escrowAmount: true },
+        where: { deletedAt: null, status: 'CANCELLED', refundedTickets: { gt: 0 } },
+        _sum: { refundedTickets: true },
         _count: true,
       }),
       this.prisma.debt.findMany({
@@ -63,9 +62,9 @@ export class TransactionsService {
 
     return {
       transactionsToday,
-      escrow: { total: Number(escrowedOrders._sum.escrowAmount ?? 0), count: escrowedOrders._count },
-      debitsCompleted: Number(debitedOrders._sum.escrowAmount ?? 0),
-      refunds: { total: Number(refundedOrders._sum.escrowAmount ?? 0), count: refundedOrders._count },
+      escrow: { total: Number(pendingOrders._sum.totalTickets ?? 0), count: pendingOrders._count },
+      debitsCompleted: Number(debitedOrders._sum.totalTickets ?? 0),
+      refunds: { total: Number(refundedOrders._sum.refundedTickets ?? 0), count: refundedOrders._count },
       activeDebts: { total: activeDebtsTotal, vendorCount: activeDebtsVendorCount },
     };
   }
