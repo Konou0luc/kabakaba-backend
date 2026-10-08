@@ -13,6 +13,7 @@ import { CampusesModule } from './modules/campuses/campuses.module';
 import { VendorsModule } from './modules/vendors/vendors.module';
 import { CatalogModule } from './modules/catalog/catalog.module';
 import { ComponentsModule } from './modules/components/components.module';
+import { MenusModule } from './modules/menus/menus.module';
 import { OrdersModule } from './modules/orders/orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
@@ -51,6 +52,7 @@ import { DevicesModule } from './modules/devices/devices.module';
     VendorsModule,
     CatalogModule,
     ComponentsModule,
+    MenusModule,
     OrdersModule,
     PaymentsModule,
     TransactionsModule,

@@ -184,6 +184,18 @@ export class ComponentsService {
 
   async removeComponent(id: string, actor: ComponentsActor) {
     await this.assertComponentOwnership(id, actor);
+
+    // Un composant utilisé par un menu non supprimé (actif ou non) ne peut pas être supprimé.
+    const usedBy = await this.prisma.menuLine.findMany({
+      where: { componentId: id, menu: { deletedAt: null } },
+      select: { menu: { select: { name: true } } },
+    });
+    if (usedBy.length > 0) {
+      const names = [...new Set(usedBy.map((line) => line.menu.name))].join(', ');
+      throw new ConflictException(
+        `Ce composant est utilisé par ${usedBy.length > 1 ? 'les menus' : 'le menu'} : ${names}. Retirez-le de ces menus ou supprimez-les d'abord.`,
+      );
+    }
     return this.prisma.component.update({ where: { id }, data: { deletedAt: new Date() } });
   }
 }

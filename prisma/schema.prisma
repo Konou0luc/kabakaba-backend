@@ -193,6 +193,7 @@ model Vendor {
   takeawayOptions TakeawayOption[]
   components          Component[]
   componentCategories ComponentCategory[]
+  menus               Menu[]
 
   @@index([canteenName])
   @@index([isOpen])
@@ -289,10 +290,42 @@ model Component {
   deletedAt         DateTime?
 
   vendor   Vendor             @relation(fields: [vendorId], references: [id])
-  category ComponentCategory? @relation(fields: [categoryId], references: [id])
+  category  ComponentCategory? @relation(fields: [categoryId], references: [id])
+  menuLines MenuLine[]
 
   @@index([vendorId])
   @@index([categoryId])
+}
+
+// Repas pré-composé : combinaison enregistrée de composants. Ni prix ni disponibilité
+// ne sont stockés : ils sont calculés à la lecture à partir des composants.
+model Menu {
+  id          String    @id @default(uuid())
+  vendorId    String
+  name        String
+  description String?
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  deletedAt   DateTime?
+
+  vendor Vendor     @relation(fields: [vendorId], references: [id])
+  lines  MenuLine[]
+
+  @@index([vendorId])
+}
+
+model MenuLine {
+  id          String @id @default(uuid())
+  menuId      String
+  componentId String
+  quantity    Int    @default(1)
+
+  menu      Menu      @relation(fields: [menuId], references: [id], onDelete: Cascade)
+  component Component @relation(fields: [componentId], references: [id])
+
+  @@unique([menuId, componentId])
+  @@index([componentId])
 }
 
 model Order {
