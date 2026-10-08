@@ -15,6 +15,14 @@ enum UserRole {
   VENDOR
 }
 
+enum ComponentUnit {
+  PORTION
+  UNIT
+  PIECE
+  BOTTLE
+  SACHET
+}
+
 enum MenuItemType {
   FIXED
   CUSTOMIZABLE
@@ -183,6 +191,8 @@ model Vendor {
   reviews         Review[]
   disputes        Dispute[]
   takeawayOptions TakeawayOption[]
+  components          Component[]
+  componentCategories ComponentCategory[]
 
   @@index([canteenName])
   @@index([isOpen])
@@ -246,6 +256,43 @@ model TakeawayOption {
   orders Order[]
 
   @@index([vendorId])
+}
+
+// Catégorie de composants définie par la vendeuse (Base, Protéine, Sauce…).
+model ComponentCategory {
+  id        String    @id @default(uuid())
+  vendorId  String
+  name      String
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  vendor     Vendor      @relation(fields: [vendorId], references: [id])
+  components Component[]
+
+  @@index([vendorId])
+}
+
+// Composant du stock de la vendeuse. La quantité ne change que par ajustement (delta).
+model Component {
+  id                String        @id @default(uuid())
+  vendorId          String
+  categoryId        String?
+  name              String
+  unit              ComponentUnit
+  quantity          Int           @default(0)
+  priceTickets      Int           @default(0)
+  isAvailable       Boolean       @default(true)
+  lowStockThreshold Int?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+  deletedAt         DateTime?
+
+  vendor   Vendor             @relation(fields: [vendorId], references: [id])
+  category ComponentCategory? @relation(fields: [categoryId], references: [id])
+
+  @@index([vendorId])
+  @@index([categoryId])
 }
 
 model Order {
