@@ -44,9 +44,10 @@ export class ReviewsController {
     return this.reviewsService.create(createReviewDto, req.user.id);
   }
 
-  // CDC 4.6 / 9.7 : "Ces avis sont visibles uniquement en interne, sur
-  // l'outil web (rôle Supervision). Ils ne sont pas affichés publiquement
-  // aux autres étudiants." — accès strictement réservé, jamais @Public().
+  // CDC V1.3, sections 36 et 49 : les avis laissés sur les commandes « Récupérée »
+  // mesurent la satisfaction et sont consultables par l'administration, jamais
+  // affichés publiquement aux autres étudiants. Accès strictement réservé
+  // (rôle web Supervision), jamais @Public().
   @Get()
   @ApiBearerAuth()
   @UseGuards(WebJwtAuthGuard, WebRolesGuard)

@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { OrderStatus, OrderCancelledBy, UserRole, NotificationType, ConsumptionMode, VendorCapacity } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
@@ -6,6 +6,7 @@ import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
 import { CancelOrderDto } from '../dto/cancel-order.dto';
 import { NotificationsService } from '../../notifications/services/notifications.service';
+import { ORDER_NUMBERS, pickOrderNumber } from '../order-number';
 
 interface Actor {
   id: string;
@@ -186,6 +187,23 @@ export class OrdersService {
       }
       totalTickets += takeawayFeeTickets;
 
+      // Numéro de commande propre à la cantine (CDC 25). Le verrou de ligne sur
+      // la cantine sérialise les créations d'une même cantine : la seconde
+      // attend le commit de la première, puis lit les numéros déjà pris. La
+      // contrainte unique (vendorId, activeOrderNumber) reste le filet de la
+      // base. Placé avant le débit : si les numéros sont épuisés, rien n'est écrit.
+      await tx.$queryRaw`SELECT id FROM "Vendor" WHERE id = ${vendorId} FOR UPDATE`;
+      const activeOrders = await tx.order.findMany({
+        where: { vendorId, activeOrderNumber: { not: null } },
+        select: { activeOrderNumber: true },
+      });
+      const orderNumber = pickOrderNumber(activeOrders.map((o) => o.activeOrderNumber!));
+      if (!orderNumber) {
+        throw new ConflictException(
+          `Cette cantine a atteint le nombre maximum de commandes en cours (${ORDER_NUMBERS.length}). Réessayez dans quelques instants.`,
+        );
+      }
+
       // Paiement : tickets = FCFA, conversion 1:1, aucune commission sur les
       // commandes. Débit conditionnel atomique : la clause
       // walletBalance >= totalTickets dans le where empêche toute commande
@@ -203,6 +221,8 @@ export class OrdersService {
         data: {
           studentId,
           vendorId,
+          orderNumber,
+          activeOrderNumber: orderNumber,
           totalTickets,
           consumptionMode,
           takeawayOptionId: takeawayOptionIdToSave,
@@ -381,7 +401,8 @@ export class OrdersService {
         data: {
           status: newStatus,
           ...(newStatus === OrderStatus.READY ? { readyAt: now } : {}),
-          ...(newStatus === OrderStatus.RECEIVED ? { receivedAt: now } : {}),
+          // RECEIVED libère le numéro : il peut être attribué aussitôt à une autre commande.
+          ...(newStatus === OrderStatus.RECEIVED ? { receivedAt: now, activeOrderNumber: null } : {}),
         },
       });
       if (claim.count !== 1) {
@@ -500,6 +521,8 @@ export class OrdersService {
           cancelledById: changedById,
           cancellationReason: reason ?? null,
           refundedTickets: order.totalTickets,
+          // L'annulation libère le numéro, attribuable aussitôt à une autre commande.
+          activeOrderNumber: null,
         },
       });
       if (claim.count !== 1) {

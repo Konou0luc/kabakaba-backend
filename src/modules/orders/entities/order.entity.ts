@@ -9,6 +9,17 @@ export class OrderEntity extends BaseEntity {
   @ApiProperty({ example: 'vendor-uuid' })
   vendorId: string;
 
+  @ApiProperty({ example: 'A-05', description: 'Numéro de commande propre à la cantine (A-00 à Z-10), conservé à vie' })
+  orderNumber: string;
+
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    example: 'A-05',
+    description: "Champ interne : vaut orderNumber tant que la commande est active, null dès qu'elle est RECEIVED ou CANCELLED",
+  })
+  activeOrderNumber?: string | null;
+
   @ApiProperty({ enum: OrderStatus })
   status: OrderStatus;
 

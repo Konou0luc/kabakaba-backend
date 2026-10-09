@@ -60,7 +60,6 @@ enum TransactionType {
   SALE
   REFUND
   WITHDRAWAL
-  COMMISSION
 }
 
 enum WithdrawalStatus {
@@ -336,6 +335,11 @@ model Order {
   id                 String          @id @default(uuid())
   studentId          String
   vendorId           String
+  // Numéro lisible, propre à la cantine (A-00 à Z-10), conservé à vie dans l'historique.
+  orderNumber        String
+  // Vaut orderNumber tant que la commande est active, null dès RECEIVED ou CANCELLED :
+  // seul un numéro actif est contraint (PostgreSQL admet plusieurs NULL dans un UNIQUE).
+  activeOrderNumber  String?
   status             OrderStatus     @default(CONFIRMED)
   totalTickets       Int
   consumptionMode    ConsumptionMode
@@ -369,6 +373,7 @@ model Order {
   @@index([status, createdAt])
   @@index([vendorId, status])
   @@index([studentId, status])
+  @@unique([vendorId, activeOrderNumber])
 }
 
 model OrderStatusHistory {
