@@ -61,7 +61,6 @@ enum TransactionType {
   REFUND
   WITHDRAWAL
   COMMISSION
-  DEBT_RECOVERY
 }
 
 enum WithdrawalStatus {
@@ -180,7 +179,6 @@ model Vendor {
   bannerUrl        String?
   description      String?
   balanceFcfa      Decimal   @default(0) @db.Decimal(10, 2)
-  debtFcfa         Decimal   @default(0) @db.Decimal(10, 2)
   isActive         Boolean   @default(true)
   capacityStatus   VendorCapacity @default(CLOSED)
   suspendedAt      DateTime?
@@ -194,7 +192,6 @@ model Vendor {
   menuItems       MenuItem[]
   orders          Order[]
   withdrawals     Withdrawal[]
-  debts           Debt[]
   reviews         Review[]
   disputes        Dispute[]
   takeawayOptions TakeawayOption[]
@@ -537,20 +534,6 @@ model WithdrawalProof {
   uploadedByWebUser WebUser    @relation(fields: [uploadedByWebUserId], references: [id])
 
   @@index([uploadedByWebUserId])
-}
-
-model Debt {
-  id              String    @id @default(uuid())
-  vendorId        String
-  amount          Decimal   @db.Decimal(10, 2)
-  remainingAmount Decimal   @db.Decimal(10, 2)
-  reason          String?
-  isRecovered     Boolean   @default(false)
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  deletedAt       DateTime?
-
-  vendor Vendor @relation(fields: [vendorId], references: [id])
 }
 
 model Review {

@@ -21,9 +21,6 @@ export class VendorEntity extends BaseEntity {
   @ApiProperty({ example: 1500.50 })
   balanceFcfa: number;
 
-  @ApiProperty({ example: 0 })
-  debtFcfa: number;
-
   @ApiProperty({ example: true })
   isActive: boolean;
 

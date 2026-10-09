@@ -14,8 +14,8 @@ interface Actor {
   role: UserRole | string;
 }
 
-// SÉCURITÉ : projection publique — ne renvoie JAMAIS userId, balanceFcfa,
-// debtFcfa sur les routes non-authentifiées (GET /vendors, GET /vendors/:id).
+// SÉCURITÉ : projection publique — ne renvoie JAMAIS userId ni balanceFcfa
+// sur les routes non-authentifiées (GET /vendors, GET /vendors/:id).
 const PUBLIC_VENDOR_SELECT = {
   id: true,
   canteenName: true,
@@ -120,7 +120,7 @@ export class VendorsService {
 
   /**
    * Vue admin enrichie (dashboard web, WebUserRole.ADMIN uniquement) : nom du
-   * propriétaire, créance, commandes du jour — jamais exposé aux routes
+   * propriétaire, commandes du jour — jamais exposé aux routes
    * publiques (PUBLIC_VENDOR_SELECT les exclut volontairement).
    */
   async findAllForAdmin(query: FindVendorsForAdminQueryDto) {
@@ -131,7 +131,6 @@ export class VendorsService {
     const where: any = { deletedAt: null };
     if (query.status === 'active') where.isActive = true;
     if (query.status === 'suspended') where.isActive = false;
-    if (query.hasDebt === 'true') where.debtFcfa = { gt: 0 };
     if (query.campusId) where.campuses = { some: { campusId: query.campusId } };
     if (query.search) {
       where.OR = [
@@ -159,7 +158,6 @@ export class VendorsService {
           canteenName: true,
           isActive: true,
           capacityStatus: true,
-          debtFcfa: true,
           createdAt: true,
           user: { select: { firstName: true, lastName: true } },
           campuses: { select: { campus: { select: { id: true, name: true } } } },
@@ -189,7 +187,6 @@ export class VendorsService {
       campuses: v.campuses.map((vc) => vc.campus),
       isActive: v.isActive,
       capacityStatus: v.capacityStatus,
-      debtFcfa: Number(v.debtFcfa),
       todayOrders: todayOrdersByVendor.get(v.id) ?? 0,
       createdAt: v.createdAt,
     }));
@@ -203,7 +200,7 @@ export class VendorsService {
   // Détail complet d'une cantine pour la fiche admin (CantineFiche.jsx) :
   // contrairement à findOne() ci-dessous (route publique, vitrine
   // étudiante), on expose ici tout ce dont la gestion a besoin — contact
-  // du vendeur, créance, motif de suspension, campus affiliés en entier.
+  // du vendeur, motif de suspension, campus affiliés en entier.
   async findOneForAdmin(id: string) {
     const vendor = await this.prisma.vendor.findUnique({
       where: { id, deletedAt: null },
@@ -213,7 +210,6 @@ export class VendorsService {
         logoUrl: true,
         bannerUrl: true,
         description: true,
-        debtFcfa: true,
         balanceFcfa: true,
         isActive: true,
         capacityStatus: true,
@@ -229,7 +225,6 @@ export class VendorsService {
 
     return {
       ...vendor,
-      debtFcfa: Number(vendor.debtFcfa),
       balanceFcfa: Number(vendor.balanceFcfa),
       campuses: vendor.campuses.map((vc) => vc.campus),
     };
@@ -303,7 +298,7 @@ export class VendorsService {
   }
 
   /**
-   * Profil vendeur connecté — solde, créance, statut de capacité (mobile vendeur).
+   * Profil vendeur connecté — solde, statut de capacité (mobile vendeur).
    */
   async findMe(userId: string) {
     const vendor = await this.prisma.vendor.findUnique({
@@ -316,7 +311,6 @@ export class VendorsService {
         bannerUrl: true,
         description: true,
         balanceFcfa: true,
-        debtFcfa: true,
         isActive: true,
         capacityStatus: true,
         suspendedAt: true,
@@ -335,11 +329,9 @@ export class VendorsService {
     return {
       ...vendor,
       balanceFcfa: Number(vendor.balanceFcfa),
-      debtFcfa: Number(vendor.debtFcfa),
       campuses: vendor.campuses.map((vc) => vc.campus),
       campusName: vendor.campuses[0]?.campus.name ?? '',
       phone: vendor.user?.phone ?? null,
-      withdrawalBlocked: Number(vendor.debtFcfa) > 0,
     };
   }
 
@@ -370,8 +362,6 @@ export class VendorsService {
     return {
       ...updated,
       balanceFcfa: Number(updated.balanceFcfa),
-      debtFcfa: Number(updated.debtFcfa),
-      withdrawalBlocked: Number(updated.debtFcfa) > 0,
     };
   }
 

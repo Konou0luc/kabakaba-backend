@@ -19,7 +19,7 @@ export class TransactionsService {
   // KPIs de la page Transactions (dashboard admin web) : volume du jour,
   // montants en attente (commandes pas encore prêtes : Order, pas Transaction,
   // car c'est un état courant de la commande et non un événement du grand
-  // livre), débits complétés, remboursements, créances actives.
+  // livre), débits complétés, remboursements.
   async getStats() {
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
@@ -34,7 +34,6 @@ export class TransactionsService {
       pendingOrders,
       debitedOrders,
       refundedOrders,
-      activeDebts,
     ] = await Promise.all([
       this.prisma.transaction.count({ where: { createdAt: { gte: startOfToday } } }),
       this.prisma.order.aggregate({
@@ -51,56 +50,14 @@ export class TransactionsService {
         _sum: { refundedTickets: true },
         _count: true,
       }),
-      this.prisma.debt.findMany({
-        where: { deletedAt: null, isRecovered: false },
-        select: { vendorId: true, remainingAmount: true },
-      }),
     ]);
-
-    const activeDebtsTotal = activeDebts.reduce((sum, d) => sum + Number(d.remainingAmount), 0);
-    const activeDebtsVendorCount = new Set(activeDebts.map((d) => d.vendorId)).size;
 
     return {
       transactionsToday,
       escrow: { total: Number(pendingOrders._sum.totalTickets ?? 0), count: pendingOrders._count },
       debitsCompleted: Number(debitedOrders._sum.totalTickets ?? 0),
       refunds: { total: Number(refundedOrders._sum.refundedTickets ?? 0), count: refundedOrders._count },
-      activeDebts: { total: activeDebtsTotal, vendorCount: activeDebtsVendorCount },
     };
-  }
-
-  // Liste des créances actives (Debt), pour l'onglet Créances — modèle
-  // jusqu'ici exposé par aucun contrôleur.
-  async findActiveDebts() {
-    const debts = await this.prisma.debt.findMany({
-      where: { deletedAt: null, isRecovered: false },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        vendor: {
-          select: {
-            id: true,
-            canteenName: true,
-            balanceFcfa: true,
-            user: { select: { firstName: true, lastName: true } },
-            campuses: { select: { campus: { select: { name: true } } } },
-          },
-        },
-      },
-    });
-
-    return debts.map((d) => ({
-      id: d.id,
-      vendorId: d.vendorId,
-      canteenName: d.vendor.canteenName,
-      ownerName: `${d.vendor.user?.firstName ?? ''} ${d.vendor.user?.lastName ?? ''}`.trim() || '—',
-      campusName: d.vendor.campuses[0]?.campus.name ?? '—',
-      amount: Number(d.amount),
-      remainingAmount: Number(d.remainingAmount),
-      recoveredAmount: Number(d.amount) - Number(d.remainingAmount),
-      vendorBalance: Number(d.vendor.balanceFcfa),
-      reason: d.reason,
-      createdAt: d.createdAt,
-    }));
   }
 
   private readonly displayInclude = {

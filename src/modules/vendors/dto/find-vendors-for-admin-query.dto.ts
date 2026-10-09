@@ -1,5 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsBooleanString, IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Min } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class FindVendorsForAdminQueryDto {
@@ -31,9 +31,4 @@ export class FindVendorsForAdminQueryDto {
   @IsOptional()
   @IsIn(['active', 'suspended'])
   status?: 'active' | 'suspended';
-
-  @ApiPropertyOptional({ description: 'Ne garder que les cantines avec une créance active' })
-  @IsOptional()
-  @IsBooleanString()
-  hasDebt?: string;
 }

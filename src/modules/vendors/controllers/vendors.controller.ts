@@ -66,7 +66,7 @@ export class VendorsController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Liste des cantines enrichie (propriétaire, créance, commandes du jour) — dashboard admin web' })
+  @ApiOperation({ summary: 'Liste des cantines enrichie (propriétaire, commandes du jour) — dashboard admin web' })
   @ApiQuery({ type: FindVendorsForAdminQueryDto })
   @ApiResponse({ status: 200, description: 'Liste paginée des cantines avec données de gestion.' })
   findAllForAdmin(@Query() query: FindVendorsForAdminQueryDto) {
@@ -78,7 +78,7 @@ export class VendorsController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.VENDOR)
   @ApiOperation({
-    summary: 'Profil de la cantine du vendeur connecté (solde, créance, statut de capacité)',
+    summary: 'Profil de la cantine du vendeur connecté (solde, statut de capacité)',
   })
   @ApiResponse({ status: 200, description: 'Profil vendeur enrichi.' })
   findMe(@Request() req) {
@@ -107,7 +107,7 @@ export class VendorsController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Détail complet d\'une cantine pour la fiche admin (contact vendeur, créance, suspension, campus) — dashboard admin web' })
+  @ApiOperation({ summary: 'Détail complet d\'une cantine pour la fiche admin (contact vendeur, suspension, campus) — dashboard admin web' })
   @ApiResponse({ status: 200, description: 'Détail complet de la cantine.' })
   @ApiResponse({ status: 404, description: 'Cantine introuvable.' })
   findOneForAdmin(@Param('id') id: string) {

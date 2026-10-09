@@ -69,17 +69,6 @@ export class TransactionsController {
     return this.transactionsService.getStats();
   }
 
-  @Get('debts')
-  @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN)
-  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Liste des créances vendeur actives (dashboard admin web)' })
-  @ApiResponse({ status: 200, description: 'Liste des créances actives.' })
-  findActiveDebts() {
-    return this.transactionsService.findActiveDebts();
-  }
-
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)

@@ -518,7 +518,7 @@ export class AnalyticsService {
     const [vendors, vendorCampusLinks, campuses, withdrawals] = await Promise.all([
       this.prisma.vendor.findMany({
         where: { deletedAt: null },
-        select: { id: true, canteenName: true, balanceFcfa: true, debtFcfa: true },
+        select: { id: true, canteenName: true, balanceFcfa: true },
       }),
       this.prisma.vendorCampus.findMany({ select: { vendorId: true, campusId: true } }),
       this.prisma.campus.findMany({ select: { id: true, name: true } }),
@@ -546,16 +546,12 @@ export class AnalyticsService {
       name: v.canteenName,
       campusName: campusNamesByVendor.get(v.id)?.join(', ') ?? '—',
       balance: Number(v.balanceFcfa),
-      debt: Number(v.debtFcfa),
       withdrawals30d: withdrawalsCountByVendor.get(v.id) ?? 0,
-      blocked: Number(v.debtFcfa) > 0,
     }));
 
     return {
       summary: {
         totalBalance: rows.reduce((s, v) => s + v.balance, 0),
-        totalDebt: rows.reduce((s, v) => s + v.debt, 0),
-        blockedCount: rows.filter((v) => v.blocked).length,
       },
       vendors: rows,
     };

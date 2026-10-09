@@ -58,9 +58,9 @@ export class AnalyticsController {
   }
 
   @Get('vendor-financials')
-  @ApiOperation({ summary: 'Solde et créances par vendeur, retraits sur la période' })
+  @ApiOperation({ summary: 'Solde par vendeur, retraits sur la période' })
   @ApiQuery({ type: AnalyticsQueryDto })
-  @ApiResponse({ status: 200, description: 'Solde/créances par vendeur.' })
+  @ApiResponse({ status: 200, description: 'Solde par vendeur.' })
   getVendorFinancials(@Query() query: AnalyticsQueryDto) {
     return this.analyticsService.getVendorFinancials(query.days, query.from, query.to);
   }

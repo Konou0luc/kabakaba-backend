@@ -59,18 +59,13 @@ export class WithdrawalsService {
     });
     if (!vendor || vendor.deletedAt) throw new NotFoundException('Profil vendeur introuvable');
     if (!vendor.isActive) throw new ForbiddenException('Compte vendeur inactif — retrait impossible');
-    if (Number(vendor.debtFcfa) > 0) {
-      throw new BadRequestException(
-        `Vous avez une créance de ${Number(vendor.debtFcfa)} FCFA. Veuillez la régulariser avant de retirer.`,
-      );
-    }
 
     const fees = computeWithdrawalFees(amount, operator);
     const totalDebit = fees.debitedFromBalance;
 
     const result = await this.prisma.$transaction(async (tx) => {
       const debit = await tx.vendor.updateMany({
-        where: { id: vendor.id, debtFcfa: { lte: 0 }, balanceFcfa: { gte: totalDebit } },
+        where: { id: vendor.id, balanceFcfa: { gte: totalDebit } },
         data: { balanceFcfa: { decrement: totalDebit } },
       });
       if (debit.count === 0) {
