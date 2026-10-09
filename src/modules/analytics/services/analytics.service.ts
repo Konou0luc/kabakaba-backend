@@ -363,7 +363,7 @@ export class AnalyticsService {
     }
 
     // Commandes tranchées = RECEIVED ou CANCELLED. Annulation côté cantine =
-    // annulée par la vendeuse ou par l'administrateur (pas par l'étudiant).
+    // annulée par la vendeuse (pas par l'étudiant).
     type Stats = { orders: number; decided: number; cancelledBySide: number };
     const statsByVendor = new Map<string, Stats>();
     for (const o of orders) {
@@ -371,7 +371,7 @@ export class AnalyticsService {
       entry.orders += 1;
       if (o.status === COMPLETED_STATUS || o.status === CANCELLED_STATUS) {
         entry.decided += 1;
-        if (o.status === CANCELLED_STATUS && (o.cancelledBy === 'VENDOR' || o.cancelledBy === 'ADMIN')) {
+        if (o.status === CANCELLED_STATUS && o.cancelledBy === 'VENDOR') {
           entry.cancelledBySide += 1;
         }
       }

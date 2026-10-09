@@ -5,7 +5,7 @@ export class CancelOrderDto {
   @ApiProperty({
     required: false,
     maxLength: 500,
-    description: 'Motif de l’annulation : obligatoire pour la vendeuse et l’administrateur, facultatif pour l’étudiant',
+    description: 'Motif de l’annulation : obligatoire pour la vendeuse, facultatif pour l’étudiant',
   })
   @IsOptional()
   @IsString()

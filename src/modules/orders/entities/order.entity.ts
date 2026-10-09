@@ -36,7 +36,7 @@ export class OrderEntity extends BaseEntity {
   @ApiProperty({ enum: OrderCancelledBy, required: false })
   cancelledBy?: OrderCancelledBy;
 
-  @ApiProperty({ required: false, description: "Utilisateur auteur de l'annulation (vide pour un administrateur web)" })
+  @ApiProperty({ required: false, description: "Utilisateur auteur de l'annulation (étudiant ou vendeuse)" })
   cancelledById?: string;
 
   @ApiProperty({ required: false, description: "Motif d'annulation" })

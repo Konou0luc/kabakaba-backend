@@ -429,15 +429,21 @@ export class OrdersService {
   }
 
   /**
-   * Annulation (tous rôles).
-   * - étudiant : ses propres commandes, tant qu'elles sont CONFIRMED ;
+   * Annulation.
+   * - étudiant : ses propres commandes, tant qu'elles sont CONFIRMED, motif
+   *   facultatif ;
    * - vendeuse : les commandes de sa cantine, avant READY (CONFIRMED ou
    *   IN_PREPARATION), motif obligatoire : elle n'est créditée qu'à READY ;
-   * - administrateur : mêmes conditions que la vendeuse, sur toutes les commandes.
+   * - personne n'annule une commande READY, RECEIVED ou déjà CANCELLED.
    * Remboursement intégral en tickets, appliqué une seule fois : le changement
    * de statut conditionnel et le remboursement sont dans la même transaction.
    */
   async cancel(orderId: string, dto: CancelOrderDto, actor: Actor) {
+    // L'administrateur n'annule jamais une commande : refus avant toute lecture.
+    if (actor.isAdmin) {
+      throw new ForbiddenException("L'administrateur ne peut pas annuler une commande");
+    }
+
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, deletedAt: null },
     });
@@ -447,10 +453,7 @@ export class OrdersService {
 
     let cancelledBy: OrderCancelledBy;
     let cancellableFrom: readonly OrderStatus[];
-    if (actor.isAdmin) {
-      cancelledBy = OrderCancelledBy.ADMIN;
-      cancellableFrom = [OrderStatus.CONFIRMED, OrderStatus.IN_PREPARATION];
-    } else if (actor.role === UserRole.STUDENT) {
+    if (actor.role === UserRole.STUDENT) {
       if (order.studentId !== actor.id) {
         throw new ForbiddenException('Vous ne pouvez annuler que vos propres commandes');
       }
@@ -482,7 +485,7 @@ export class OrdersService {
       );
     }
 
-    const changedById = actor.authKind === 'web' ? null : actor.id;
+    const changedById = actor.id;
 
     const updated = await this.prisma.$transaction(async (tx) => {
       // Réclamation conditionnelle sur le statut lu ci-dessus : en cas de

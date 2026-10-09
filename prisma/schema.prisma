@@ -46,7 +46,6 @@ enum OrderStatus {
 enum OrderCancelledBy {
   STUDENT
   VENDOR
-  ADMIN
 }
 
 enum PaymentStatus {
