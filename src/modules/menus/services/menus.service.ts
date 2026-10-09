@@ -4,6 +4,7 @@ import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateMenuDto } from '../dto/create-menu.dto';
 import { UpdateMenuDto } from '../dto/update-menu.dto';
 import { MenuLineDto } from '../dto/menu-line.dto';
+import { menuPriceTickets, menuUnavailableComponents } from '../menu-pricing';
 
 export interface MenusActor {
   id: string;
@@ -84,15 +85,8 @@ export class MenusService {
   // ─── Calcul du prix et de la disponibilité (à la lecture) ─────────
 
   private toPublicView(menu: MenuWithLines) {
-    let priceTickets = 0;
-    const missingComponents: { id: string; name: string }[] = [];
-    for (const line of menu.lines) {
-      const c = line.component;
-      priceTickets += line.quantity * c.priceTickets;
-      if (c.deletedAt !== null || !c.isAvailable || c.quantity < line.quantity) {
-        missingComponents.push({ id: c.id, name: c.name });
-      }
-    }
+    const priceTickets = menuPriceTickets(menu.lines);
+    const missingComponents = menuUnavailableComponents(menu.lines);
     return {
       id: menu.id,
       name: menu.name,

@@ -8,9 +8,8 @@ import { CreateOrderItemDto } from './create-order-item.dto';
  * `totalTickets` n'existe pas dans ce DTO : c'est un montant calculé par
  * le serveur (voir OrdersService.create), jamais
  * fourni par le client. Le client décrit uniquement CE QU'IL COMMANDE
- * (items, composants) ; le prix est déterminé à partir des
- * valeurs fixées par le vendeur en base (MenuItem.priceTickets,
- * MenuComponent.unitPriceTickets).
+ * (menus pré-composés et composants libres) ; le prix est déterminé à partir
+ * des prix des composants fixés par la vendeuse en base (Component.priceTickets).
  */
 export class CreateOrderDto {
   @ApiProperty({ example: 'vendor-uuid' })

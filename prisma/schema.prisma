@@ -228,7 +228,6 @@ model MenuItem {
 
   vendor     Vendor          @relation(fields: [vendorId], references: [id])
   components MenuComponent[]
-  orderItems OrderItem[]
 }
 
 model MenuComponent {
@@ -242,8 +241,7 @@ model MenuComponent {
   updatedAt        DateTime  @updatedAt
   deletedAt        DateTime?
 
-  menuItem            MenuItem             @relation(fields: [itemId], references: [id])
-  orderItemComponents OrderItemComponent[]
+  menuItem MenuItem @relation(fields: [itemId], references: [id])
 }
 
 model TakeawayOption {
@@ -294,7 +292,9 @@ model Component {
 
   vendor   Vendor             @relation(fields: [vendorId], references: [id])
   category  ComponentCategory? @relation(fields: [categoryId], references: [id])
-  menuLines MenuLine[]
+  menuLines           MenuLine[]
+  orderItems          OrderItem[]
+  orderItemComponents OrderItemComponent[]
 
   @@index([vendorId])
   @@index([categoryId])
@@ -312,8 +312,9 @@ model Menu {
   updatedAt   DateTime  @updatedAt
   deletedAt   DateTime?
 
-  vendor Vendor     @relation(fields: [vendorId], references: [id])
-  lines  MenuLine[]
+  vendor     Vendor     @relation(fields: [vendorId], references: [id])
+  lines      MenuLine[]
+  orderItems OrderItem[]
 
   @@index([vendorId])
 }
@@ -391,20 +392,29 @@ model OrderStatusHistory {
   @@index([createdAt])
 }
 
+// Une ligne désigne EXACTEMENT l'un des deux : un menu pré-composé (menuId) ou un
+// composant libre (componentId). Contrôlé dans le service ; la contrainte CHECK
+// sera créée dans la migration initiale. name et unitPrice sont figés à la commande.
 model OrderItem {
-  id        String   @id @default(uuid())
-  orderId   String
-  itemId    String
-  quantity  Int
-  unitPrice Int
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String   @id @default(uuid())
+  orderId     String
+  menuId      String?
+  componentId String?
+  name        String
+  quantity    Int
+  unitPrice   Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   order      Order                @relation(fields: [orderId], references: [id])
-  menuItem   MenuItem             @relation(fields: [itemId], references: [id])
+  menu       Menu?                @relation(fields: [menuId], references: [id])
+  component  Component?           @relation(fields: [componentId], references: [id])
   components OrderItemComponent[]
 }
 
+// quantity = total d'unités de ce composant nécessaires à la ligne : quantité de la
+// ligne du menu × quantité commandée pour un menu, quantité commandée pour un composant libre.
+// Trace de réservation du stock (déduction à l'étape suivante).
 model OrderItemComponent {
   id          String   @id @default(uuid())
   orderItemId String
@@ -413,8 +423,10 @@ model OrderItemComponent {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  orderItem     OrderItem     @relation(fields: [orderItemId], references: [id])
-  menuComponent MenuComponent @relation(fields: [componentId], references: [id])
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id])
+  component Component @relation(fields: [componentId], references: [id])
+
+  @@unique([orderItemId, componentId])
 }
 
 model Payment {

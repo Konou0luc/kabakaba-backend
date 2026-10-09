@@ -7,6 +7,7 @@ import { UpdateOrderDto } from '../dto/update-order.dto';
 import { CancelOrderDto } from '../dto/cancel-order.dto';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { ORDER_NUMBERS, pickOrderNumber } from '../order-number';
+import { menuPriceTickets, menuUnavailableComponents } from '../../menus/menu-pricing';
 
 interface Actor {
   id: string;
@@ -18,6 +19,12 @@ interface Actor {
   // jamais WebUser : y stocker un id de WebUser violerait la contrainte FK.
   authKind?: 'mobile' | 'web';
 }
+
+// Lignes de commande renvoyées par create, findAll et findOne : nom, quantité et prix
+// unitaire figés, plus les composants (nom et unité) que la vendeuse doit préparer.
+const ORDER_ITEMS_INCLUDE = {
+  components: { include: { component: { select: { name: true, unit: true } } } },
+} as const;
 
 // Même logique que resolveRange() dans analytics.service.ts : bornes
 // incluses, `to` étendu à la fin de journée pour couvrir toute la
@@ -66,6 +73,21 @@ export class OrdersService {
   async create(createOrderDto: CreateOrderDto, studentId: string) {
     const { vendorId, items, consumptionMode, takeawayOptionId } = createOrderDto;
 
+    // Forme des lignes (sans accès à la base) : chaque ligne désigne exactement un menu
+    // OU un composant, et un même menu ou composant n'apparaît qu'une fois (le client
+    // regroupe les quantités).
+    if (items.some((item) => Boolean(item.menuId) === Boolean(item.componentId))) {
+      throw new BadRequestException('Chaque ligne doit désigner un menu ou un composant, pas les deux ni aucun');
+    }
+    const menuLineIds = items.flatMap((item) => (item.menuId ? [item.menuId] : []));
+    if (new Set(menuLineIds).size !== menuLineIds.length) {
+      throw new BadRequestException('Un menu ne peut apparaître que dans une seule ligne : regroupez les quantités');
+    }
+    const componentLineIds = items.flatMap((item) => (item.componentId ? [item.componentId] : []));
+    if (new Set(componentLineIds).size !== componentLineIds.length) {
+      throw new BadRequestException('Un composant ne peut apparaître que dans une seule ligne : regroupez les quantités');
+    }
+
     const order = await this.prisma.$transaction(async (tx) => {
       const vendor = await tx.vendor.findUnique({ where: { id: vendorId, deletedAt: null } });
       if (!vendor) throw new NotFoundException('Vendeur introuvable');
@@ -83,82 +105,105 @@ export class OrdersService {
         );
       }
 
-      const menuItemIds = items.map((i) => i.menuItemId);
-      const menuItems = await tx.menuItem.findMany({
-        where: { id: { in: menuItemIds }, deletedAt: null },
-        include: { components: { where: { deletedAt: null } } },
-      });
-      const menuItemById = new Map(menuItems.map((m) => [m.id, m]));
-
-      const allComponentIds = items.flatMap((i) => (i.components ?? []).map((c) => c.componentId));
-      const menuComponents = allComponentIds.length
-        ? await tx.menuComponent.findMany({ where: { id: { in: allComponentIds }, deletedAt: null } })
+      // Menus pré-composés et composants libres de la commande, chargés en une fois.
+      // Le prix vient UNIQUEMENT de la base (prix des composants), jamais du client.
+      const menuIds = items.flatMap((i) => (i.menuId ? [i.menuId] : []));
+      const componentIds = items.flatMap((i) => (i.componentId ? [i.componentId] : []));
+      const menus = menuIds.length
+        ? await tx.menu.findMany({
+            where: { id: { in: menuIds }, deletedAt: null },
+            include: { lines: { include: { component: true } } },
+          })
         : [];
-      const componentById = new Map(menuComponents.map((c) => [c.id, c]));
+      const freeComponents = componentIds.length
+        ? await tx.component.findMany({ where: { id: { in: componentIds }, deletedAt: null } })
+        : [];
+      const menuById = new Map(menus.map((m) => [m.id, m]));
+      const componentById = new Map(freeComponents.map((c) => [c.id, c]));
+
+      // « Poulet indisponible » / « Poulet, Riz indisponibles » : jamais la quantité en stock.
+      const unavailable = (names: string[]) =>
+        names.length > 1 ? `${names.join(', ')} indisponibles` : `${names[0]} indisponible`;
 
       let totalTickets = 0;
       const orderItemsData: {
-        itemId: string;
+        menuId?: string;
+        componentId?: string;
+        name: string;
         quantity: number;
         unitPrice: number;
         components: { componentId: string; quantity: number }[];
       }[] = [];
+      // Unités nécessaires par composant sur TOUTE la commande (un composant peut
+      // apparaître dans plusieurs menus et en libre) et stock lu pour chacun.
+      const neededByComponent = new Map<string, number>();
+      const stockByComponent = new Map<string, { name: string; quantity: number }>();
+      const need = (componentId: string, name: string, stock: number, units: number) => {
+        neededByComponent.set(componentId, (neededByComponent.get(componentId) ?? 0) + units);
+        if (!stockByComponent.has(componentId)) stockByComponent.set(componentId, { name, quantity: stock });
+      };
 
       for (const requestedItem of items) {
-        const menuItem = menuItemById.get(requestedItem.menuItemId);
-        if (!menuItem) {
-          throw new NotFoundException(`Menu item ${requestedItem.menuItemId} introuvable`);
-        }
-        if (menuItem.vendorId !== vendorId) {
-          throw new BadRequestException(`Le menu "${menuItem.name}" n'appartient pas à ce vendeur`);
-        }
-        if (!menuItem.isAvailable) {
-          throw new BadRequestException(`"${menuItem.name}" n'est pas disponible actuellement`);
-        }
-
-        let componentsUnitTotal = 0;
-        const resolvedComponents: { componentId: string; quantity: number }[] = [];
-
-        for (const requestedComponent of requestedItem.components ?? []) {
-          const component = componentById.get(requestedComponent.componentId);
-          if (!component) {
-            throw new NotFoundException(`Composant ${requestedComponent.componentId} introuvable`);
+        if (requestedItem.menuId) {
+          const menu = menuById.get(requestedItem.menuId);
+          if (!menu) throw new NotFoundException(`Menu ${requestedItem.menuId} introuvable`);
+          if (menu.vendorId !== vendorId) {
+            throw new BadRequestException(`Le menu "${menu.name}" n'appartient pas à ce vendeur`);
           }
-          if (component.itemId !== menuItem.id) {
+          if (!menu.isActive) {
+            throw new BadRequestException(`Menu "${menu.name}" indisponible`);
+          }
+          const missing = menuUnavailableComponents(menu.lines);
+          if (missing.length > 0) {
             throw new BadRequestException(
-              `Le composant "${component.name}" n'appartient pas à "${menuItem.name}"`,
+              `Menu "${menu.name}" indisponible : ${unavailable(missing.map((c) => c.name))}`,
             );
           }
-          if (requestedComponent.quantity < component.minQty || requestedComponent.quantity > component.maxQty) {
-            throw new BadRequestException(
-              `Quantité invalide pour "${component.name}" (attendu entre ${component.minQty} et ${component.maxQty})`,
-            );
+
+          for (const line of menu.lines) {
+            need(line.component.id, line.component.name, line.component.quantity, line.quantity * requestedItem.quantity);
           }
-          componentsUnitTotal += component.unitPriceTickets * requestedComponent.quantity;
-          resolvedComponents.push({ componentId: component.id, quantity: requestedComponent.quantity });
+          const unitPrice = menuPriceTickets(menu.lines);
+          totalTickets += unitPrice * requestedItem.quantity;
+          orderItemsData.push({
+            menuId: menu.id,
+            name: menu.name,
+            quantity: requestedItem.quantity,
+            unitPrice,
+            components: menu.lines.map((line) => ({
+              componentId: line.component.id,
+              quantity: line.quantity * requestedItem.quantity,
+            })),
+          });
+        } else {
+          const component = componentById.get(requestedItem.componentId!);
+          if (!component) throw new NotFoundException(`Composant ${requestedItem.componentId} introuvable`);
+          if (component.vendorId !== vendorId) {
+            throw new BadRequestException(`Le composant "${component.name}" n'appartient pas à ce vendeur`);
+          }
+          if (!component.isAvailable || component.quantity <= 0) {
+            throw new BadRequestException(`Composant "${component.name}" indisponible`);
+          }
+
+          need(component.id, component.name, component.quantity, requestedItem.quantity);
+          totalTickets += component.priceTickets * requestedItem.quantity;
+          orderItemsData.push({
+            componentId: component.id,
+            name: component.name,
+            quantity: requestedItem.quantity,
+            unitPrice: component.priceTickets,
+            components: [{ componentId: component.id, quantity: requestedItem.quantity }],
+          });
         }
+      }
 
-        // Composants obligatoires (minQty > 0) non fournis par le client : rejeter.
-        const requiredComponentIds = menuItem.components
-          .filter((c) => c.minQty > 0)
-          .map((c) => c.id);
-        const providedComponentIds = new Set(resolvedComponents.map((c) => c.componentId));
-        const missing = requiredComponentIds.filter((id) => !providedComponentIds.has(id));
-        if (missing.length > 0) {
-          throw new BadRequestException(`Composant(s) obligatoire(s) manquant(s) pour "${menuItem.name}"`);
+      // Vérification de stock en LECTURE sur les quantités agrégées. La déduction
+      // atomique viendra à l'étape suivante : ce contrôle n'écrit rien.
+      for (const [componentId, needed] of neededByComponent) {
+        const stock = stockByComponent.get(componentId)!;
+        if (needed > stock.quantity) {
+          throw new BadRequestException(`${stock.name} insuffisant`);
         }
-
-        // Prix fixé par le vendeur en base (priceTickets, unitPriceTickets) —
-        // jamais fourni par le client : c'est le calcul serveur.
-        const unitPrice = menuItem.priceTickets + componentsUnitTotal;
-        totalTickets += unitPrice * requestedItem.quantity;
-
-        orderItemsData.push({
-          itemId: menuItem.id,
-          quantity: requestedItem.quantity,
-          unitPrice,
-          components: resolvedComponents,
-        });
       }
 
       // Mode de consommation. Sur place : aucune option admise. À emporter :
@@ -229,19 +274,16 @@ export class OrdersService {
           takeawayFeeTickets,
           items: {
             create: orderItemsData.map((item) => ({
-              itemId: item.itemId,
+              menuId: item.menuId,
+              componentId: item.componentId,
+              name: item.name,
               quantity: item.quantity,
               unitPrice: item.unitPrice,
-              components: {
-                create: item.components.map((c) => ({
-                  componentId: c.componentId,
-                  quantity: c.quantity,
-                })),
-              },
+              components: { create: item.components },
             })),
           },
         },
-        include: { items: { include: { components: true } } },
+        include: { items: { include: ORDER_ITEMS_INCLUDE } },
       });
 
       await tx.transaction.create({
@@ -307,11 +349,7 @@ export class OrdersService {
         take: limit,
         orderBy: { createdAt: 'desc' },
         include: {
-          items: {
-            include: {
-              menuItem: { select: { name: true } },
-            },
-          },
+          items: { include: ORDER_ITEMS_INCLUDE },
           student: { select: { id: true, firstName: true, lastName: true, campus: { select: { id: true, name: true } } } },
           vendor: { select: { id: true, canteenName: true } },
           takeawayOption: { select: { id: true, name: true } },
@@ -334,7 +372,7 @@ export class OrdersService {
     const order = await this.prisma.order.findUnique({
       where: { id, deletedAt: null },
       include: {
-        items: { include: { menuItem: { select: { name: true } } } },
+        items: { include: ORDER_ITEMS_INCLUDE },
         student: {
           select: {
             id: true,

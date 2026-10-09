@@ -47,12 +47,12 @@ export class ReviewsController {
   // CDC V1.3, sections 36 et 49 : les avis laissés sur les commandes « Récupérée »
   // mesurent la satisfaction et sont consultables par l'administration, jamais
   // affichés publiquement aux autres étudiants. Accès strictement réservé
-  // (rôle web Supervision), jamais @Public().
+  // (rôles web Supervision et Admin), jamais @Public().
   @Get()
   @ApiBearerAuth()
   @UseGuards(WebJwtAuthGuard, WebRolesGuard)
-  @WebRoles(WebUserRole.SUPERVISION)
-  @ApiOperation({ summary: 'Récupérer tous les avis actifs — filtrable par vendeur, note, texte (Supervision uniquement)' })
+  @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
+  @ApiOperation({ summary: 'Récupérer tous les avis actifs — filtrable par vendeur, note, texte (Supervision et Admin)' })
   @ApiQuery({ type: FindReviewsQueryDto })
   @ApiResponse({ status: 200, description: 'Retourne tous les avis actifs avec pagination.' })
   findAll(@Query() query: FindReviewsQueryDto) {
