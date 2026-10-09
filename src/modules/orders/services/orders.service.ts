@@ -135,12 +135,13 @@ export class OrdersService {
         components: { componentId: string; quantity: number }[];
       }[] = [];
       // Unités nécessaires par composant sur TOUTE la commande (un composant peut
-      // apparaître dans plusieurs menus et en libre) et stock lu pour chacun.
+      // apparaître dans plusieurs menus et en libre) et nom de chacun, pour le
+      // message d'erreur de la déduction.
       const neededByComponent = new Map<string, number>();
-      const stockByComponent = new Map<string, { name: string; quantity: number }>();
-      const need = (componentId: string, name: string, stock: number, units: number) => {
+      const nameByComponent = new Map<string, string>();
+      const need = (componentId: string, name: string, units: number) => {
         neededByComponent.set(componentId, (neededByComponent.get(componentId) ?? 0) + units);
-        if (!stockByComponent.has(componentId)) stockByComponent.set(componentId, { name, quantity: stock });
+        nameByComponent.set(componentId, name);
       };
 
       for (const requestedItem of items) {
@@ -161,7 +162,7 @@ export class OrdersService {
           }
 
           for (const line of menu.lines) {
-            need(line.component.id, line.component.name, line.component.quantity, line.quantity * requestedItem.quantity);
+            need(line.component.id, line.component.name, line.quantity * requestedItem.quantity);
           }
           const unitPrice = menuPriceTickets(menu.lines);
           totalTickets += unitPrice * requestedItem.quantity;
@@ -185,7 +186,7 @@ export class OrdersService {
             throw new BadRequestException(`Composant "${component.name}" indisponible`);
           }
 
-          need(component.id, component.name, component.quantity, requestedItem.quantity);
+          need(component.id, component.name, requestedItem.quantity);
           totalTickets += component.priceTickets * requestedItem.quantity;
           orderItemsData.push({
             componentId: component.id,
@@ -194,15 +195,6 @@ export class OrdersService {
             unitPrice: component.priceTickets,
             components: [{ componentId: component.id, quantity: requestedItem.quantity }],
           });
-        }
-      }
-
-      // Vérification de stock en LECTURE sur les quantités agrégées. La déduction
-      // atomique viendra à l'étape suivante : ce contrôle n'écrit rien.
-      for (const [componentId, needed] of neededByComponent) {
-        const stock = stockByComponent.get(componentId)!;
-        if (needed > stock.quantity) {
-          throw new BadRequestException(`${stock.name} insuffisant`);
         }
       }
 
@@ -247,6 +239,32 @@ export class OrdersService {
         throw new ConflictException(
           `Cette cantine a atteint le nombre maximum de commandes en cours (${ORDER_NUMBERS.length}). Réessayez dans quelques instants.`,
         );
+      }
+
+      // Déduction atomique du stock (CDC 10, 11 et 21), sur les quantités agrégées
+      // par composant. La condition `quantity >= needed` est dans le where de
+      // l'écriture elle-même : deux commandes simultanées ne peuvent pas se
+      // partager le même stock, la seconde trouve count = 0 et échoue, sans lire
+      // de quantité ni la divulguer. Tout est dans la transaction : un échec ici,
+      // ou plus bas (solde, numéro), annule aussi les déductions déjà faites.
+      // Les composants sont traités par `id` croissant : la même fin que
+      // l'annulation, donc deux transactions qui touchent les mêmes composants
+      // les verrouillent dans le même ordre et ne peuvent pas se bloquer.
+      // Placée après le verrou de la cantine et le choix du numéro : une seule
+      // création à la fois par cantine décide du stock, et un refus de numéro ne
+      // touche à rien ; placée avant le débit : un stock insuffisant, le refus le
+      // plus courant, est constaté avant toute écriture sur le portefeuille, et les
+      // verrous sont pris dans le même ordre que l'annulation (composants puis
+      // portefeuille). La disponibilité d'un composant reste calculée : on
+      // n'écrit jamais isAvailable.
+      for (const [componentId, needed] of [...neededByComponent].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+        const deducted = await tx.component.updateMany({
+          where: { id: componentId, deletedAt: null, isAvailable: true, quantity: { gte: needed } },
+          data: { quantity: { decrement: needed } },
+        });
+        if (deducted.count === 0) {
+          throw new BadRequestException(`${nameByComponent.get(componentId)!} insuffisant`);
+        }
       }
 
       // Paiement : tickets = FCFA, conversion 1:1, aucune commission sur les
@@ -494,8 +512,9 @@ export class OrdersService {
    * - vendeuse : les commandes de sa cantine, avant READY (CONFIRMED ou
    *   IN_PREPARATION), motif obligatoire : elle n'est créditée qu'à READY ;
    * - personne n'annule une commande READY, RECEIVED ou déjà CANCELLED.
-   * Remboursement intégral en tickets, appliqué une seule fois : le changement
-   * de statut conditionnel et le remboursement sont dans la même transaction.
+   * Remboursement intégral en tickets et restitution du stock réservé,
+   * appliqués une seule fois : le changement de statut conditionnel, la
+   * restitution et le remboursement sont dans la même transaction.
    */
   async cancel(orderId: string, dto: CancelOrderDto, actor: Actor) {
     // L'administrateur n'annule jamais une commande : refus avant toute lecture.
@@ -565,6 +584,28 @@ export class OrdersService {
       });
       if (claim.count !== 1) {
         throw new BadRequestException('La commande a été modifiée entre-temps : annulation impossible');
+      }
+
+      // Restitution du stock (CDC 33), avec les quantités exactes réservées à la
+      // création (OrderItemComponent), agrégées par composant. Elle suit la
+      // réclamation du statut et partage sa transaction : une seconde annulation
+      // échoue à la réclamation, donc la restitution ne s'applique qu'une fois.
+      // Même ordre (`id` croissant) et même séquence de verrous que la création
+      // (composants avant portefeuille). Un composant supprimé logiquement depuis
+      // la commande est restitué aussi : sa ligne existe toujours.
+      const reservedLines = await tx.orderItemComponent.findMany({
+        where: { orderItem: { orderId } },
+        select: { componentId: true, quantity: true },
+      });
+      const reservedByComponent = new Map<string, number>();
+      for (const line of reservedLines) {
+        reservedByComponent.set(line.componentId, (reservedByComponent.get(line.componentId) ?? 0) + line.quantity);
+      }
+      for (const [componentId, quantity] of [...reservedByComponent].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+        await tx.component.update({
+          where: { id: componentId },
+          data: { quantity: { increment: quantity } },
+        });
       }
 
       await tx.orderStatusHistory.create({
