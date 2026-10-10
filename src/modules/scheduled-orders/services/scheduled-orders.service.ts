@@ -186,10 +186,10 @@ export class ScheduledOrdersService {
   }
 
   private async executeOne(scheduledOrder: ScheduledOrderRow): Promise<ExecutionOutcome> {
-    let order: { id: string } | null;
+    let created: Awaited<ReturnType<OrdersService['createWithinTransaction']>> | null;
     try {
       // Une seule transaction : réclamer la ligne, créer la commande, lier les deux.
-      order = await this.prisma.$transaction(async (tx) => {
+      created = await this.prisma.$transaction(async (tx) => {
         // Réclamation par mise à jour conditionnelle sur PENDING. Une exécution simultanée
         // de la même ligne attend ici la fin de la première puis trouve count = 0 : une
         // seule commande est créée. Si la création échoue, tout est annulé, ligne comprise.
@@ -200,21 +200,23 @@ export class ScheduledOrdersService {
         if (claimed.count === 0) return null;
 
         // Même logique que POST /orders, avec une seule différence : BUSY est accepté.
-        const created = await this.orders.createWithinTransaction(
+        const result = await this.orders.createWithinTransaction(
           tx,
           this.toCreateOrderDto(scheduledOrder),
           scheduledOrder.studentId,
           { acceptBusy: true },
         );
-        await tx.scheduledOrder.update({ where: { id: scheduledOrder.id }, data: { orderId: created.id } });
-        return created;
+        await tx.scheduledOrder.update({ where: { id: scheduledOrder.id }, data: { orderId: result.order.id } });
+        return result;
       });
     } catch (error) {
       return this.markFailed(scheduledOrder, error);
     }
 
-    if (!order) return 'skipped';
+    if (!created) return 'skipped';
+    // Après le commit, sans jamais bloquer : « confirmée » (étudiant), nouvelle commande et stock faible (vendeuse).
     await this.orders.notifyOrderConfirmed(scheduledOrder.studentId, scheduledOrder.vendorId);
+    await this.orders.notifyVendorAfterCreation(created);
     return 'placed';
   }
 

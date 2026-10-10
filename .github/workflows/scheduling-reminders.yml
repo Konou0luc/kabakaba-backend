@@ -1,0 +1,23 @@
+name: Scheduling reminders (rappel Programme ton repas)
+
+# Envoie le rappel « Programme ton repas » aux étudiants actifs dont le dernier rappel date de
+# 3 jours ou plus (CDC 41) : appelle l'endpoint interne protégé par CRON_SECRET, comme
+# cron-heartbeat.yml. Une fois par jour ; chaque étudiant n'est rappelé que tous les 3 jours.
+# La planification GitHub Actions peut être retardée de quelques minutes.
+
+on:
+  schedule:
+    # Une fois par jour à 07:00 UTC.
+    - cron: '0 7 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  scheduling-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler /internal/cron/scheduling-reminders
+        run: |
+          curl -fsS --max-time 60 \
+            -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://kabakaba-backend.vercel.app/api/v1/internal/cron/scheduling-reminders

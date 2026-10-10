@@ -6,6 +6,8 @@ import { CreateOrderDto } from '../dto/create-order.dto';
 import { UpdateOrderDto } from '../dto/update-order.dto';
 import { CancelOrderDto } from '../dto/cancel-order.dto';
 import { NotificationsService } from '../../notifications/services/notifications.service';
+import { VendorNotificationsService } from '../../notifications/services/vendor-notifications.service';
+import { LowStockAlert, hasCrossedLowStockThreshold } from '../../notifications/low-stock';
 import { ORDER_NUMBERS, pickOrderNumber } from '../order-number';
 import { assertConsumptionShape, assertItemsShape } from '../order-form';
 import { findOrderTakeawayOption, loadOrderArticles, resolveOrderComponent, resolveOrderMenu } from '../order-articles';
@@ -45,6 +47,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly notifications: NotificationsService,
+    private readonly vendorNotifications: VendorNotificationsService,
   ) {}
 
   /**
@@ -79,12 +82,31 @@ export class OrdersService {
     // Forme des lignes (sans accès à la base).
     assertItemsShape(createOrderDto.items);
 
-    const order = await this.prisma.$transaction((tx) =>
+    const created = await this.prisma.$transaction((tx) =>
       this.createWithinTransaction(tx, createOrderDto, studentId, { acceptBusy: false }),
     );
 
+    // Après le commit : nouvelle commande et stock faible (vendeuse), puis « confirmée » (étudiant).
+    await this.notifyVendorAfterCreation(created);
     await this.notifyStudentOrderStatus(studentId, OrderStatus.CONFIRMED, createOrderDto.vendorId);
-    return order;
+    return created.order;
+  }
+
+  /**
+   * Notifications à la vendeuse après le commit d'une création de commande (normale ou issue
+   * d'une commande programmée) : « Nouvelle commande », puis une alerte « Stock faible » par
+   * composant dont la déduction a franchi le seuil. Ne lève jamais : un échec est journalisé.
+   */
+  async notifyVendorAfterCreation(created: {
+    order: { orderNumber: string; vendorId: string; consumptionMode: ConsumptionMode };
+    lowStockAlerts: LowStockAlert[];
+  }) {
+    await this.vendorNotifications.notifyNewOrder(
+      created.order.vendorId,
+      created.order.orderNumber,
+      created.order.consumptionMode,
+    );
+    await this.vendorNotifications.notifyLowStock(created.lowStockAlerts);
   }
 
   /**
@@ -114,7 +136,9 @@ export class OrdersService {
    * programmées restent honorées quand la vendeuse est occupée). Une cantine « Fermée »
    * refuse dans tous les cas.
    *
-   * Ne notifie pas : la notification est faite par l'appelant, après le commit.
+   * Ne notifie pas : les notifications sont faites par l'appelant, après le commit. Renvoie la
+   * commande et les alertes de stock faible (composants dont la déduction a franchi le seuil) ;
+   * si la transaction est annulée, rien n'est renvoyé et aucune alerte ne part.
    */
   async createWithinTransaction(
     tx: Prisma.TransactionClient,
@@ -264,6 +288,7 @@ export class OrdersService {
     // verrous sont pris dans le même ordre que l'annulation (composants puis
     // portefeuille). La disponibilité d'un composant reste calculée : on
     // n'écrit jamais isAvailable.
+    const lowStockAlerts: LowStockAlert[] = [];
     for (const [componentId, needed] of [...neededByComponent].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
       const deducted = await tx.component.updateMany({
         where: { id: componentId, deletedAt: null, isAvailable: true, quantity: { gte: needed } },
@@ -271,6 +296,18 @@ export class OrdersService {
       });
       if (deducted.count === 0) {
         throw new BadRequestException(`${nameByComponent.get(componentId)!} insuffisant`);
+      }
+
+      // Stock faible (CDC 41) : on relit la quantité APRÈS la déduction (la ligne est verrouillée
+      // par cette transaction : aucune autre écriture ne s'intercale) ; la quantité d'avant est
+      // la quantité d'après plus les unités déduites. Alerte seulement si la déduction fait
+      // passer de « au moins le seuil » à « sous le seuil ». Envoyée par l'appelant, après le commit.
+      const remaining = await tx.component.findUnique({
+        where: { id: componentId },
+        select: { quantity: true, lowStockThreshold: true },
+      });
+      if (remaining && hasCrossedLowStockThreshold(remaining.quantity + needed, remaining.quantity, remaining.lowStockThreshold)) {
+        lowStockAlerts.push({ vendorId, componentId, name: nameByComponent.get(componentId)!, remaining: remaining.quantity });
       }
     }
 
@@ -323,7 +360,7 @@ export class OrdersService {
       },
     });
 
-    return order;
+    return { order, lowStockAlerts };
   }
 
   async findAll(

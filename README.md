@@ -63,6 +63,7 @@ appellent les routes `internal/cron/*` (authentifiées par `CRON_SECRET`) et `GE
 | Heartbeat infra | toutes les 5 minutes |
 | Commandes programmées (`scheduled-orders`) | toutes les 5 minutes |
 | Commandes non récupérées (`unclaimed-orders`) | toutes les 15 minutes |
+| Rappels de programmation (`scheduling-reminders`) | une fois par jour, à 07:00 UTC |
 
 La planification GitHub Actions peut être retardée de quelques minutes : une commande programmée peut
 donc être passée un peu après son heure prévue.

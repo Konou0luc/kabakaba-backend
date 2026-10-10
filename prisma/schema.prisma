@@ -144,6 +144,8 @@ model User {
   pinUpdatedAt       DateTime?
   notifyOrders       Boolean   @default(true)
   notifyPromotions   Boolean   @default(false)
+  // Dernier rappel « Programme ton repas » envoyé à l'étudiant (CDC 41), tous les 3 jours.
+  lastSchedulingReminderAt DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
