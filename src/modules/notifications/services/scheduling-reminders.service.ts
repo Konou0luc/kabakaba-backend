@@ -6,13 +6,15 @@ import {
   SCHEDULING_REMINDER_CONCURRENCY,
   SCHEDULING_REMINDER_INTERVAL_DAYS,
   SCHEDULING_REMINDER_PASS_LIMIT,
+  SCHEDULING_REMINDER_TOLERANCE_HOURS,
 } from '../scheduling-reminders.constants';
 import { NotificationsService } from './notifications.service';
 
 /**
  * Rappel « Programme ton repas » (CDC 41), envoyé tous les 3 jours aux étudiants actifs.
  * Actif : rôle étudiant, compte non supprimé et non suspendu. `lastSchedulingReminderAt`
- * mémorise le dernier rappel.
+ * mémorise le dernier rappel. Un étudiant est éligible quand ce dernier rappel date de 2 jours et
+ * 18 heures ou plus (3 jours moins une tolérance de 6 heures, voir les constantes), ou n'existe pas.
  */
 @Injectable()
 export class SchedulingRemindersService {
@@ -24,7 +26,8 @@ export class SchedulingRemindersService {
   ) {}
 
   /**
-   * Un passage : lit les étudiants à rappeler par lots, jusqu'au plafond du passage, notifie
+   * Un passage : lit les étudiants éligibles (jamais rappelés, ou dernier rappel vieux de 3 jours
+   * moins la tolérance, ou plus) par lots, jusqu'au plafond du passage, notifie
    * chacun puis met `lastSchedulingReminderAt` à jour (aussitôt, étudiant par étudiant : un
    * passage interrompu garde ce qu'il a fait). L'échec d'un étudiant est isolé : le lot
    * continue, et l'étudiant n'est pas relu dans le même passage (lecture par curseur sur
@@ -32,7 +35,9 @@ export class SchedulingRemindersService {
    */
   async sendDueReminders(): Promise<number> {
     const now = new Date();
-    const cutoff = new Date(now.getTime() - SCHEDULING_REMINDER_INTERVAL_DAYS * 24 * 3_600_000);
+    // Seuil d'éligibilité, calculé ici et nulle part ailleurs : 3 jours moins la tolérance.
+    const eligibleAfterMs = (SCHEDULING_REMINDER_INTERVAL_DAYS * 24 - SCHEDULING_REMINDER_TOLERANCE_HOURS) * 3_600_000;
+    const cutoff = new Date(now.getTime() - eligibleAfterMs);
 
     let sent = 0;
     let failed = 0;
