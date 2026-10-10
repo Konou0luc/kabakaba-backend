@@ -8,6 +8,7 @@ import { CancelOrderDto } from '../dto/cancel-order.dto';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { ORDER_NUMBERS, pickOrderNumber } from '../order-number';
 import { assertConsumptionShape, assertItemsShape } from '../order-form';
+import { findOrderTakeawayOption, loadOrderArticles, resolveOrderComponent, resolveOrderMenu } from '../order-articles';
 import { menuPriceTickets, menuUnavailableComponents } from '../../menus/menu-pricing';
 
 interface Actor {
@@ -145,19 +146,7 @@ export class OrdersService {
 
     // Menus pré-composés et composants libres de la commande, chargés en une fois.
     // Le prix vient UNIQUEMENT de la base (prix des composants), jamais du client.
-    const menuIds = items.flatMap((i) => (i.menuId ? [i.menuId] : []));
-    const componentIds = items.flatMap((i) => (i.componentId ? [i.componentId] : []));
-    const menus = menuIds.length
-      ? await tx.menu.findMany({
-          where: { id: { in: menuIds }, deletedAt: null },
-          include: { lines: { include: { component: true } } },
-        })
-      : [];
-    const freeComponents = componentIds.length
-      ? await tx.component.findMany({ where: { id: { in: componentIds }, deletedAt: null } })
-      : [];
-    const menuById = new Map(menus.map((m) => [m.id, m]));
-    const componentById = new Map(freeComponents.map((c) => [c.id, c]));
+    const { menuById, componentById } = await loadOrderArticles(tx, items);
 
     // « Poulet indisponible » / « Poulet, Riz indisponibles » : jamais la quantité en stock.
     const unavailable = (names: string[]) =>
@@ -184,14 +173,8 @@ export class OrdersService {
 
     for (const requestedItem of items) {
       if (requestedItem.menuId) {
-        const menu = menuById.get(requestedItem.menuId);
-        if (!menu) throw new NotFoundException(`Menu ${requestedItem.menuId} introuvable`);
-        if (menu.vendorId !== vendorId) {
-          throw new BadRequestException(`Le menu "${menu.name}" n'appartient pas à ce vendeur`);
-        }
-        if (!menu.isActive) {
-          throw new BadRequestException(`Menu "${menu.name}" indisponible`);
-        }
+        // Existence, appartenance à la cantine, menu actif (contrôles partagés avec la programmation).
+        const menu = resolveOrderMenu(menuById, requestedItem.menuId, vendorId);
         const missing = menuUnavailableComponents(menu.lines);
         if (missing.length > 0) {
           throw new BadRequestException(
@@ -215,11 +198,8 @@ export class OrdersService {
           })),
         });
       } else {
-        const component = componentById.get(requestedItem.componentId!);
-        if (!component) throw new NotFoundException(`Composant ${requestedItem.componentId} introuvable`);
-        if (component.vendorId !== vendorId) {
-          throw new BadRequestException(`Le composant "${component.name}" n'appartient pas à ce vendeur`);
-        }
+        // Existence et appartenance à la cantine (contrôles partagés avec la programmation).
+        const component = resolveOrderComponent(componentById, requestedItem.componentId!, vendorId);
         if (!component.isAvailable || component.quantity <= 0) {
           throw new BadRequestException(`Composant "${component.name}" indisponible`);
         }
@@ -245,12 +225,7 @@ export class OrdersService {
     let takeawayOptionIdToSave: string | null = null;
     assertConsumptionShape(consumptionMode, takeawayOptionId);
     if (consumptionMode === ConsumptionMode.TAKEAWAY) {
-      const takeawayOption = await tx.takeawayOption.findFirst({
-        where: { id: takeawayOptionId!, vendorId, isActive: true, deletedAt: null },
-      });
-      if (!takeawayOption) {
-        throw new NotFoundException("Option d'emporté introuvable ou indisponible pour cette cantine");
-      }
+      const takeawayOption = await findOrderTakeawayOption(tx, takeawayOptionId!, vendorId);
       takeawayFeeTickets = takeawayOption.priceTickets;
       takeawayOptionIdToSave = takeawayOption.id;
     }

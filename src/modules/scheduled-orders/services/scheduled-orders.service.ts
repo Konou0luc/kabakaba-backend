@@ -5,6 +5,7 @@ import { NotificationsService } from '../../notifications/services/notifications
 import { OrdersService } from '../../orders/services/orders.service';
 import { CreateOrderDto } from '../../orders/dto/create-order.dto';
 import { assertConsumptionShape, assertItemsShape } from '../../orders/order-form';
+import { assertOrderArticles } from '../../orders/order-articles';
 import { CreateScheduledOrderDto } from '../dto/create-scheduled-order.dto';
 import {
   EXECUTION_BATCH_SIZE,
@@ -37,8 +38,9 @@ export class ScheduledOrdersService {
 
   /**
    * Programmation (CDC 29) : on valide la FORME de la commande, la fenêtre horaire, la
-   * cantine et le plafond d'attente. Le stock, le solde et le numéro ne sont PAS vérifiés
-   * ici : rien n'est débité ni réservé avant l'heure prévue.
+   * cantine, l'existence et l'appartenance des articles, et le plafond d'attente. Le stock,
+   * la disponibilité, le prix, le solde et le numéro ne sont PAS vérifiés ici : rien n'est
+   * débité ni réservé avant l'heure prévue.
    */
   async create(dto: CreateScheduledOrderDto, studentId: string) {
     assertItemsShape(dto.items);
@@ -69,6 +71,16 @@ export class ScheduledOrdersService {
     if (vendor.capacityStatus === VendorCapacity.CLOSED) {
       throw new BadRequestException('Ce vendeur est fermé pour le moment');
     }
+
+    // Existence et appartenance des menus, composants et de l'option d'emporté, avec les
+    // mêmes règles et messages que la création d'une commande. Le stock, la disponibilité,
+    // le prix et le solde ne sont PAS contrôlés ici : seulement à l'heure prévue.
+    await assertOrderArticles(this.prisma, {
+      vendorId: dto.vendorId,
+      items: dto.items,
+      consumptionMode: dto.consumptionMode,
+      takeawayOptionId: dto.takeawayOptionId,
+    });
 
     return this.prisma.$transaction(async (tx) => {
       // Verrou de ligne sur l'étudiant : deux programmations simultanées se suivent, la
