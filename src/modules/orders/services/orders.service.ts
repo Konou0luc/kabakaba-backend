@@ -507,10 +507,10 @@ export class OrdersService {
 
   /**
    * Annulation.
-   * - étudiant : ses propres commandes, tant qu'elles sont CONFIRMED, motif
-   *   facultatif ;
+   * - étudiant : ses propres commandes, tant qu'elles sont CONFIRMED ;
    * - vendeuse : les commandes de sa cantine, avant READY (CONFIRMED ou
-   *   IN_PREPARATION), motif obligatoire : elle n'est créditée qu'à READY ;
+   *   IN_PREPARATION) : elle n'est créditée qu'à READY ;
+   * - le motif est obligatoire pour tous les auteurs ;
    * - personne n'annule une commande READY, RECEIVED ou déjà CANCELLED.
    * Remboursement intégral en tickets et restitution du stock réservé,
    * appliqués une seule fois : le changement de statut conditionnel, la
@@ -548,7 +548,8 @@ export class OrdersService {
       throw new ForbiddenException('Vous ne pouvez pas annuler cette commande');
     }
 
-    if (cancelledBy !== OrderCancelledBy.STUDENT && !reason) {
+    // Motif obligatoire pour tous les auteurs, contrôlé avant toute écriture.
+    if (!reason) {
       throw new BadRequestException('Un motif est obligatoire pour annuler une commande');
     }
 
@@ -576,7 +577,7 @@ export class OrdersService {
           cancelledAt: new Date(),
           cancelledBy,
           cancelledById: changedById,
-          cancellationReason: reason ?? null,
+          cancellationReason: reason,
           refundedTickets: order.totalTickets,
           // L'annulation libère le numéro, attribuable aussitôt à une autre commande.
           activeOrderNumber: null,

@@ -130,7 +130,7 @@ export class OrdersController {
   @ApiOperation({
     summary: 'Annuler une commande (étudiant ou vendeuse)',
     description:
-      "Étudiant : ses commandes tant qu'elles sont CONFIRMED, motif facultatif. Vendeuse : les commandes de sa cantine en CONFIRMED ou IN_PREPARATION, motif obligatoire. Aucune annulation en READY, RECEIVED ou CANCELLED. L'administrateur n'annule jamais. Remboursement intégral en tickets, une seule fois.",
+      "Étudiant : ses commandes tant qu'elles sont CONFIRMED. Vendeuse : les commandes de sa cantine en CONFIRMED ou IN_PREPARATION. Le motif est obligatoire pour tous. Aucune annulation en READY, RECEIVED ou CANCELLED. L'administrateur n'annule jamais. Remboursement intégral en tickets, une seule fois.",
   })
   @ApiResponse({ status: 200, description: 'Commande annulée et remboursée : { order }' })
   cancel(@Param('id') id: string, @Body() dto: CancelOrderDto, @Request() req) {

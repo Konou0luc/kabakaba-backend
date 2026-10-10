@@ -50,7 +50,7 @@ export class OrderEntity extends BaseEntity {
   @ApiProperty({ required: false, description: "Utilisateur auteur de l'annulation (étudiant ou vendeuse)" })
   cancelledById?: string;
 
-  @ApiProperty({ required: false, description: "Motif d'annulation" })
+  @ApiProperty({ required: false, description: "Motif d'annulation (obligatoire à l'annulation)" })
   cancellationReason?: string;
 
   @ApiProperty({ example: 15, description: 'Tickets remboursés à l\'annulation (0 si la commande n\'est pas annulée)' })
