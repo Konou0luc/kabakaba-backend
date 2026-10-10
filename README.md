@@ -60,3 +60,7 @@ appellent les routes `internal/cron/*` (authentifiées par `CRON_SECRET`) et `GE
 |---|---|
 | Keep-alive Neon | toutes les 4 minutes |
 | Heartbeat infra | toutes les 5 minutes |
+| Commandes programmées (`scheduled-orders`) | toutes les 5 minutes |
+
+La planification GitHub Actions peut être retardée de quelques minutes : une commande programmée peut
+donc être passée un peu après son heure prévue.

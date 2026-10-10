@@ -15,6 +15,7 @@ import { CatalogModule } from './modules/catalog/catalog.module';
 import { ComponentsModule } from './modules/components/components.module';
 import { MenusModule } from './modules/menus/menus.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { ScheduledOrdersModule } from './modules/scheduled-orders/scheduled-orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
@@ -54,6 +55,7 @@ import { DevicesModule } from './modules/devices/devices.module';
     ComponentsModule,
     MenusModule,
     OrdersModule,
+    ScheduledOrdersModule,
     PaymentsModule,
     TransactionsModule,
     ReviewsModule,

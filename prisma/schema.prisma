@@ -43,6 +43,13 @@ enum OrderCancelledBy {
   VENDOR
 }
 
+enum ScheduledOrderStatus {
+  PENDING
+  PLACED
+  FAILED
+  CANCELLED
+}
+
 enum PaymentStatus {
   PENDING
   SUCCESS
@@ -157,6 +164,7 @@ model User {
   changedOrderStatuses OrderStatusHistory[]
   disputesAsStudent    Dispute[]            @relation("DisputeStudent")
   suspensionEvents     SuspensionEvent[]
+  scheduledOrders      ScheduledOrder[]
 
   @@index([phone])
   @@index([email])
@@ -191,6 +199,7 @@ model Vendor {
   components          Component[]
   componentCategories ComponentCategory[]
   menus               Menu[]
+  scheduledOrders     ScheduledOrder[]
 
   @@index([canteenName])
   @@index([capacityStatus])
@@ -294,6 +303,34 @@ model MenuLine {
   @@index([componentId])
 }
 
+// Commande programmée (CDC 29) : enregistrement à part. Ni débit, ni stock, ni numéro
+// de commande avant l'heure prévue ; à l'heure prévue, la commande normale est créée
+// (même logique que POST /orders) ou la ligne passe en FAILED avec un motif.
+model ScheduledOrder {
+  id               String               @id @default(uuid())
+  studentId        String
+  vendorId         String
+  scheduledFor     DateTime
+  consumptionMode  ConsumptionMode
+  takeawayOptionId String?
+  // Tableau de { menuId?, componentId?, quantity }, même forme que les lignes de POST /orders.
+  items            Json
+  status           ScheduledOrderStatus @default(PENDING)
+  orderId          String?              @unique
+  failureReason    String?
+  processedAt      DateTime?
+  cancelledAt      DateTime?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  student User   @relation(fields: [studentId], references: [id])
+  vendor  Vendor @relation(fields: [vendorId], references: [id])
+  order   Order? @relation(fields: [orderId], references: [id])
+
+  @@index([status, scheduledFor])
+  @@index([studentId])
+}
+
 model Order {
   id                 String          @id @default(uuid())
   studentId          String
@@ -328,6 +365,7 @@ model Order {
   statusHistory       OrderStatusHistory[]
   relatedTransactions Transaction[]        @relation("TransactionOrder")
   disputes            Dispute[]
+  scheduledOrder      ScheduledOrder?
 
   @@index([studentId])
   @@index([vendorId])

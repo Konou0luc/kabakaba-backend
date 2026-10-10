@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { OrderStatus, OrderCancelledBy, UserRole, NotificationType, ConsumptionMode, VendorCapacity } from '@prisma/client';
+import { OrderStatus, OrderCancelledBy, UserRole, NotificationType, ConsumptionMode, VendorCapacity, Prisma } from '@prisma/client';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
@@ -7,6 +7,7 @@ import { UpdateOrderDto } from '../dto/update-order.dto';
 import { CancelOrderDto } from '../dto/cancel-order.dto';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { ORDER_NUMBERS, pickOrderNumber } from '../order-number';
+import { assertConsumptionShape, assertItemsShape } from '../order-form';
 import { menuPriceTickets, menuUnavailableComponents } from '../../menus/menu-pricing';
 
 interface Actor {
@@ -70,256 +71,283 @@ export class OrdersService {
     throw new ForbiddenException("Vous n'avez pas accès à cette commande");
   }
 
+  /**
+   * Création normale (POST /orders) : seule une cantine « Ouverte » reçoit des commandes.
+   */
   async create(createOrderDto: CreateOrderDto, studentId: string) {
+    // Forme des lignes (sans accès à la base).
+    assertItemsShape(createOrderDto.items);
+
+    const order = await this.prisma.$transaction((tx) =>
+      this.createWithinTransaction(tx, createOrderDto, studentId, { acceptBusy: false }),
+    );
+
+    await this.notifyStudentOrderStatus(studentId, OrderStatus.CONFIRMED, createOrderDto.vendorId);
+    return order;
+  }
+
+  /**
+   * Notification « commande confirmée » après une création faite hors de `create`
+   * (commande programmée exécutée). Ne lève jamais : une notification manquée ne doit
+   * pas défaire une commande déjà passée.
+   */
+  async notifyOrderConfirmed(studentId: string, vendorId: string) {
+    try {
+      await this.notifyStudentOrderStatus(studentId, OrderStatus.CONFIRMED, vendorId);
+    } catch (error) {
+      this.logger.error(
+        `Notif commande confirmée impossible student=${studentId}`,
+        error instanceof Error ? error.stack : error,
+      );
+    }
+  }
+
+  /**
+   * Logique de création d'une commande dans une transaction FOURNIE : vérifications,
+   * prix calculé côté serveur, numéro, déduction atomique du stock, débit du
+   * portefeuille, ligne de transaction. Si une étape échoue, l'appelant annule la
+   * transaction et rien n'est écrit.
+   *
+   * `acceptBusy` : une cantine « Occupée » (BUSY) est acceptée. Faux pour la création
+   * immédiate ; vrai pour l'exécution d'une commande programmée (CDC 24 : les commandes
+   * programmées restent honorées quand la vendeuse est occupée). Une cantine « Fermée »
+   * refuse dans tous les cas.
+   *
+   * Ne notifie pas : la notification est faite par l'appelant, après le commit.
+   */
+  async createWithinTransaction(
+    tx: Prisma.TransactionClient,
+    createOrderDto: CreateOrderDto,
+    studentId: string,
+    options: { acceptBusy: boolean },
+  ) {
     const { vendorId, items, consumptionMode, takeawayOptionId } = createOrderDto;
 
-    // Forme des lignes (sans accès à la base) : chaque ligne désigne exactement un menu
-    // OU un composant, et un même menu ou composant n'apparaît qu'une fois (le client
-    // regroupe les quantités).
-    if (items.some((item) => Boolean(item.menuId) === Boolean(item.componentId))) {
-      throw new BadRequestException('Chaque ligne doit désigner un menu ou un composant, pas les deux ni aucun');
+    const vendor = await tx.vendor.findUnique({ where: { id: vendorId, deletedAt: null } });
+    if (!vendor) throw new NotFoundException('Vendeur introuvable');
+    if (!vendor.isActive) {
+      throw new BadRequestException("Cette cantine n'accepte pas de commandes actuellement");
     }
-    const menuLineIds = items.flatMap((item) => (item.menuId ? [item.menuId] : []));
-    if (new Set(menuLineIds).size !== menuLineIds.length) {
-      throw new BadRequestException('Un menu ne peut apparaître que dans une seule ligne : regroupez les quantités');
+    // CDC 24 : statut de capacité choisi par la vendeuse, contrôlé ici même si le
+    // mobile a un affichage périmé. Création immédiate : seule une cantine « Ouverte »
+    // reçoit des commandes. Exécution d'une commande programmée (acceptBusy) :
+    // « Occupée » est aussi acceptée. « Fermée » refuse toujours.
+    const capacityAccepted =
+      vendor.capacityStatus === VendorCapacity.OPEN ||
+      (options.acceptBusy && vendor.capacityStatus === VendorCapacity.BUSY);
+    if (!capacityAccepted) {
+      throw new BadRequestException(
+        vendor.capacityStatus === VendorCapacity.BUSY
+          ? 'Ce vendeur est momentanément indisponible'
+          : 'Ce vendeur est fermé pour le moment',
+      );
     }
-    const componentLineIds = items.flatMap((item) => (item.componentId ? [item.componentId] : []));
-    if (new Set(componentLineIds).size !== componentLineIds.length) {
-      throw new BadRequestException('Un composant ne peut apparaître que dans une seule ligne : regroupez les quantités');
-    }
 
-    const order = await this.prisma.$transaction(async (tx) => {
-      const vendor = await tx.vendor.findUnique({ where: { id: vendorId, deletedAt: null } });
-      if (!vendor) throw new NotFoundException('Vendeur introuvable');
-      if (!vendor.isActive) {
-        throw new BadRequestException("Cette cantine n'accepte pas de commandes actuellement");
-      }
-      // CDC 24 : statut de capacité choisi par la vendeuse. Règle PROVISOIRE
-      // (jusqu'aux commandes programmées) : seule une cantine « Ouverte » reçoit
-      // des commandes, même si le mobile a un affichage périmé côté client.
-      if (vendor.capacityStatus !== VendorCapacity.OPEN) {
-        throw new BadRequestException(
-          vendor.capacityStatus === VendorCapacity.BUSY
-            ? 'Ce vendeur est momentanément indisponible'
-            : 'Ce vendeur est fermé pour le moment',
-        );
-      }
+    // Menus pré-composés et composants libres de la commande, chargés en une fois.
+    // Le prix vient UNIQUEMENT de la base (prix des composants), jamais du client.
+    const menuIds = items.flatMap((i) => (i.menuId ? [i.menuId] : []));
+    const componentIds = items.flatMap((i) => (i.componentId ? [i.componentId] : []));
+    const menus = menuIds.length
+      ? await tx.menu.findMany({
+          where: { id: { in: menuIds }, deletedAt: null },
+          include: { lines: { include: { component: true } } },
+        })
+      : [];
+    const freeComponents = componentIds.length
+      ? await tx.component.findMany({ where: { id: { in: componentIds }, deletedAt: null } })
+      : [];
+    const menuById = new Map(menus.map((m) => [m.id, m]));
+    const componentById = new Map(freeComponents.map((c) => [c.id, c]));
 
-      // Menus pré-composés et composants libres de la commande, chargés en une fois.
-      // Le prix vient UNIQUEMENT de la base (prix des composants), jamais du client.
-      const menuIds = items.flatMap((i) => (i.menuId ? [i.menuId] : []));
-      const componentIds = items.flatMap((i) => (i.componentId ? [i.componentId] : []));
-      const menus = menuIds.length
-        ? await tx.menu.findMany({
-            where: { id: { in: menuIds }, deletedAt: null },
-            include: { lines: { include: { component: true } } },
-          })
-        : [];
-      const freeComponents = componentIds.length
-        ? await tx.component.findMany({ where: { id: { in: componentIds }, deletedAt: null } })
-        : [];
-      const menuById = new Map(menus.map((m) => [m.id, m]));
-      const componentById = new Map(freeComponents.map((c) => [c.id, c]));
+    // « Poulet indisponible » / « Poulet, Riz indisponibles » : jamais la quantité en stock.
+    const unavailable = (names: string[]) =>
+      names.length > 1 ? `${names.join(', ')} indisponibles` : `${names[0]} indisponible`;
 
-      // « Poulet indisponible » / « Poulet, Riz indisponibles » : jamais la quantité en stock.
-      const unavailable = (names: string[]) =>
-        names.length > 1 ? `${names.join(', ')} indisponibles` : `${names[0]} indisponible`;
+    let totalTickets = 0;
+    const orderItemsData: {
+      menuId?: string;
+      componentId?: string;
+      name: string;
+      quantity: number;
+      unitPrice: number;
+      components: { componentId: string; quantity: number }[];
+    }[] = [];
+    // Unités nécessaires par composant sur TOUTE la commande (un composant peut
+    // apparaître dans plusieurs menus et en libre) et nom de chacun, pour le
+    // message d'erreur de la déduction.
+    const neededByComponent = new Map<string, number>();
+    const nameByComponent = new Map<string, string>();
+    const need = (componentId: string, name: string, units: number) => {
+      neededByComponent.set(componentId, (neededByComponent.get(componentId) ?? 0) + units);
+      nameByComponent.set(componentId, name);
+    };
 
-      let totalTickets = 0;
-      const orderItemsData: {
-        menuId?: string;
-        componentId?: string;
-        name: string;
-        quantity: number;
-        unitPrice: number;
-        components: { componentId: string; quantity: number }[];
-      }[] = [];
-      // Unités nécessaires par composant sur TOUTE la commande (un composant peut
-      // apparaître dans plusieurs menus et en libre) et nom de chacun, pour le
-      // message d'erreur de la déduction.
-      const neededByComponent = new Map<string, number>();
-      const nameByComponent = new Map<string, string>();
-      const need = (componentId: string, name: string, units: number) => {
-        neededByComponent.set(componentId, (neededByComponent.get(componentId) ?? 0) + units);
-        nameByComponent.set(componentId, name);
-      };
-
-      for (const requestedItem of items) {
-        if (requestedItem.menuId) {
-          const menu = menuById.get(requestedItem.menuId);
-          if (!menu) throw new NotFoundException(`Menu ${requestedItem.menuId} introuvable`);
-          if (menu.vendorId !== vendorId) {
-            throw new BadRequestException(`Le menu "${menu.name}" n'appartient pas à ce vendeur`);
-          }
-          if (!menu.isActive) {
-            throw new BadRequestException(`Menu "${menu.name}" indisponible`);
-          }
-          const missing = menuUnavailableComponents(menu.lines);
-          if (missing.length > 0) {
-            throw new BadRequestException(
-              `Menu "${menu.name}" indisponible : ${unavailable(missing.map((c) => c.name))}`,
-            );
-          }
-
-          for (const line of menu.lines) {
-            need(line.component.id, line.component.name, line.quantity * requestedItem.quantity);
-          }
-          const unitPrice = menuPriceTickets(menu.lines);
-          totalTickets += unitPrice * requestedItem.quantity;
-          orderItemsData.push({
-            menuId: menu.id,
-            name: menu.name,
-            quantity: requestedItem.quantity,
-            unitPrice,
-            components: menu.lines.map((line) => ({
-              componentId: line.component.id,
-              quantity: line.quantity * requestedItem.quantity,
-            })),
-          });
-        } else {
-          const component = componentById.get(requestedItem.componentId!);
-          if (!component) throw new NotFoundException(`Composant ${requestedItem.componentId} introuvable`);
-          if (component.vendorId !== vendorId) {
-            throw new BadRequestException(`Le composant "${component.name}" n'appartient pas à ce vendeur`);
-          }
-          if (!component.isAvailable || component.quantity <= 0) {
-            throw new BadRequestException(`Composant "${component.name}" indisponible`);
-          }
-
-          need(component.id, component.name, requestedItem.quantity);
-          totalTickets += component.priceTickets * requestedItem.quantity;
-          orderItemsData.push({
-            componentId: component.id,
-            name: component.name,
-            quantity: requestedItem.quantity,
-            unitPrice: component.priceTickets,
-            components: [{ componentId: component.id, quantity: requestedItem.quantity }],
-          });
+    for (const requestedItem of items) {
+      if (requestedItem.menuId) {
+        const menu = menuById.get(requestedItem.menuId);
+        if (!menu) throw new NotFoundException(`Menu ${requestedItem.menuId} introuvable`);
+        if (menu.vendorId !== vendorId) {
+          throw new BadRequestException(`Le menu "${menu.name}" n'appartient pas à ce vendeur`);
         }
-      }
-
-      // Mode de consommation. Sur place : aucune option admise. À emporter :
-      // l'option doit appartenir à la cantine de la commande, être active et
-      // non supprimée ; son prix est ajouté UNE SEULE fois au total et figé
-      // dans takeawayFeeTickets (l'historique ne bouge pas si la vendeuse
-      // modifie ensuite son tarif).
-      let takeawayFeeTickets = 0;
-      let takeawayOptionIdToSave: string | null = null;
-      if (consumptionMode === ConsumptionMode.ON_SITE) {
-        if (takeawayOptionId !== undefined && takeawayOptionId !== null) {
-          throw new BadRequestException("Une option d'emporté ne peut pas être choisie pour une commande sur place");
+        if (!menu.isActive) {
+          throw new BadRequestException(`Menu "${menu.name}" indisponible`);
         }
+        const missing = menuUnavailableComponents(menu.lines);
+        if (missing.length > 0) {
+          throw new BadRequestException(
+            `Menu "${menu.name}" indisponible : ${unavailable(missing.map((c) => c.name))}`,
+          );
+        }
+
+        for (const line of menu.lines) {
+          need(line.component.id, line.component.name, line.quantity * requestedItem.quantity);
+        }
+        const unitPrice = menuPriceTickets(menu.lines);
+        totalTickets += unitPrice * requestedItem.quantity;
+        orderItemsData.push({
+          menuId: menu.id,
+          name: menu.name,
+          quantity: requestedItem.quantity,
+          unitPrice,
+          components: menu.lines.map((line) => ({
+            componentId: line.component.id,
+            quantity: line.quantity * requestedItem.quantity,
+          })),
+        });
       } else {
-        if (!takeawayOptionId) {
-          throw new BadRequestException("Une option d'emporté est requise pour une commande à emporter");
+        const component = componentById.get(requestedItem.componentId!);
+        if (!component) throw new NotFoundException(`Composant ${requestedItem.componentId} introuvable`);
+        if (component.vendorId !== vendorId) {
+          throw new BadRequestException(`Le composant "${component.name}" n'appartient pas à ce vendeur`);
         }
-        const takeawayOption = await tx.takeawayOption.findFirst({
-          where: { id: takeawayOptionId, vendorId, isActive: true, deletedAt: null },
+        if (!component.isAvailable || component.quantity <= 0) {
+          throw new BadRequestException(`Composant "${component.name}" indisponible`);
+        }
+
+        need(component.id, component.name, requestedItem.quantity);
+        totalTickets += component.priceTickets * requestedItem.quantity;
+        orderItemsData.push({
+          componentId: component.id,
+          name: component.name,
+          quantity: requestedItem.quantity,
+          unitPrice: component.priceTickets,
+          components: [{ componentId: component.id, quantity: requestedItem.quantity }],
         });
-        if (!takeawayOption) {
-          throw new NotFoundException("Option d'emporté introuvable ou indisponible pour cette cantine");
-        }
-        takeawayFeeTickets = takeawayOption.priceTickets;
-        takeawayOptionIdToSave = takeawayOption.id;
       }
-      totalTickets += takeawayFeeTickets;
+    }
 
-      // Numéro de commande propre à la cantine (CDC 25). Le verrou de ligne sur
-      // la cantine sérialise les créations d'une même cantine : la seconde
-      // attend le commit de la première, puis lit les numéros déjà pris. La
-      // contrainte unique (vendorId, activeOrderNumber) reste le filet de la
-      // base. Placé avant le débit : si les numéros sont épuisés, rien n'est écrit.
-      await tx.$queryRaw`SELECT id FROM "Vendor" WHERE id = ${vendorId} FOR UPDATE`;
-      const activeOrders = await tx.order.findMany({
-        where: { vendorId, activeOrderNumber: { not: null } },
-        select: { activeOrderNumber: true },
+    // Mode de consommation. Sur place : aucune option admise. À emporter :
+    // l'option doit appartenir à la cantine de la commande, être active et
+    // non supprimée ; son prix est ajouté UNE SEULE fois au total et figé
+    // dans takeawayFeeTickets (l'historique ne bouge pas si la vendeuse
+    // modifie ensuite son tarif).
+    let takeawayFeeTickets = 0;
+    let takeawayOptionIdToSave: string | null = null;
+    assertConsumptionShape(consumptionMode, takeawayOptionId);
+    if (consumptionMode === ConsumptionMode.TAKEAWAY) {
+      const takeawayOption = await tx.takeawayOption.findFirst({
+        where: { id: takeawayOptionId!, vendorId, isActive: true, deletedAt: null },
       });
-      const orderNumber = pickOrderNumber(activeOrders.map((o) => o.activeOrderNumber!));
-      if (!orderNumber) {
-        throw new ConflictException(
-          `Cette cantine a atteint le nombre maximum de commandes en cours (${ORDER_NUMBERS.length}). Réessayez dans quelques instants.`,
-        );
+      if (!takeawayOption) {
+        throw new NotFoundException("Option d'emporté introuvable ou indisponible pour cette cantine");
       }
+      takeawayFeeTickets = takeawayOption.priceTickets;
+      takeawayOptionIdToSave = takeawayOption.id;
+    }
+    totalTickets += takeawayFeeTickets;
 
-      // Déduction atomique du stock (CDC 10, 11 et 21), sur les quantités agrégées
-      // par composant. La condition `quantity >= needed` est dans le where de
-      // l'écriture elle-même : deux commandes simultanées ne peuvent pas se
-      // partager le même stock, la seconde trouve count = 0 et échoue, sans lire
-      // de quantité ni la divulguer. Tout est dans la transaction : un échec ici,
-      // ou plus bas (solde, numéro), annule aussi les déductions déjà faites.
-      // Les composants sont traités par `id` croissant : la même fin que
-      // l'annulation, donc deux transactions qui touchent les mêmes composants
-      // les verrouillent dans le même ordre et ne peuvent pas se bloquer.
-      // Placée après le verrou de la cantine et le choix du numéro : une seule
-      // création à la fois par cantine décide du stock, et un refus de numéro ne
-      // touche à rien ; placée avant le débit : un stock insuffisant, le refus le
-      // plus courant, est constaté avant toute écriture sur le portefeuille, et les
-      // verrous sont pris dans le même ordre que l'annulation (composants puis
-      // portefeuille). La disponibilité d'un composant reste calculée : on
-      // n'écrit jamais isAvailable.
-      for (const [componentId, needed] of [...neededByComponent].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
-        const deducted = await tx.component.updateMany({
-          where: { id: componentId, deletedAt: null, isAvailable: true, quantity: { gte: needed } },
-          data: { quantity: { decrement: needed } },
-        });
-        if (deducted.count === 0) {
-          throw new BadRequestException(`${nameByComponent.get(componentId)!} insuffisant`);
-        }
-      }
+    // Numéro de commande propre à la cantine (CDC 25). Le verrou de ligne sur
+    // la cantine sérialise les créations d'une même cantine : la seconde
+    // attend le commit de la première, puis lit les numéros déjà pris. La
+    // contrainte unique (vendorId, activeOrderNumber) reste le filet de la
+    // base. Placé avant le débit : si les numéros sont épuisés, rien n'est écrit.
+    await tx.$queryRaw`SELECT id FROM "Vendor" WHERE id = ${vendorId} FOR UPDATE`;
+    const activeOrders = await tx.order.findMany({
+      where: { vendorId, activeOrderNumber: { not: null } },
+      select: { activeOrderNumber: true },
+    });
+    const orderNumber = pickOrderNumber(activeOrders.map((o) => o.activeOrderNumber!));
+    if (!orderNumber) {
+      throw new ConflictException(
+        `Cette cantine a atteint le nombre maximum de commandes en cours (${ORDER_NUMBERS.length}). Réessayez dans quelques instants.`,
+      );
+    }
 
-      // Paiement : tickets = FCFA, conversion 1:1, aucune commission sur les
-      // commandes. Débit conditionnel atomique : la clause
-      // walletBalance >= totalTickets dans le where empêche toute commande
-      // au-delà du solde disponible, y compris en cas de requêtes concurrentes.
-      // La commande naît directement CONFIRMED (statut par défaut du schéma).
-      const debited = await tx.user.updateMany({
-        where: { id: studentId, walletBalance: { gte: totalTickets } },
-        data: { walletBalance: { decrement: totalTickets } },
+    // Déduction atomique du stock (CDC 10, 11 et 21), sur les quantités agrégées
+    // par composant. La condition `quantity >= needed` est dans le where de
+    // l'écriture elle-même : deux commandes simultanées ne peuvent pas se
+    // partager le même stock, la seconde trouve count = 0 et échoue, sans lire
+    // de quantité ni la divulguer. Tout est dans la transaction : un échec ici,
+    // ou plus bas (solde, numéro), annule aussi les déductions déjà faites.
+    // Les composants sont traités par `id` croissant : la même fin que
+    // l'annulation, donc deux transactions qui touchent les mêmes composants
+    // les verrouillent dans le même ordre et ne peuvent pas se bloquer.
+    // Placée après le verrou de la cantine et le choix du numéro : une seule
+    // création à la fois par cantine décide du stock, et un refus de numéro ne
+    // touche à rien ; placée avant le débit : un stock insuffisant, le refus le
+    // plus courant, est constaté avant toute écriture sur le portefeuille, et les
+    // verrous sont pris dans le même ordre que l'annulation (composants puis
+    // portefeuille). La disponibilité d'un composant reste calculée : on
+    // n'écrit jamais isAvailable.
+    for (const [componentId, needed] of [...neededByComponent].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) {
+      const deducted = await tx.component.updateMany({
+        where: { id: componentId, deletedAt: null, isAvailable: true, quantity: { gte: needed } },
+        data: { quantity: { decrement: needed } },
       });
-      if (debited.count === 0) {
-        throw new BadRequestException('Solde insuffisant pour cette commande');
+      if (deducted.count === 0) {
+        throw new BadRequestException(`${nameByComponent.get(componentId)!} insuffisant`);
       }
+    }
 
-      const order = await tx.order.create({
-        data: {
-          studentId,
-          vendorId,
-          orderNumber,
-          activeOrderNumber: orderNumber,
-          totalTickets,
-          consumptionMode,
-          takeawayOptionId: takeawayOptionIdToSave,
-          takeawayFeeTickets,
-          items: {
-            create: orderItemsData.map((item) => ({
-              menuId: item.menuId,
-              componentId: item.componentId,
-              name: item.name,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              components: { create: item.components },
-            })),
-          },
+    // Paiement : tickets = FCFA, conversion 1:1, aucune commission sur les
+    // commandes. Débit conditionnel atomique : la clause
+    // walletBalance >= totalTickets dans le where empêche toute commande
+    // au-delà du solde disponible, y compris en cas de requêtes concurrentes.
+    // La commande naît directement CONFIRMED (statut par défaut du schéma).
+    const debited = await tx.user.updateMany({
+      where: { id: studentId, walletBalance: { gte: totalTickets } },
+      data: { walletBalance: { decrement: totalTickets } },
+    });
+    if (debited.count === 0) {
+      throw new BadRequestException('Solde insuffisant pour cette commande');
+    }
+
+    const order = await tx.order.create({
+      data: {
+        studentId,
+        vendorId,
+        orderNumber,
+        activeOrderNumber: orderNumber,
+        totalTickets,
+        consumptionMode,
+        takeawayOptionId: takeawayOptionIdToSave,
+        takeawayFeeTickets,
+        items: {
+          create: orderItemsData.map((item) => ({
+            menuId: item.menuId,
+            componentId: item.componentId,
+            name: item.name,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+            components: { create: item.components },
+          })),
         },
-        include: { items: { include: ORDER_ITEMS_INCLUDE } },
-      });
-
-      await tx.transaction.create({
-        data: {
-          userId: studentId,
-          type: 'PAYMENT',
-          status: 'COMPLETED',
-          amount: totalTickets,
-          reference: crypto.randomUUID(),
-          description: `Paiement de la commande ${order.id}`,
-          relatedOrderId: order.id,
-        },
-      });
-
-      return order;
+      },
+      include: { items: { include: ORDER_ITEMS_INCLUDE } },
     });
 
-    await this.notifyStudentOrderStatus(studentId, OrderStatus.CONFIRMED, vendorId);
+    await tx.transaction.create({
+      data: {
+        userId: studentId,
+        type: 'PAYMENT',
+        status: 'COMPLETED',
+        amount: totalTickets,
+        reference: crypto.randomUUID(),
+        description: `Paiement de la commande ${order.id}`,
+        relatedOrderId: order.id,
+      },
+    });
+
     return order;
   }
 
