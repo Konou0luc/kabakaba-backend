@@ -30,11 +30,6 @@ enum ComponentUnit {
   SACHET
 }
 
-enum MenuItemType {
-  FIXED
-  CUSTOMIZABLE
-}
-
 enum OrderStatus {
   CONFIRMED
   IN_PREPARATION
@@ -188,7 +183,6 @@ model Vendor {
 
   user            User             @relation(fields: [userId], references: [id])
   campuses        VendorCampus[]
-  menuItems       MenuItem[]
   orders          Order[]
   withdrawals     Withdrawal[]
   reviews         Review[]
@@ -210,38 +204,6 @@ model VendorCampus {
   campus   Campus @relation(fields: [campusId], references: [id])
 
   @@id([vendorId, campusId])
-}
-
-model MenuItem {
-  id              String       @id @default(uuid())
-  vendorId        String
-  name            String
-  description     String?
-  type            MenuItemType @default(FIXED)
-  priceTickets    Int
-  imageUrl        String?
-  isAvailable     Boolean      @default(true)
-  preparationTime Int?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
-  deletedAt       DateTime?
-
-  vendor     Vendor          @relation(fields: [vendorId], references: [id])
-  components MenuComponent[]
-}
-
-model MenuComponent {
-  id               String    @id @default(uuid())
-  itemId           String
-  name             String
-  unitPriceTickets Int       @default(0)
-  minQty           Int       @default(0)
-  maxQty           Int       @default(1)
-  createdAt        DateTime  @default(now())
-  updatedAt        DateTime  @updatedAt
-  deletedAt        DateTime?
-
-  menuItem MenuItem @relation(fields: [itemId], references: [id])
 }
 
 model TakeawayOption {
