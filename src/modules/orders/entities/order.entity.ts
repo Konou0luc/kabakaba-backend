@@ -41,6 +41,14 @@ export class OrderEntity extends BaseEntity {
   @ApiProperty({ required: false })
   receivedAt?: Date;
 
+  @ApiProperty({
+    required: false,
+    nullable: true,
+    description:
+      'Renseigné quand la commande est restée « Prête » au-delà du délai paramétrable (non récupérée à temps). Donnée de mesure : le statut ne change pas, et la valeur est conservée si la commande est ensuite récupérée.',
+  })
+  unclaimedAt?: Date | null;
+
   @ApiProperty({ required: false })
   cancelledAt?: Date;
 

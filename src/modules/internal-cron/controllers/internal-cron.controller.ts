@@ -2,6 +2,7 @@ import { Controller, Logger, Post, UseGuards } from '@nestjs/common';
 import { ApiExcludeController } from '@nestjs/swagger';
 import { CronAuthGuard } from '../../../common/guards/cron-auth.guard';
 import { ScheduledOrdersService } from '../../scheduled-orders/services/scheduled-orders.service';
+import { UnclaimedOrdersService } from '../../orders/services/unclaimed-orders.service';
 
 /**
  * Endpoints déclenchés par les workflows GitHub Actions (voir
@@ -10,6 +11,7 @@ import { ScheduledOrdersService } from '../../scheduled-orders/services/schedule
  * Jobs :
  * - heartbeat : sonde infra
  * - scheduled-orders : exécution des commandes programmées arrivées à l'heure prévue
+ * - unclaimed-orders : signalement des commandes restées « Prêtes » au-delà du délai
  */
 @ApiExcludeController()
 @Controller('internal/cron')
@@ -17,7 +19,10 @@ import { ScheduledOrdersService } from '../../scheduled-orders/services/schedule
 export class InternalCronController {
   private readonly logger = new Logger(InternalCronController.name);
 
-  constructor(private readonly scheduledOrders: ScheduledOrdersService) {}
+  constructor(
+    private readonly scheduledOrders: ScheduledOrdersService,
+    private readonly unclaimedOrders: UnclaimedOrdersService,
+  ) {}
 
   @Post('heartbeat')
   heartbeat() {
@@ -31,5 +36,12 @@ export class InternalCronController {
     const { placed, failed } = await this.scheduledOrders.executeDue();
     this.logger.log(`Commandes programmées : ${placed} passée(s), ${failed} échouée(s)`);
     return { ok: true, placed, failed };
+  }
+
+  @Post('unclaimed-orders')
+  async flagUnclaimedOrders() {
+    const flagged = await this.unclaimedOrders.flagUnclaimed();
+    this.logger.log(`Commandes non récupérées : ${flagged} signalée(s)`);
+    return { ok: true, flagged };
   }
 }

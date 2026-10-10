@@ -348,6 +348,10 @@ model Order {
   cancellationReason String?
   readyAt            DateTime?
   receivedAt         DateTime?
+  // Moment où la commande, restée READY au-delà du délai paramétrable, a été signalée « non
+  // récupérée » (CDC 30). Donnée de mesure uniquement : le statut ne change pas, et la valeur
+  // reste renseignée si la commande est ensuite passée à RECEIVED.
+  unclaimedAt        DateTime?
   cancelledAt        DateTime?
   cancelledBy        OrderCancelledBy?
   cancelledById      String?
@@ -372,6 +376,7 @@ model Order {
   @@index([status])
   @@index([createdAt])
   @@index([status, createdAt])
+  @@index([status, readyAt])
   @@index([vendorId, status])
   @@index([studentId, status])
   @@unique([vendorId, activeOrderNumber])

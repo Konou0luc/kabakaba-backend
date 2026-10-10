@@ -34,6 +34,7 @@ consulter `src/` pour les valeurs par défaut et le caractère obligatoire de ch
 | Authentification | `JWT_ACCESS_SECRET`, `JWT_ACCESS_EXPIRES`, `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES`, `JWT_WEB_ACCESS_SECRET`, `TOTP_ENCRYPTION_KEY`, `WEB_AUTH_COOKIE_SECURE`, `WEB_AUTH_COOKIE_SAMESITE` |
 | CORS et URL | `CORS_ALLOWED_ORIGINS`, `APP_URL` |
 | Crons internes | `CRON_SECRET` |
+| Commandes non récupérées | `UNCLAIMED_ORDER_DELAY_MINUTES` (facultative : entier positif, en minutes, défaut 60 ; toute autre valeur retombe sur 60) |
 | Documentation Swagger | `SWAGGER_USER`, `SWAGGER_PASSWORD` |
 | Paiements (FedaPay) | `FEDAPAY_SECRET_KEY`, `FEDAPAY_WEBHOOK_SECRET`, `FEDAPAY_BASE_URL` |
 | SMS (AfriqSMS) | `AFRIQSMS_API_KEY`, `AFRIQSMS_CLIENT_ID`, `AFRIQSMS_SENDER_ID`, `AFRIQSMS_BASE_URL` |
@@ -61,6 +62,7 @@ appellent les routes `internal/cron/*` (authentifiées par `CRON_SECRET`) et `GE
 | Keep-alive Neon | toutes les 4 minutes |
 | Heartbeat infra | toutes les 5 minutes |
 | Commandes programmées (`scheduled-orders`) | toutes les 5 minutes |
+| Commandes non récupérées (`unclaimed-orders`) | toutes les 15 minutes |
 
 La planification GitHub Actions peut être retardée de quelques minutes : une commande programmée peut
 donc être passée un peu après son heure prévue.
