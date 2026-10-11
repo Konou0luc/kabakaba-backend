@@ -1,57 +1,55 @@
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { OrderStatus, ReportStatus, ReportType, UserRole } from '@prisma/client';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { OrderStatus, ReportStatus, ReportType, UserRole, WebUserRole } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateReportDto } from '../dto/create-report.dto';
 import { UpdateReportDto } from '../dto/update-report.dto';
+import { FindReportsQueryDto } from '../dto/find-reports-query.dto';
 
+// Relations simples pour la fiche admin web ; l'étudiant reçoit son signalement seul.
 const REPORT_WEB_INCLUDE = {
   student: { select: { id: true, firstName: true, lastName: true, phone: true } },
   vendor: { select: { id: true, canteenName: true } },
   order: { select: { id: true, orderNumber: true, status: true, totalTickets: true, consumptionMode: true } },
 } as const;
 
+// Une commande ne peut être signalée qu'une fois prête ou récupérée (cahier V1.3, section 35).
+const REPORTABLE_ORDER_STATUSES: OrderStatus[] = [OrderStatus.READY, OrderStatus.RECEIVED];
+
 @Injectable()
 export class ReportsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // Un signalement n'a aucun effet financier ni sur la commande : il ne
-  // rembourse rien et ne change aucun statut (cahier, section 35).
+  // Signalement d'un problème par l'étudiant, sur SA commande READY ou RECEIVED.
+  // Sans effet financier ni sur la commande : un signalement ne rembourse rien et
+  // ne change aucun statut.
   async create(createReportDto: CreateReportDto, studentId: string) {
-    const order = await this.prisma.order.findUnique({
-      where: { id: createReportDto.orderId, deletedAt: null },
-    });
-    if (!order) {
-      throw new NotFoundException(`Commande avec l'identifiant ${createReportDto.orderId} introuvable`);
-    }
-
-    if (order.studentId !== studentId) {
-      throw new ForbiddenException('Vous ne pouvez signaler que vos propres commandes');
-    }
-
-    // Seules READY et RECEIVED sont acceptées, et une commande ne revient jamais
-    // en arrière : le statut lu ici ne peut pas sortir de cet ensemble avant l'écriture.
-    if (order.status !== OrderStatus.READY && order.status !== OrderStatus.RECEIVED) {
-      throw new BadRequestException(
-        'Un problème ne peut être signalé que sur une commande prête ou récupérée',
-      );
+    const comment = createReportDto.comment?.trim() || null;
+    if (createReportDto.type === ReportType.OTHER && !comment) {
+      throw new BadRequestException('Un commentaire est obligatoire pour signaler un autre problème');
     }
 
     return this.prisma.$transaction(async (tx) => {
-      // Verrou de ligne sur la commande : deux signalements simultanés se suivent,
-      // le second voit donc le premier et aucun doublon ne peut naître.
-      await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${order.id} FOR UPDATE`;
+      // Verrou de ligne sur la commande : deux signalements simultanés sur la même
+      // commande sont sérialisés, le second voit donc le premier (règle « un seul
+      // signalement non traité par commande »).
+      await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${createReportDto.orderId} FOR UPDATE`;
 
-      const unresolved = await tx.report.findFirst({
+      const order = await tx.order.findUnique({ where: { id: createReportDto.orderId, deletedAt: null } });
+      if (!order) {
+        throw new NotFoundException(`Commande avec l'identifiant ${createReportDto.orderId} introuvable`);
+      }
+      if (order.studentId !== studentId) {
+        throw new ForbiddenException('Vous ne pouvez signaler un problème que sur vos propres commandes');
+      }
+      if (!REPORTABLE_ORDER_STATUSES.includes(order.status)) {
+        throw new BadRequestException('Vous ne pouvez signaler un problème que sur une commande prête ou récupérée');
+      }
+
+      const pending = await tx.report.findFirst({
         where: { orderId: order.id, status: { not: ReportStatus.RESOLVED } },
         select: { id: true },
       });
-      if (unresolved) {
+      if (pending) {
         throw new ConflictException('Un signalement est déjà en cours de traitement pour cette commande');
       }
 
@@ -61,43 +59,35 @@ export class ReportsService {
           studentId: order.studentId,
           vendorId: order.vendorId,
           type: createReportDto.type,
-          comment: createReportDto.comment,
+          comment,
         },
       });
     });
   }
 
-  async findAll(
-    page: number = 1,
-    limit: number = 10,
-    status?: ReportStatus,
-    type?: ReportType,
-    vendorId?: string,
-    studentId?: string,
-    orderId?: string,
-    campusId?: string,
-    days?: number,
-    from?: string,
-    to?: string,
-  ) {
+  // studentId : imposé par le contrôleur pour un étudiant (il ne voit que les siens),
+  // filtre facultatif pour l'administration web.
+  async findAll(query: FindReportsQueryDto, studentId?: string) {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 10;
     const skip = (page - 1) * limit;
     // from/to (plage personnalisée du calendrier) prennent le pas sur `days`
     // (fenêtre glissante), comme resolveRange() dans analytics.service.ts.
     let createdAt: { gte?: Date; lte?: Date } | undefined;
-    if (from || to) {
-      const until = to ? new Date(to) : new Date();
+    if (query.from || query.to) {
+      const until = query.to ? new Date(query.to) : new Date();
       until.setHours(23, 59, 59, 999);
-      createdAt = { ...(from ? { gte: new Date(from) } : {}), lte: until };
-    } else if (days) {
-      createdAt = { gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) };
+      createdAt = { ...(query.from ? { gte: new Date(query.from) } : {}), lte: until };
+    } else if (query.days) {
+      createdAt = { gte: new Date(Date.now() - query.days * 24 * 60 * 60 * 1000) };
     }
     const where = {
-      ...(status ? { status } : {}),
-      ...(type ? { type } : {}),
-      ...(vendorId ? { vendorId } : {}),
+      ...(query.status ? { status: query.status } : {}),
+      ...(query.type ? { type: query.type } : {}),
+      ...(query.vendorId ? { vendorId: query.vendorId } : {}),
       ...(studentId ? { studentId } : {}),
-      ...(orderId ? { orderId } : {}),
-      ...(campusId ? { student: { campusId } } : {}),
+      ...(query.orderId ? { orderId: query.orderId } : {}),
+      ...(query.campusId ? { student: { campusId: query.campusId } } : {}),
       ...(createdAt ? { createdAt } : {}),
     };
 
@@ -111,7 +101,7 @@ export class ReportsService {
         include: {
           student: { select: { id: true, firstName: true, lastName: true, campus: { select: { id: true, name: true } } } },
           vendor: { select: { id: true, canteenName: true } },
-          order: { select: { id: true } },
+          order: { select: { id: true, orderNumber: true } },
         },
       }),
     ]);
@@ -134,17 +124,17 @@ export class ReportsService {
     startOfMonth.setHours(0, 0, 0, 0);
 
     const [openCount, inProgressCount, resolvedThisMonth] = await Promise.all([
-      this.prisma.report.count({ where: { status: ReportStatus.OPEN } }),
-      this.prisma.report.count({ where: { status: ReportStatus.IN_PROGRESS } }),
+      this.prisma.report.count({ where: { status: 'OPEN' } }),
+      this.prisma.report.count({ where: { status: 'IN_PROGRESS' } }),
       this.prisma.report.findMany({
-        where: { status: ReportStatus.RESOLVED, resolvedAt: { gte: startOfMonth } },
+        where: { status: 'RESOLVED', resolvedAt: { gte: startOfMonth } },
         select: { createdAt: true, resolvedAt: true },
       }),
     ]);
 
     const resolutionDelaysMs = resolvedThisMonth
-      .filter((r) => r.resolvedAt !== null)
-      .map((r) => r.resolvedAt!.getTime() - r.createdAt.getTime());
+      .filter((d) => d.resolvedAt !== null)
+      .map((d) => d.resolvedAt!.getTime() - d.createdAt.getTime());
     const avgResolutionMs = resolutionDelaysMs.length > 0
       ? resolutionDelaysMs.reduce((s, ms) => s + ms, 0) / resolutionDelaysMs.length
       : null;
@@ -157,20 +147,31 @@ export class ReportsService {
     };
   }
 
-  async findOne(id: string, actor: { id: string; kind: 'mobile' | 'web'; role?: UserRole }) {
-    // Relations simples pour la fiche admin web ; les clients mobiles reçoivent le signalement seul.
+  async findOne(
+    id: string,
+    actor?: { id: string; kind: 'mobile' | 'web'; role?: UserRole | WebUserRole },
+  ) {
     const report = await this.prisma.report.findUnique({
       where: { id },
-      include: actor.kind === 'web' ? REPORT_WEB_INCLUDE : undefined,
+      include: actor?.kind === 'web' ? REPORT_WEB_INCLUDE : undefined,
     });
     if (!report) throw new NotFoundException(`Signalement avec l'identifiant ${id} introuvable`);
 
-    // L'accès web (admin, supervision) est contrôlé par les rôles de la route ;
-    // côté mobile, seul l'étudiant propriétaire peut le consulter.
-    if (actor.kind === 'web') return report;
-    if (actor.role === UserRole.STUDENT && report.studentId === actor.id) return report;
+    if (!actor) throw new ForbiddenException('Accès refusé à ce signalement');
 
-    throw new ForbiddenException('Accès refusé à ce signalement');
+    if (actor.kind === 'web') {
+      if (actor.role !== WebUserRole.ADMIN && actor.role !== WebUserRole.SUPERVISION) {
+        throw new ForbiddenException('Accès refusé à ce signalement');
+      }
+      return report;
+    }
+
+    // Côté mobile, seul l'étudiant auteur du signalement y accède.
+    if (actor.role !== UserRole.STUDENT || report.studentId !== actor.id) {
+      throw new ForbiddenException('Accès refusé à ce signalement');
+    }
+
+    return report;
   }
 
   async update(id: string, updateReportDto: UpdateReportDto) {

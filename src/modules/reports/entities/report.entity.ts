@@ -17,7 +17,7 @@ export class ReportEntity {
   @ApiProperty({ enum: ReportType, example: ReportType.MISSING_COMPONENT })
   type: ReportType;
 
-  @ApiProperty({ required: false, nullable: true, maxLength: 500, example: 'Il manquait le poisson dans mon assiette' })
+  @ApiProperty({ example: 'Il manquait la sauce', required: false, nullable: true, description: '500 caractères maximum ; obligatoire quand type vaut OTHER' })
   comment?: string | null;
 
   @ApiProperty({ enum: ReportStatus, default: ReportStatus.OPEN })

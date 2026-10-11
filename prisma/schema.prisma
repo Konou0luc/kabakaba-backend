@@ -867,7 +867,6 @@ enum ReportStatus {
   RESOLVED
 }
 
-// Signalement simple d'un problème de commande (cahier, section 35).
 enum ReportType {
   WRONG_MEAL
   MISSING_COMPONENT
@@ -875,7 +874,9 @@ enum ReportType {
   OTHER
 }
 
-// Un signalement n'a aucun effet financier ni sur la commande.
+// Signalement simple d'un problème sur une commande (cahier V1.3, section 35).
+// Créé par l'étudiant sur sa commande READY ou RECEIVED ; aucun effet financier
+// ni sur la commande. comment est obligatoire quand type vaut OTHER (contrôlé dans le service).
 model Report {
   id                 String       @id @default(uuid())
   orderId            String

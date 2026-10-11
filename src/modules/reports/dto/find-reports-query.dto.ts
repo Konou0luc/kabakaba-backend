@@ -15,12 +15,12 @@ export class FindReportsQueryDto extends PaginationDto {
   @IsEnum(ReportType)
   type?: ReportType;
 
-  @ApiProperty({ required: false, description: 'Filtrer par vendeur (web admin et supervision seulement)' })
+  @ApiProperty({ required: false, description: 'Filtrer par cantine (administration web seulement)' })
   @IsOptional()
   @IsString()
   vendorId?: string;
 
-  @ApiProperty({ required: false, description: 'Filtrer par étudiant (web admin et supervision seulement ; ignoré pour un étudiant, qui ne voit que les siens)' })
+  @ApiProperty({ required: false, description: 'Filtrer par étudiant (administration web seulement)' })
   @IsOptional()
   @IsString()
   studentId?: string;
@@ -30,12 +30,12 @@ export class FindReportsQueryDto extends PaginationDto {
   @IsString()
   orderId?: string;
 
-  @ApiProperty({ required: false, description: "Filtrer par campus de l'étudiant (web admin et supervision seulement)" })
+  @ApiProperty({ required: false, description: "Filtrer par campus de l'étudiant (administration web seulement)" })
   @IsOptional()
   @IsString()
   campusId?: string;
 
-  @ApiProperty({ required: false, description: 'Ne garder que les signalements créés dans les N derniers jours (ex: 7, 30) — ignoré si from/to fournis' })
+  @ApiProperty({ required: false, description: 'Ne garder que les signalements des N derniers jours (ex: 7, 30) — ignoré si from/to fournis' })
   @IsOptional()
   @Transform(({ value }) => parseInt(value))
   @IsInt()
