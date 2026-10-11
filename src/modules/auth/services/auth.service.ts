@@ -15,7 +15,11 @@ import { SendOtpDto } from '../dto/send-otp.dto';
 import { VerifyOtpDto } from '../dto/verify-otp.dto';
 import { LoginEmailDto } from '../dto/login-email.dto';
 import * as bcrypt from 'bcrypt';
-import { AmbassadorStatus, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
+import {
+  generateUniqueReferralCode,
+  normalizeReferralCode,
+} from '../../referrals/referral-code';
 
 @Injectable()
 export class AuthService {
@@ -175,33 +179,24 @@ export class AuthService {
     await this.consumeOtp(phone, code);
 
     if (!user) {
-      // CDC 2.1 [NOUVEAU v1.1] : le code de parrainage n'a de sens qu'à la
-      // toute première inscription — un compte déjà existant qui se
-      // reconnecte ignore silencieusement ce champ (voir plus bas, hors de
-      // ce bloc). Trim d'abord : un champ laissé vide côté mobile arrive
-      // souvent comme "" plutôt qu'absent, et ne doit pas être traité comme
-      // un code invalide.
-      const trimmedReferralCode = referralCode?.trim();
+      // CDC 42 : le code de parrainage n'a de sens qu'à la toute première
+      // inscription — un compte déjà existant qui se reconnecte ignore
+      // silencieusement ce champ (voir plus bas, hors de ce bloc). Espaces
+      // retirés et majuscules d'abord : un champ laissé vide côté mobile
+      // arrive souvent comme "" plutôt qu'absent, et ne doit pas être traité
+      // comme un code invalide.
+      const normalizedReferralCode = normalizeReferralCode(referralCode);
 
       user = await this.prisma.$transaction(async (tx) => {
-        let ambassador: { id: string } | null = null;
+        let referrer: { id: string } | null = null;
 
-        if (trimmedReferralCode) {
-          // SÉCURITÉ / RÈGLE MÉTIER (CDC 10.1) : le code personnel n'existe
-          // qu'à l'acceptation de la demande par l'Admin web. Un candidat
-          // peut proposer un code dès sa demande (choix produit), mais tant
-          // que sa candidature n'est pas ACTIVE, ce code ne doit affilier
-          // personne — sinon un candidat en attente (ou refusé) collecterait
-          // des affiliés avant toute validation. Filtrer sur status: ACTIVE
-          // plutôt que sur la simple existence du promoCode.
-          ambassador = await tx.ambassador.findFirst({
-            where: {
-              promoCode: trimmedReferralCode,
-              status: AmbassadorStatus.ACTIVE,
-            },
+        if (normalizedReferralCode) {
+          // Tout compte non supprimé possède un code de parrainage (CDC 42).
+          referrer = await tx.user.findFirst({
+            where: { referralCode: normalizedReferralCode, deletedAt: null },
             select: { id: true },
           });
-          if (!ambassador) {
+          if (!referrer) {
             throw new BadRequestException(
               'Code de parrainage invalide ou inexistant',
             );
@@ -226,25 +221,23 @@ export class AuthService {
             phone,
             role: UserRole.STUDENT,
             campusId: campus.id,
+            referralCode: await generateUniqueReferralCode(tx),
           },
         });
 
-        if (ambassador) {
-          // Affiliation définitive : aucun endpoint n'existe pour modifier
-          // ou supprimer une AmbassadorAffiliate une fois créée (voir CDC
-          // 2.1 — "il n'est plus possible d'ajouter, modifier ou retirer un
-          // code de parrainage après coup").
-          await tx.ambassadorAffiliate.create({
-            data: {
-              ambassadorId: ambassador.id,
-              studentId: createdUser.id,
-            },
-          });
-          // CDC 10.5 — lastReferralAt sert au calcul d'inactivité de
-          // parrainage (avertissement 2 mois, suspension 3 mois).
-          await tx.ambassador.update({
-            where: { id: ambassador.id },
-            data: { lastReferralAt: new Date() },
+        if (referrer) {
+          // Un compte ne peut pas se parrainer lui-même. Le parrain existe
+          // avant le filleul, donc le cas ne peut pas se produire ; la
+          // vérification protège contre une régression.
+          if (referrer.id === createdUser.id) {
+            throw new BadRequestException(
+              'Un compte ne peut pas se parrainer lui-même',
+            );
+          }
+          // Lien définitif : aucun endpoint ne permet de modifier ou de
+          // supprimer un Referral une fois créé (refereeId est unique).
+          await tx.referral.create({
+            data: { referrerId: referrer.id, refereeId: createdUser.id },
           });
         }
 

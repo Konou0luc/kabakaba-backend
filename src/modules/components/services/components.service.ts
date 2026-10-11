@@ -12,6 +12,8 @@ import { UpdateComponentCategoryDto } from '../dto/update-component-category.dto
 import { CreateComponentDto } from '../dto/create-component.dto';
 import { UpdateComponentDto } from '../dto/update-component.dto';
 import { AdjustStockDto } from '../dto/adjust-stock.dto';
+import { VendorNotificationsService } from '../../notifications/services/vendor-notifications.service';
+import { hasCrossedLowStockThreshold } from '../../notifications/low-stock';
 
 export interface ComponentsActor {
   id: string;
@@ -21,7 +23,10 @@ export interface ComponentsActor {
 
 @Injectable()
 export class ComponentsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly vendorNotifications: VendorNotificationsService,
+  ) {}
 
   // ─── Autorisation (même schéma que les options d'emporté) ─────────
   // Une vendeuse n'agit que sur sa propre cantine (résolue depuis son compte),
@@ -158,19 +163,28 @@ export class ComponentsService {
   // - delta > 0 : incrément ;
   // - delta < 0 : mise à jour conditionnelle (quantity >= |delta|) ; si la condition
   //   n'est plus vraie au moment de l'écriture, rien n'est modifié (P2025 → 409).
+  // Un retrait qui fait passer la quantité de « au moins le seuil » à « sous le seuil » envoie une
+  // alerte « Stock faible » à la vendeuse (CDC 41) : la quantité d'avant est la quantité renvoyée
+  // par l'écriture plus le retrait. Aucune alerte pour un ajout.
   async adjustStock(id: string, dto: AdjustStockDto, actor: ComponentsActor) {
     await this.assertComponentOwnership(id, actor);
 
     const amount = Math.abs(dto.delta);
     try {
-      return await this.prisma.component.update({
+      const updated = await this.prisma.component.update({
         where:
           dto.delta > 0
             ? { id, deletedAt: null }
             : { id, deletedAt: null, quantity: { gte: amount } },
         data: { quantity: dto.delta > 0 ? { increment: amount } : { decrement: amount } },
-        select: { id: true, quantity: true },
+        select: { id: true, quantity: true, name: true, vendorId: true, lowStockThreshold: true },
       });
+      if (dto.delta < 0 && hasCrossedLowStockThreshold(updated.quantity + amount, updated.quantity, updated.lowStockThreshold)) {
+        await this.vendorNotifications.notifyLowStock([
+          { vendorId: updated.vendorId, componentId: updated.id, name: updated.name, remaining: updated.quantity },
+        ]);
+      }
+      return { id: updated.id, quantity: updated.quantity };
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
         // Soit le composant vient d'être supprimé, soit le stock est insuffisant.

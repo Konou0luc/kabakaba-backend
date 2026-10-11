@@ -5,6 +5,7 @@ import { FedapayService } from './fedapay.service';
 import { UsersService } from '../../users/services/users.service';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { PaymentStatus, UserRole, NotificationType } from '@prisma/client';
+import { REFERRAL_REWARD_TICKETS } from '../../referrals/referral.constants';
 import {
   computeRechargeAmountFcfa,
   quoteRechargeFromAmountFcfa,
@@ -254,7 +255,7 @@ export class PaymentsService {
             },
           });
         } catch (error: any) {
-          if (error?.code === 'P2002') return { applied: false };
+          if (error?.code === 'P2002') return { applied: false, referrerId: null };
           throw error;
         }
       }
@@ -263,7 +264,9 @@ export class PaymentsService {
         where: { id: payment.id, status: PaymentStatus.PENDING },
         data: { status: newStatus },
       });
-      if (claim.count === 0) return { applied: false };
+      if (claim.count === 0) return { applied: false, referrerId: null };
+
+      let referrerId: string | null = null;
 
       if (newStatus === PaymentStatus.SUCCESS) {
         await tx.user.update({
@@ -282,6 +285,39 @@ export class PaymentsService {
             relatedPaymentId: payment.id,
           },
         });
+
+        // Parrainage (CDC 42) : première recharge réussie du filleul. La mise
+        // à jour conditionnelle (rewardedAt nul -> renseigné) ne réussit
+        // qu'une fois par filleul, même avec des webhooks rejoués ou une
+        // deuxième recharge : seul le cas count === 1 verse la récompense.
+        const referralClaim = await tx.referral.updateMany({
+          where: { refereeId: payment.userId, rewardedAt: null },
+          data: {
+            rewardedAt: new Date(),
+            rewardTickets: REFERRAL_REWARD_TICKETS,
+          },
+        });
+        if (referralClaim.count === 1) {
+          const referral = await tx.referral.findUniqueOrThrow({
+            where: { refereeId: payment.userId },
+            select: { referrerId: true },
+          });
+          await tx.user.update({
+            where: { id: referral.referrerId },
+            data: { walletBalance: { increment: REFERRAL_REWARD_TICKETS } },
+          });
+          await tx.transaction.create({
+            data: {
+              userId: referral.referrerId,
+              type: 'REFERRAL_BONUS',
+              status: 'COMPLETED',
+              amount: REFERRAL_REWARD_TICKETS,
+              reference: crypto.randomUUID(),
+              description: 'Bonus de parrainage',
+            },
+          });
+          referrerId = referral.referrerId;
+        }
       }
 
       if (opts?.providerEventKey) {
@@ -291,13 +327,34 @@ export class PaymentsService {
         });
       }
 
-      return { applied: true };
+      return { applied: true, referrerId };
     });
 
     if (result.applied) {
       await this.notifyRecharge(payment.userId, newStatus, payment.ticketsReceived);
+      if (result.referrerId) {
+        await this.notifyReferralBonus(result.referrerId);
+      }
     }
     return result.applied;
+  }
+
+  // Après le commit : un échec de notification ne doit jamais annuler la
+  // récompense déjà versée.
+  private async notifyReferralBonus(referrerId: string) {
+    try {
+      await this.notifications.notifyUser(
+        referrerId,
+        'Bonus de parrainage',
+        `${REFERRAL_REWARD_TICKETS} tickets ont été ajoutés à ton portefeuille : ton filleul vient de faire sa première recharge.`,
+        NotificationType.SUCCESS,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Notif bonus de parrainage impossible user=${referrerId}`,
+        error instanceof Error ? error.stack : error,
+      );
+    }
   }
 
   private async notifyRecharge(

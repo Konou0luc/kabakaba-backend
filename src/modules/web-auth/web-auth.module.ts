@@ -17,7 +17,7 @@ import { WebJwtStrategy } from './strategies/web-jwt.strategy';
         const secret = configService.get<string>('JWT_WEB_ACCESS_SECRET');
         if (!secret) {
           // Fail-closed : jamais de secret par défaut pour le JWT du
-          // dashboard web (admin/supervision/paiements/litiges).
+          // dashboard web (admin/supervision/paiements/signalements).
           throw new Error('JWT_WEB_ACCESS_SECRET manquant : démarrage refusé.');
         }
         return { secret };

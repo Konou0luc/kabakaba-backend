@@ -5,6 +5,7 @@ import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
 import { UpdateVendorDto } from '../dto/update-vendor.dto';
 import { FindVendorsForAdminQueryDto } from '../dto/find-vendors-for-admin-query.dto';
+import { generateUniqueReferralCode } from '../../referrals/referral-code';
 
 const SALT_ROUNDS = 10;
 
@@ -63,6 +64,7 @@ export class VendorsService {
             password: hashedPassword,
             role: UserRole.VENDOR,
             mustChangePassword: true,
+            referralCode: await generateUniqueReferralCode(tx),
           },
         });
 

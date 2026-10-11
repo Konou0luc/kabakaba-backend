@@ -15,17 +15,19 @@ import { CatalogModule } from './modules/catalog/catalog.module';
 import { ComponentsModule } from './modules/components/components.module';
 import { MenusModule } from './modules/menus/menus.module';
 import { OrdersModule } from './modules/orders/orders.module';
+import { ScheduledOrdersModule } from './modules/scheduled-orders/scheduled-orders.module';
 import { PaymentsModule } from './modules/payments/payments.module';
 import { TransactionsModule } from './modules/transactions/transactions.module';
 import { ReviewsModule } from './modules/reviews/reviews.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
 import { AdminModule } from './modules/admin/admin.module';
 import { SmsModule } from './modules/sms/sms.module';
-import { DisputesModule } from './modules/disputes/disputes.module';
+import { ReportsModule } from './modules/reports/reports.module';
 import { PartnerApplicationsModule } from './modules/partner-applications/partner-applications.module';
 import { WebAuthModule } from './modules/web-auth/web-auth.module';
 import { InternalCronModule } from './modules/internal-cron/internal-cron.module';
 import { DevicesModule } from './modules/devices/devices.module';
+import { ReferralsModule } from './modules/referrals/referrals.module';
 
 @Module({
   imports: [
@@ -54,17 +56,19 @@ import { DevicesModule } from './modules/devices/devices.module';
     ComponentsModule,
     MenusModule,
     OrdersModule,
+    ScheduledOrdersModule,
     PaymentsModule,
     TransactionsModule,
     ReviewsModule,
     NotificationsModule,
     AdminModule,
     SmsModule,
-    DisputesModule,
+    ReportsModule,
     PartnerApplicationsModule,
     WebAuthModule,
     InternalCronModule,
     DevicesModule,
+    ReferralsModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

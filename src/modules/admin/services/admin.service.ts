@@ -75,7 +75,7 @@ export class AdminService {
     const startOfDay = new Date();
     startOfDay.setHours(0, 0, 0, 0);
 
-    const [newStudents, newVendors, badReviews, suspensions, resolvedDisputes] = await Promise.all([
+    const [newStudents, newVendors, badReviews, suspensions, resolvedReports] = await Promise.all([
       this.prisma.user.findMany({
         where: { role: 'STUDENT', createdAt: { gte: startOfDay } },
         select: { id: true, firstName: true, lastName: true, createdAt: true },
@@ -101,7 +101,7 @@ export class AdminService {
         },
         orderBy: { suspendedAt: 'desc' },
       }),
-      this.prisma.dispute.findMany({
+      this.prisma.report.findMany({
         where: { status: 'RESOLVED', resolvedAt: { gte: startOfDay } },
         select: { id: true, resolvedAt: true, vendor: { select: { canteenName: true } } },
         orderBy: { resolvedAt: 'desc' },
@@ -136,10 +136,10 @@ export class AdminService {
         message: `Compte suspendu : ${fullName(s.student)} (${s.reason})`,
         occurredAt: s.suspendedAt,
       })),
-      ...resolvedDisputes.map((d) => ({
-        id: `dispute-${d.id}`,
-        type: 'DISPUTE_RESOLVED' as const,
-        message: `Litige réglé pour ${d.vendor.canteenName}`,
+      ...resolvedReports.map((d) => ({
+        id: `report-${d.id}`,
+        type: 'REPORT_RESOLVED' as const,
+        message: `Signalement traité pour ${d.vendor.canteenName}`,
         // resolvedAt est typé Date | null par Prisma, mais le filtre
         // { resolvedAt: { gte: startOfDay } } garantit qu'il est toujours défini ici.
         occurredAt: d.resolvedAt as Date,

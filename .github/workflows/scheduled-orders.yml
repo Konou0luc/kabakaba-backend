@@ -1,0 +1,23 @@
+name: Scheduled orders (exécution des commandes programmées)
+
+# Exécute les commandes programmées dont l'heure prévue est arrivée (CDC 29) : appelle
+# l'endpoint interne protégé par CRON_SECRET, comme cron-heartbeat.yml.
+# La planification GitHub Actions peut être retardée de quelques minutes : une commande
+# programmée peut donc être passée un peu après l'heure prévue.
+
+on:
+  schedule:
+    # Toutes les 5 minutes.
+    - cron: '*/5 * * * *'
+  workflow_dispatch: {}
+
+jobs:
+  scheduled-orders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Appeler /internal/cron/scheduled-orders
+        run: |
+          curl -fsS --max-time 60 \
+            -X POST \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" \
+            https://kabakaba-backend.vercel.app/api/v1/internal/cron/scheduled-orders
