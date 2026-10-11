@@ -1,13 +1,29 @@
-import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { UserRole, VendorCapacity } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
 import { UpdateVendorDto } from '../dto/update-vendor.dto';
 import { FindVendorsForAdminQueryDto } from '../dto/find-vendors-for-admin-query.dto';
+import { SalesGroupBy, SalesQueryDto } from '../dto/sales-query.dto';
 import { generateUniqueReferralCode } from '../../referrals/referral-code';
 
 const SALT_ROUNDS = 10;
+
+// Historique des ventes : intervalle par défaut et maximal, en jours UTC.
+const DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_SALES_DAYS = 30;
+const MAX_SALES_DAYS = 366;
+
+const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+
+interface SalesRow {
+  periodStart: Date;
+  creditedOrders: number;
+  collectedTickets: number;
+  cancelledOrders: number;
+  refundedTickets: number;
+}
 
 interface Actor {
   id: string;
@@ -302,6 +318,111 @@ export class VendorsService {
   /**
    * Profil vendeur connecté — solde, statut de capacité (mobile vendeur).
    */
+  /**
+   * Ventes de la vendeuse connectée, par période (section 37 du cahier).
+   * - Encaissé : commandes READY ou RECEIVED, c'est-à-dire créditées à la vendeuse
+   *   (crédit à READY), rattachées à la période par `readyAt` ; 1 ticket = 1 FCFA.
+   * - Annulations : commandes CANCELLED de sa cantine, rattachées par `cancelledAt`,
+   *   avec le total des tickets remboursés.
+   * Périodes en UTC (colonnes `timestamp` sans fuseau, stockées en UTC : aucun
+   * calcul dépendant du fuseau de la session). Toutes les périodes de l'intervalle
+   * sont renvoyées, y compris celles à zéro ; la première et la dernière peuvent
+   * être partielles (semaine ou mois entamés). Requête paramétrée, aucune
+   * concaténation de texte : `groupBy` est une valeur d'enum validée.
+   */
+  async getSales(userId: string, query: SalesQueryDto) {
+    const vendor = await this.prisma.vendor.findUnique({ where: { userId }, select: { id: true } });
+    if (!vendor) {
+      throw new NotFoundException('Profil vendeur introuvable pour ce compte');
+    }
+
+    const groupBy = query.groupBy ?? SalesGroupBy.DAY;
+    const toDay = startOfUtcDay(query.to ? new Date(query.to) : new Date());
+    const fromDay = query.from
+      ? startOfUtcDay(new Date(query.from))
+      : new Date(toDay.getTime() - (DEFAULT_SALES_DAYS - 1) * DAY_MS);
+
+    if (fromDay.getTime() > toDay.getTime()) {
+      throw new BadRequestException('La date de début doit précéder la date de fin');
+    }
+    const days = Math.round((toDay.getTime() - fromDay.getTime()) / DAY_MS) + 1;
+    if (days > MAX_SALES_DAYS) {
+      throw new BadRequestException(`L'intervalle ne peut pas dépasser ${MAX_SALES_DAYS} jours`);
+    }
+
+    // Bornes incluses : du premier instant du jour de début au dernier instant du jour de fin.
+    const from = fromDay.toISOString();
+    const to = new Date(toDay.getTime() + DAY_MS - 1).toISOString();
+
+    const rows = await this.prisma.$queryRaw<SalesRow[]>`
+      WITH periods AS (
+        SELECT generate_series(
+          date_trunc(${groupBy}, ${from}::timestamp),
+          date_trunc(${groupBy}, ${to}::timestamp),
+          CASE ${groupBy}
+            WHEN 'day' THEN INTERVAL '1 day'
+            WHEN 'week' THEN INTERVAL '1 week'
+            ELSE INTERVAL '1 month'
+          END
+        ) AS "periodStart"
+      ),
+      credited AS (
+        SELECT date_trunc(${groupBy}, "readyAt") AS "periodStart",
+               COUNT(*)::int AS orders,
+               COALESCE(SUM("totalTickets"), 0)::int AS tickets
+        FROM "Order"
+        WHERE "vendorId" = ${vendor.id}
+          AND "deletedAt" IS NULL
+          AND "status" IN ('READY', 'RECEIVED')
+          AND "readyAt" >= ${from}::timestamp
+          AND "readyAt" <= ${to}::timestamp
+        GROUP BY 1
+      ),
+      cancelled AS (
+        SELECT date_trunc(${groupBy}, "cancelledAt") AS "periodStart",
+               COUNT(*)::int AS orders,
+               COALESCE(SUM("refundedTickets"), 0)::int AS tickets
+        FROM "Order"
+        WHERE "vendorId" = ${vendor.id}
+          AND "deletedAt" IS NULL
+          AND "status" = 'CANCELLED'
+          AND "cancelledAt" >= ${from}::timestamp
+          AND "cancelledAt" <= ${to}::timestamp
+        GROUP BY 1
+      )
+      SELECT p."periodStart" AS "periodStart",
+             COALESCE(c.orders, 0)::int AS "creditedOrders",
+             COALESCE(c.tickets, 0)::int AS "collectedTickets",
+             COALESCE(x.orders, 0)::int AS "cancelledOrders",
+             COALESCE(x.tickets, 0)::int AS "refundedTickets"
+      FROM periods p
+      LEFT JOIN credited c ON c."periodStart" = p."periodStart"
+      LEFT JOIN cancelled x ON x."periodStart" = p."periodStart"
+      ORDER BY p."periodStart"
+    `;
+
+    const periods = rows.map((r) => ({
+      periodStart: r.periodStart.toISOString(),
+      creditedOrders: r.creditedOrders,
+      collectedTickets: r.collectedTickets,
+      cancelledOrders: r.cancelledOrders,
+      refundedTickets: r.refundedTickets,
+    }));
+
+    return {
+      from,
+      to,
+      groupBy,
+      summary: {
+        creditedOrders: periods.reduce((s, p) => s + p.creditedOrders, 0),
+        collectedTickets: periods.reduce((s, p) => s + p.collectedTickets, 0),
+        cancelledOrders: periods.reduce((s, p) => s + p.cancelledOrders, 0),
+        refundedTickets: periods.reduce((s, p) => s + p.refundedTickets, 0),
+      },
+      periods,
+    };
+  }
+
   async findMe(userId: string) {
     const vendor = await this.prisma.vendor.findUnique({
       where: { userId },

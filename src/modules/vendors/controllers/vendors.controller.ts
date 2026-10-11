@@ -20,11 +20,14 @@ import { VendorsService } from '../services/vendors.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
 import { UpdateVendorDto } from '../dto/update-vendor.dto';
 import { FindVendorsForAdminQueryDto } from '../dto/find-vendors-for-admin-query.dto';
+import { SalesQueryDto } from '../dto/sales-query.dto';
 import { VendorEntity } from '../entities/vendor.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
+import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../../../common/guards/roles.guard';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { Public } from '../../../common/decorators/public.decorator';
@@ -83,6 +86,21 @@ export class VendorsController {
   @ApiResponse({ status: 200, description: 'Profil vendeur enrichi.' })
   findMe(@Request() req) {
     return this.vendorsService.findMe(req.user.id);
+  }
+
+  @Get('me/sales')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.VENDOR)
+  @ApiOperation({
+    summary: 'Historique des ventes de la vendeuse connectée, par période (vendeuse mobile uniquement)',
+    description:
+      "Encaissé : commandes créditées (READY ou RECEIVED), rattachées à la période par readyAt. Annulations : commandes CANCELLED, rattachées par cancelledAt, avec le total remboursé. Périodes en UTC, toutes présentes même à zéro. Intervalle par défaut : 30 jours ; maximum 366 jours (400 au-delà).",
+  })
+  @ApiResponse({ status: 200, description: '{ from, to, groupBy, summary, periods[] }' })
+  @ApiResponse({ status: 400, description: 'Intervalle invalide ou supérieur à 366 jours.' })
+  getSales(@Query() query: SalesQueryDto, @Request() req) {
+    return this.vendorsService.getSales(req.user.id, query);
   }
 
   @Patch('me')
