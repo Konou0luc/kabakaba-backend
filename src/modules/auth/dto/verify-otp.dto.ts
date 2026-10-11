@@ -20,15 +20,15 @@ export class VerifyOtpDto {
   @Length(6, 6)
   code: string;
 
-  // CDC 2.1 [NOUVEAU v1.1] — champ "Qui t'a invité ?" à l'inscription.
+  // CDC 42 — champ "Qui t'a invité ?" à l'inscription.
   // Optionnel : son absence ou une chaîne vide signifie "pas de parrain".
   // N'a d'effet QUE lors de la toute première inscription (création du
   // compte) — voir auth.service.ts::verifyOtp. Ignoré silencieusement sur
   // une reconnexion d'un compte déjà existant.
   @ApiPropertyOptional({
-    example: 'MAR-2026',
+    example: 'K7M2QX9A',
     description:
-      "Code de parrainage d'un ambassadeur, saisi uniquement à l'inscription. Laisser vide si aucun.",
+      "Code de parrainage d'un utilisateur (8 caractères, casse et espaces ignorés), saisi uniquement à l'inscription. Laisser vide si aucun.",
   })
   @IsOptional()
   @IsString()

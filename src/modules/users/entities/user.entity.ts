@@ -21,6 +21,9 @@ export class UserEntity extends BaseEntity {
   @ApiProperty({ enum: UserRole, description: 'Rôle de l\'utilisateur' })
   role: UserRole;
 
+  @ApiProperty({ example: 'K7M2QX9A', description: 'Code de parrainage personnel (8 caractères), généré à la création du compte' })
+  referralCode: string;
+
   @ApiProperty({ example: 'uuid-campus', required: false, description: 'Identifiant du campus' })
   campusId?: string;
 

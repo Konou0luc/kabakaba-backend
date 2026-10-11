@@ -27,6 +27,7 @@ import { PartnerApplicationsModule } from './modules/partner-applications/partne
 import { WebAuthModule } from './modules/web-auth/web-auth.module';
 import { InternalCronModule } from './modules/internal-cron/internal-cron.module';
 import { DevicesModule } from './modules/devices/devices.module';
+import { ReferralsModule } from './modules/referrals/referrals.module';
 
 @Module({
   imports: [
@@ -67,6 +68,7 @@ import { DevicesModule } from './modules/devices/devices.module';
     WebAuthModule,
     InternalCronModule,
     DevicesModule,
+    ReferralsModule,
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

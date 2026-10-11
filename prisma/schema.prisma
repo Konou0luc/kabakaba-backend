@@ -62,6 +62,7 @@ enum TransactionType {
   SALE
   REFUND
   WITHDRAWAL
+  REFERRAL_BONUS
 }
 
 enum WithdrawalStatus {
@@ -119,6 +120,8 @@ model Campus {
 
 model User {
   id                 String    @id @default(uuid())
+  // Code de parrainage personnel (CDC 42) : 8 caractères, généré à la création de tout compte.
+  referralCode       String    @unique
   phone              String?   @unique
   email              String?   @unique
   password           String?
@@ -156,13 +159,13 @@ model User {
   transactions         Transaction[]        @relation("TransactionUser")
   reviews              Review[]
   vendor               Vendor?
-  ambassador           Ambassador?
   notifications        Notification[]
   devices              Device[]
   refreshTokens        RefreshToken[]
   auditLogs            AuditLog[]
   payments             Payment[]
-  affiliate            AmbassadorAffiliate?
+  referralsMade        Referral[]           @relation("ReferralReferrer")
+  referralReceived     Referral?            @relation("ReferralReferee")
   changedOrderStatuses OrderStatusHistory[]
   disputesAsStudent    Dispute[]            @relation("DisputeStudent")
   suspensionEvents     SuspensionEvent[]
@@ -600,43 +603,20 @@ model SuspensionEvent {
   @@index([status])
 }
 
-enum AmbassadorStatus {
-  PENDING
-  ACTIVE
-  SUSPENDED
-  REJECTED
-}
+// Parrainage (CDC 42) : un filleul n'a qu'un parrain (refereeId unique), lien définitif.
+// La récompense est versée une seule fois, à la première recharge réussie du filleul.
+model Referral {
+  id            String    @id @default(uuid())
+  referrerId    String
+  refereeId     String    @unique
+  rewardTickets Int?
+  rewardedAt    DateTime?
+  createdAt     DateTime  @default(now())
 
-model Ambassador {
-  id                 String           @id @default(uuid())
-  userId             String           @unique
-  promoCode          String?          @unique
-  status             AmbassadorStatus @default(PENDING)
-  institution        String?
-  faculty            String?
-  volume30d          Int              @default(0)
-  lastReferralAt     DateTime?
-  suspendedAt        DateTime?
-  treatedByWebUserId String?
-  decisionReason     String?
-  createdAt          DateTime         @default(now())
-  updatedAt          DateTime         @updatedAt
-  deletedAt          DateTime?
+  referrer User @relation("ReferralReferrer", fields: [referrerId], references: [id])
+  referee  User @relation("ReferralReferee", fields: [refereeId], references: [id])
 
-  user             User                   @relation(fields: [userId], references: [id])
-  treatedByWebUser WebUser?               @relation(fields: [treatedByWebUserId], references: [id])
-  affiliates       AmbassadorAffiliate[]
-}
-
-model AmbassadorAffiliate {
-  id           String    @id @default(uuid())
-  ambassadorId String
-  studentId    String    @unique
-  createdAt    DateTime  @default(now())
-  deletedAt    DateTime?
-
-  ambassador Ambassador @relation(fields: [ambassadorId], references: [id])
-  student    User       @relation(fields: [studentId], references: [id])
+  @@index([referrerId])
 }
 
 model Notification {
@@ -757,7 +737,6 @@ model WebUser {
   auditLogs                  AuditLog[]
   partnerApplicationsTreated PartnerApplication[]
   disputesTreated            Dispute[]
-  ambassadorsTreated         Ambassador[]
   withdrawalsAccepted        Withdrawal[]             @relation("WithdrawalAcceptedBy")
   withdrawalsCancelled       Withdrawal[]             @relation("WithdrawalCancelledBy")
   withdrawalProofsUploaded   WithdrawalProof[]

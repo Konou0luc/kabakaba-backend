@@ -9,6 +9,7 @@ import { UpdateUserDto } from '../dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '@prisma/client';
 import { SuspensionsService } from './suspensions.service';
+import { generateUniqueReferralCode } from '../../referrals/referral-code';
 
 interface Actor {
   id: string;
@@ -73,6 +74,7 @@ export class UsersService {
         ...createUserDto,
         password: hashedPassword,
         role: UserRole.STUDENT,
+        referralCode: await generateUniqueReferralCode(this.prisma),
       },
     });
 
