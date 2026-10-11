@@ -19,14 +19,6 @@ import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard'
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
-  @Get('campuses')
-  @ApiOperation({ summary: 'Comparaison des campus : KPI, tableau, volume 7 jours' })
-  @ApiQuery({ type: AnalyticsQueryDto })
-  @ApiResponse({ status: 200, description: 'Statistiques comparatives par campus.' })
-  getCampusComparison(@Query() query: AnalyticsQueryDto) {
-    return this.analyticsService.getCampusComparison(query.days, query.from, query.to);
-  }
-
   @Get('orders-summary')
   @ApiOperation({ summary: 'Commandes et chiffre d\'affaires sur une période (UTC), sans notion de campus' })
   @ApiResponse({ status: 200, description: 'Totaux de la période et détail jour par jour (tous les jours présents).' })

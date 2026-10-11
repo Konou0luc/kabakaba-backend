@@ -111,7 +111,6 @@ export class AnalyticsService {
     return value;
   }
 
-  async getCampusComparison(days = 30, from?: string, to?: string) { return this.withCache(`getCampusComparison:${days}:${from ?? ''}:${to ?? ''}`, () => this.getCampusComparisonUncached(days, from, to)); }
   async getTopCanteens(days = 30, limit = 10, from?: string, to?: string) { return this.withCache(`getTopCanteens:${days}:${limit}:${from ?? ''}:${to ?? ''}`, () => this.getTopCanteensUncached(days, limit, from, to)); }
   async getRevenueBreakdown(days = 30, from?: string, to?: string) { return this.withCache(`getRevenueBreakdown:${days}:${from ?? ''}:${to ?? ''}`, () => this.getRevenueBreakdownUncached(days, from, to)); }
   async getVendorPerformance(days = 30, from?: string, to?: string) { return this.withCache(`getVendorPerformance:${days}:${from ?? ''}:${to ?? ''}`, () => this.getVendorPerformanceUncached(days, from, to)); }
@@ -185,107 +184,6 @@ export class AnalyticsService {
       topComponents: soldGroups.map((g) => ({ ...describe(g.componentId), unitsSold: g._sum.quantity ?? 0 })),
       ruptures: ruptureGroups.map((g) => ({ ...describe(g.componentId), count: g._count._all })),
       ...summarizePeaks(orderDates.map((o) => o.createdAt)),
-    };
-  }
-
-  private async getCampusComparisonUncached(days = 30, from?: string, to?: string) {
-    const { since, until, prevSince, prevUntil } = resolveRange(days, from, to);
-    const dayKeys = buildDayKeys(since, until);
-    const chartStart = new Date(dayKeys[0]);
-
-    const [campuses, students, ordersWindow, ordersPrevWindow, ordersForChart, vendorCampusLinks] = await Promise.all([
-      this.prisma.campus.findMany({ orderBy: { name: 'asc' } }),
-      this.prisma.user.findMany({ where: { role: 'STUDENT', campusId: { not: null } }, select: { id: true, campusId: true } }),
-      this.prisma.order.findMany({
-        where: { createdAt: { gte: since, lte: until } },
-        select: { status: true, totalTickets: true, studentId: true, student: { select: { campusId: true } } },
-      }),
-      this.prisma.order.findMany({ where: { createdAt: { gte: prevSince, lte: prevUntil } }, select: { status: true, totalTickets: true } }),
-      this.prisma.order.findMany({ where: { createdAt: { gte: chartStart, lte: until } }, select: { createdAt: true, student: { select: { campusId: true } } } }),
-      this.prisma.vendorCampus.findMany({ select: { campusId: true, vendor: { select: { isActive: true } } } }),
-    ]);
-
-    const cantinesByCampus = new Map<string, number>();
-    // Un campus est actif si au moins un vendeur qui y est rattaché a
-    // isActive = true (pas un champ statique sur Campus — calculé ici).
-    const hasActiveVendorByCampus = new Map<string, boolean>();
-    for (const link of vendorCampusLinks) {
-      cantinesByCampus.set(link.campusId, (cantinesByCampus.get(link.campusId) ?? 0) + 1);
-      if (link.vendor.isActive) hasActiveVendorByCampus.set(link.campusId, true);
-    }
-
-    const enrolledByCampus = new Map<string, number>();
-    for (const s of students) if (s.campusId) enrolledByCampus.set(s.campusId, (enrolledByCampus.get(s.campusId) ?? 0) + 1);
-
-    const activeStudentIdsByCampus = new Map<string, Set<string>>();
-    const statsByCampus = new Map<string, { orders: number; completed: number; cancelled: number; revenue: number }>();
-    for (const o of ordersWindow) {
-      const campusId = o.student?.campusId;
-      if (!campusId) continue;
-      if (!activeStudentIdsByCampus.has(campusId)) activeStudentIdsByCampus.set(campusId, new Set());
-      activeStudentIdsByCampus.get(campusId)!.add(o.studentId);
-      const entry = statsByCampus.get(campusId) ?? { orders: 0, completed: 0, cancelled: 0, revenue: 0 };
-      entry.orders += 1;
-      if (o.status === COMPLETED_STATUS) {
-        entry.completed += 1;
-        entry.revenue += o.totalTickets;
-      } else if (o.status === CANCELLED_STATUS) {
-        entry.cancelled += 1;
-      }
-      statsByCampus.set(campusId, entry);
-    }
-
-    let prevTotalOrders = 0;
-    let prevTotalRevenue = 0;
-    for (const o of ordersPrevWindow) {
-      prevTotalOrders += 1;
-      if (o.status === COMPLETED_STATUS) prevTotalRevenue += o.totalTickets;
-    }
-
-    const dailyByCampus = new Map<string, number[]>();
-    const dailyTotal = new Array(dayKeys.length).fill(0);
-    for (const o of ordersForChart) {
-      const idx = dayKeys.indexOf(dayKey(o.createdAt));
-      if (idx === -1) continue;
-      dailyTotal[idx] += 1;
-      const campusId = o.student?.campusId;
-      if (!campusId) continue;
-      if (!dailyByCampus.has(campusId)) dailyByCampus.set(campusId, new Array(dayKeys.length).fill(0));
-      dailyByCampus.get(campusId)![idx] += 1;
-    }
-
-    const campusRows = campuses.map((c) => {
-      const stats = statsByCampus.get(c.id) ?? { orders: 0, completed: 0, cancelled: 0, revenue: 0 };
-      return {
-        id: c.id,
-        name: c.name,
-        cantines: cantinesByCampus.get(c.id) ?? 0,
-        orders: stats.orders,
-        // Taux de complétion : RECEIVED / (RECEIVED + CANCELLED).
-        completionRate: stats.completed + stats.cancelled > 0 ? Math.round((stats.completed / (stats.completed + stats.cancelled)) * 100) : 0,
-        revenue: stats.revenue,
-        enrolled: enrolledByCampus.get(c.id) ?? 0,
-        active: activeStudentIdsByCampus.get(c.id)?.size ?? 0,
-        isActive: hasActiveVendorByCampus.get(c.id) ?? false,
-      };
-    });
-
-    return {
-      summary: {
-        activeCampuses: campusRows.filter((c) => c.isActive).length,
-        totalCampuses: campuses.length,
-        totalOrders: campusRows.reduce((s, c) => s + c.orders, 0),
-        totalOrdersPrevPeriod: prevTotalOrders,
-        totalRevenue: campusRows.reduce((s, c) => s + c.revenue, 0),
-        totalRevenuePrevPeriod: prevTotalRevenue,
-        totalStudents: campusRows.reduce((s, c) => s + c.enrolled, 0),
-        activeStudents: campusRows.reduce((s, c) => s + c.active, 0),
-      },
-      campuses: campusRows,
-      dailyVolume: {
-        labels: dayKeys,
-        series: { 'Tous les campus': dailyTotal, ...Object.fromEntries(campuses.map((c) => [c.name, dailyByCampus.get(c.id) ?? new Array(dayKeys.length).fill(0)])) },
-      },
     };
   }
 
