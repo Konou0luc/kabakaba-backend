@@ -30,6 +30,11 @@ enum ComponentUnit {
   SACHET
 }
 
+enum MenuItemType {
+  FIXED
+  CUSTOMIZABLE
+}
+
 enum OrderStatus {
   CONFIRMED
   IN_PREPARATION
@@ -41,13 +46,6 @@ enum OrderStatus {
 enum OrderCancelledBy {
   STUDENT
   VENDOR
-}
-
-enum ScheduledOrderStatus {
-  PENDING
-  PLACED
-  FAILED
-  CANCELLED
 }
 
 enum PaymentStatus {
@@ -62,7 +60,6 @@ enum TransactionType {
   SALE
   REFUND
   WITHDRAWAL
-  REFERRAL_BONUS
 }
 
 enum WithdrawalStatus {
@@ -120,8 +117,6 @@ model Campus {
 
 model User {
   id                 String    @id @default(uuid())
-  // Code de parrainage personnel (CDC 42) : 8 caractères, généré à la création de tout compte.
-  referralCode       String    @unique
   phone              String?   @unique
   email              String?   @unique
   password           String?
@@ -147,8 +142,6 @@ model User {
   pinUpdatedAt       DateTime?
   notifyOrders       Boolean   @default(true)
   notifyPromotions   Boolean   @default(false)
-  // Dernier rappel « Programme ton repas » envoyé à l'étudiant (CDC 41), tous les 3 jours.
-  lastSchedulingReminderAt DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   deletedAt          DateTime?
@@ -159,17 +152,16 @@ model User {
   transactions         Transaction[]        @relation("TransactionUser")
   reviews              Review[]
   vendor               Vendor?
+  ambassador           Ambassador?
   notifications        Notification[]
   devices              Device[]
   refreshTokens        RefreshToken[]
   auditLogs            AuditLog[]
   payments             Payment[]
-  referralsMade        Referral[]           @relation("ReferralReferrer")
-  referralReceived     Referral?            @relation("ReferralReferee")
+  affiliate            AmbassadorAffiliate?
   changedOrderStatuses OrderStatusHistory[]
   disputesAsStudent    Dispute[]            @relation("DisputeStudent")
   suspensionEvents     SuspensionEvent[]
-  scheduledOrders      ScheduledOrder[]
 
   @@index([phone])
   @@index([email])
@@ -196,6 +188,7 @@ model Vendor {
 
   user            User             @relation(fields: [userId], references: [id])
   campuses        VendorCampus[]
+  menuItems       MenuItem[]
   orders          Order[]
   withdrawals     Withdrawal[]
   reviews         Review[]
@@ -204,7 +197,6 @@ model Vendor {
   components          Component[]
   componentCategories ComponentCategory[]
   menus               Menu[]
-  scheduledOrders     ScheduledOrder[]
 
   @@index([canteenName])
   @@index([capacityStatus])
@@ -218,6 +210,38 @@ model VendorCampus {
   campus   Campus @relation(fields: [campusId], references: [id])
 
   @@id([vendorId, campusId])
+}
+
+model MenuItem {
+  id              String       @id @default(uuid())
+  vendorId        String
+  name            String
+  description     String?
+  type            MenuItemType @default(FIXED)
+  priceTickets    Int
+  imageUrl        String?
+  isAvailable     Boolean      @default(true)
+  preparationTime Int?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  deletedAt       DateTime?
+
+  vendor     Vendor          @relation(fields: [vendorId], references: [id])
+  components MenuComponent[]
+}
+
+model MenuComponent {
+  id               String    @id @default(uuid())
+  itemId           String
+  name             String
+  unitPriceTickets Int       @default(0)
+  minQty           Int       @default(0)
+  maxQty           Int       @default(1)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  menuItem MenuItem @relation(fields: [itemId], references: [id])
 }
 
 model TakeawayOption {
@@ -308,34 +332,6 @@ model MenuLine {
   @@index([componentId])
 }
 
-// Commande programmée (CDC 29) : enregistrement à part. Ni débit, ni stock, ni numéro
-// de commande avant l'heure prévue ; à l'heure prévue, la commande normale est créée
-// (même logique que POST /orders) ou la ligne passe en FAILED avec un motif.
-model ScheduledOrder {
-  id               String               @id @default(uuid())
-  studentId        String
-  vendorId         String
-  scheduledFor     DateTime
-  consumptionMode  ConsumptionMode
-  takeawayOptionId String?
-  // Tableau de { menuId?, componentId?, quantity }, même forme que les lignes de POST /orders.
-  items            Json
-  status           ScheduledOrderStatus @default(PENDING)
-  orderId          String?              @unique
-  failureReason    String?
-  processedAt      DateTime?
-  cancelledAt      DateTime?
-  createdAt        DateTime             @default(now())
-  updatedAt        DateTime             @updatedAt
-
-  student User   @relation(fields: [studentId], references: [id])
-  vendor  Vendor @relation(fields: [vendorId], references: [id])
-  order   Order? @relation(fields: [orderId], references: [id])
-
-  @@index([status, scheduledFor])
-  @@index([studentId])
-}
-
 model Order {
   id                 String          @id @default(uuid())
   studentId          String
@@ -353,10 +349,6 @@ model Order {
   cancellationReason String?
   readyAt            DateTime?
   receivedAt         DateTime?
-  // Moment où la commande, restée READY au-delà du délai paramétrable, a été signalée « non
-  // récupérée » (CDC 30). Donnée de mesure uniquement : le statut ne change pas, et la valeur
-  // reste renseignée si la commande est ensuite passée à RECEIVED.
-  unclaimedAt        DateTime?
   cancelledAt        DateTime?
   cancelledBy        OrderCancelledBy?
   cancelledById      String?
@@ -374,14 +366,12 @@ model Order {
   statusHistory       OrderStatusHistory[]
   relatedTransactions Transaction[]        @relation("TransactionOrder")
   disputes            Dispute[]
-  scheduledOrder      ScheduledOrder?
 
   @@index([studentId])
   @@index([vendorId])
   @@index([status])
   @@index([createdAt])
   @@index([status, createdAt])
-  @@index([status, readyAt])
   @@index([vendorId, status])
   @@index([studentId, status])
   @@unique([vendorId, activeOrderNumber])
@@ -603,20 +593,43 @@ model SuspensionEvent {
   @@index([status])
 }
 
-// Parrainage (CDC 42) : un filleul n'a qu'un parrain (refereeId unique), lien définitif.
-// La récompense est versée une seule fois, à la première recharge réussie du filleul.
-model Referral {
-  id            String    @id @default(uuid())
-  referrerId    String
-  refereeId     String    @unique
-  rewardTickets Int?
-  rewardedAt    DateTime?
-  createdAt     DateTime  @default(now())
+enum AmbassadorStatus {
+  PENDING
+  ACTIVE
+  SUSPENDED
+  REJECTED
+}
 
-  referrer User @relation("ReferralReferrer", fields: [referrerId], references: [id])
-  referee  User @relation("ReferralReferee", fields: [refereeId], references: [id])
+model Ambassador {
+  id                 String           @id @default(uuid())
+  userId             String           @unique
+  promoCode          String?          @unique
+  status             AmbassadorStatus @default(PENDING)
+  institution        String?
+  faculty            String?
+  volume30d          Int              @default(0)
+  lastReferralAt     DateTime?
+  suspendedAt        DateTime?
+  treatedByWebUserId String?
+  decisionReason     String?
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  deletedAt          DateTime?
 
-  @@index([referrerId])
+  user             User                   @relation(fields: [userId], references: [id])
+  treatedByWebUser WebUser?               @relation(fields: [treatedByWebUserId], references: [id])
+  affiliates       AmbassadorAffiliate[]
+}
+
+model AmbassadorAffiliate {
+  id           String    @id @default(uuid())
+  ambassadorId String
+  studentId    String    @unique
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
+
+  ambassador Ambassador @relation(fields: [ambassadorId], references: [id])
+  student    User       @relation(fields: [studentId], references: [id])
 }
 
 model Notification {
@@ -737,6 +750,7 @@ model WebUser {
   auditLogs                  AuditLog[]
   partnerApplicationsTreated PartnerApplication[]
   disputesTreated            Dispute[]
+  ambassadorsTreated         Ambassador[]
   withdrawalsAccepted        Withdrawal[]             @relation("WithdrawalAcceptedBy")
   withdrawalsCancelled       Withdrawal[]             @relation("WithdrawalCancelledBy")
   withdrawalProofsUploaded   WithdrawalProof[]
