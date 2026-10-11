@@ -309,6 +309,12 @@ export class OrdersService {
       if (remaining && hasCrossedLowStockThreshold(remaining.quantity + needed, remaining.quantity, remaining.lowStockThreshold)) {
         lowStockAlerts.push({ vendorId, componentId, name: nameByComponent.get(componentId)!, remaining: remaining.quantity });
       }
+
+      // Rupture (CDC 40) : la déduction amène la quantité à 0. Une ligne par composant, dans la
+      // même transaction : si la commande échoue plus bas, la rupture est annulée avec elle.
+      if (remaining && remaining.quantity === 0) {
+        await tx.componentRupture.create({ data: { componentId, vendorId } });
+      }
     }
 
     // Paiement : tickets = FCFA, conversion 1:1, aucune commission sur les

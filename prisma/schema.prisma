@@ -205,6 +205,7 @@ model Vendor {
   componentCategories ComponentCategory[]
   menus               Menu[]
   scheduledOrders     ScheduledOrder[]
+  componentRuptures   ComponentRupture[]
 
   @@index([canteenName])
   @@index([capacityStatus])
@@ -271,9 +272,26 @@ model Component {
   menuLines           MenuLine[]
   orderItems          OrderItem[]
   orderItemComponents OrderItemComponent[]
+  ruptures            ComponentRupture[]
 
   @@index([vendorId])
   @@index([categoryId])
+}
+
+// Rupture de stock (CDC 40) : un composant dont la quantité tombe à 0 par une déduction de
+// commande ou par un ajustement négatif. Une ligne par rupture, créée dans la transaction qui
+// amène la quantité à 0 ; sert à compter les ruptures fréquentes.
+model ComponentRupture {
+  id          String   @id @default(uuid())
+  componentId String
+  vendorId    String
+  occurredAt  DateTime @default(now())
+
+  component Component @relation(fields: [componentId], references: [id])
+  vendor    Vendor    @relation(fields: [vendorId], references: [id])
+
+  @@index([componentId])
+  @@index([occurredAt])
 }
 
 // Repas pré-composé : combinaison enregistrée de composants. Ni prix ni disponibilité

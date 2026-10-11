@@ -171,13 +171,21 @@ export class ComponentsService {
 
     const amount = Math.abs(dto.delta);
     try {
-      const updated = await this.prisma.component.update({
-        where:
-          dto.delta > 0
-            ? { id, deletedAt: null }
-            : { id, deletedAt: null, quantity: { gte: amount } },
-        data: { quantity: dto.delta > 0 ? { increment: amount } : { decrement: amount } },
-        select: { id: true, quantity: true, name: true, vendorId: true, lowStockThreshold: true },
+      // Mise à jour et éventuelle rupture dans la même transaction (CDC 40) : un retrait qui amène
+      // la quantité à 0 enregistre une rupture ; un ajout ou un retrait qui laisse du stock, non.
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const row = await tx.component.update({
+          where:
+            dto.delta > 0
+              ? { id, deletedAt: null }
+              : { id, deletedAt: null, quantity: { gte: amount } },
+          data: { quantity: dto.delta > 0 ? { increment: amount } : { decrement: amount } },
+          select: { id: true, quantity: true, name: true, vendorId: true, lowStockThreshold: true },
+        });
+        if (dto.delta < 0 && row.quantity === 0) {
+          await tx.componentRupture.create({ data: { componentId: row.id, vendorId: row.vendorId } });
+        }
+        return row;
       });
       if (dto.delta < 0 && hasCrossedLowStockThreshold(updated.quantity + amount, updated.quantity, updated.lowStockThreshold)) {
         await this.vendorNotifications.notifyLowStock([

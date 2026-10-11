@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { platformCoveredWithdrawalFee } from '../../vendors/pricing/withdrawal-fees';
+import { resolveUtcRange } from '../stats-range';
+import { CREDITED_STATUSES, summarizeOrders, summarizePeaks } from '../orders-stats';
 
 const COMPLETED_STATUS = 'RECEIVED';
 const CANCELLED_STATUS = 'CANCELLED';
@@ -116,6 +118,75 @@ export class AnalyticsService {
   async getStudentBehavior(days = 30, from?: string, to?: string) { return this.withCache(`getStudentBehavior:${days}:${from ?? ''}:${to ?? ''}`, () => this.getStudentBehaviorUncached(days, from, to)); }
   async getVendorFinancials(days = 30, from?: string, to?: string) { return this.withCache(`getVendorFinancials:${days}:${from ?? ''}:${to ?? ''}`, () => this.getVendorFinancialsUncached(days, from, to)); }
   async getReviewsQuality(days = 30, from?: string, to?: string) { return this.withCache(`getReviewsQuality:${days}:${from ?? ''}:${to ?? ''}`, () => this.getReviewsQualityUncached(days, from, to)); }
+
+  // Indicateurs d'administration sans notion de campus (CDC 39) : période en UTC, voir stats-range.ts.
+  async getOrdersSummary(from?: string, to?: string) {
+    const { since, until, dayKeys } = resolveUtcRange(from, to);
+    return this.withCache(`getOrdersSummary:${dayKeys[0]}:${dayKeys[dayKeys.length - 1]}`, async () => {
+      const rows = await this.prisma.order.findMany({
+        where: { deletedAt: null, createdAt: { gte: since, lte: until } },
+        select: { createdAt: true, status: true, totalTickets: true, unclaimedAt: true },
+      });
+      return summarizeOrders(rows, dayKeys);
+    });
+  }
+
+  // Suivi du stock (CDC 40) : composants les plus vendus, ruptures fréquentes, périodes de forte demande.
+  async getStockAnalytics(from?: string, to?: string, limit = 10) {
+    const { since, until, dayKeys } = resolveUtcRange(from, to);
+    return this.withCache(`getStockAnalytics:${dayKeys[0]}:${dayKeys[dayKeys.length - 1]}:${limit}`, () =>
+      this.getStockAnalyticsUncached(since, until, limit),
+    );
+  }
+
+  private async getStockAnalyticsUncached(since: Date, until: Date, limit: number) {
+    const [soldGroups, ruptureGroups, orderDates] = await Promise.all([
+      // Unités vendues : lignes de composants des commandes créditées (READY et RECEIVED) créées dans la période.
+      this.prisma.orderItemComponent.groupBy({
+        by: ['componentId'],
+        where: {
+          orderItem: {
+            order: { deletedAt: null, status: { in: [...CREDITED_STATUSES] }, createdAt: { gte: since, lte: until } },
+          },
+        },
+        _sum: { quantity: true },
+        orderBy: [{ _sum: { quantity: 'desc' } }, { componentId: 'asc' }],
+        take: limit,
+      }),
+      this.prisma.componentRupture.groupBy({
+        by: ['componentId'],
+        where: { occurredAt: { gte: since, lte: until } },
+        _count: { _all: true },
+        orderBy: [{ _count: { componentId: 'desc' } }, { componentId: 'asc' }],
+        take: limit,
+      }),
+      // Périodes de forte demande : commandes créées, tous statuts confondus.
+      this.prisma.order.findMany({
+        where: { deletedAt: null, createdAt: { gte: since, lte: until } },
+        select: { createdAt: true },
+      }),
+    ]);
+
+    // Les composants supprimés logiquement restent nommés : leur historique de ventes subsiste.
+    const componentIds = [...new Set([...soldGroups, ...ruptureGroups].map((g) => g.componentId))];
+    const components = componentIds.length
+      ? await this.prisma.component.findMany({
+          where: { id: { in: componentIds } },
+          select: { id: true, name: true, vendorId: true, vendor: { select: { canteenName: true } } },
+        })
+      : [];
+    const componentById = new Map(components.map((c) => [c.id, c]));
+    const describe = (componentId: string) => {
+      const c = componentById.get(componentId);
+      return { componentId, name: c?.name ?? '—', vendorId: c?.vendorId ?? '', canteenName: c?.vendor.canteenName ?? '—' };
+    };
+
+    return {
+      topComponents: soldGroups.map((g) => ({ ...describe(g.componentId), unitsSold: g._sum.quantity ?? 0 })),
+      ruptures: ruptureGroups.map((g) => ({ ...describe(g.componentId), count: g._count._all })),
+      ...summarizePeaks(orderDates.map((o) => o.createdAt)),
+    };
+  }
 
   private async getCampusComparisonUncached(days = 30, from?: string, to?: string) {
     const { since, until, prevSince, prevUntil } = resolveRange(days, from, to);

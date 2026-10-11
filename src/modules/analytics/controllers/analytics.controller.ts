@@ -3,6 +3,8 @@ import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@ne
 import { UserRole, WebUserRole } from '@prisma/client';
 import { AnalyticsService } from '../services/analytics.service';
 import { AnalyticsQueryDto } from '../dto/analytics-query.dto';
+import { OrdersSummaryQueryDto } from '../dto/orders-summary-query.dto';
+import { StockAnalyticsQueryDto } from '../dto/stock-analytics-query.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
@@ -23,6 +25,20 @@ export class AnalyticsController {
   @ApiResponse({ status: 200, description: 'Statistiques comparatives par campus.' })
   getCampusComparison(@Query() query: AnalyticsQueryDto) {
     return this.analyticsService.getCampusComparison(query.days, query.from, query.to);
+  }
+
+  @Get('orders-summary')
+  @ApiOperation({ summary: 'Commandes et chiffre d\'affaires sur une période (UTC), sans notion de campus' })
+  @ApiResponse({ status: 200, description: 'Totaux de la période et détail jour par jour (tous les jours présents).' })
+  getOrdersSummary(@Query() query: OrdersSummaryQueryDto) {
+    return this.analyticsService.getOrdersSummary(query.from, query.to);
+  }
+
+  @Get('stock')
+  @ApiOperation({ summary: 'Suivi du stock : composants les plus vendus, ruptures fréquentes, périodes de forte demande' })
+  @ApiResponse({ status: 200, description: 'Classements des composants, heures et jours de forte demande.' })
+  getStockAnalytics(@Query() query: StockAnalyticsQueryDto) {
+    return this.analyticsService.getStockAnalytics(query.from, query.to, query.limit);
   }
 
   @Get('top-canteens')

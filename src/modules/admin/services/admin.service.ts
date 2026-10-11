@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { SuspensionsService } from '../../users/services/suspensions.service';
+import { CREDITED_STATUSES } from '../../analytics/orders-stats';
 
 @Injectable()
 export class AdminService {
@@ -24,9 +25,12 @@ export class AdminService {
     const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
     const [
-      totalUsers,
+      totalStudents,
       totalVendors,
       totalOrders,
+      cancelledOrders,
+      unclaimedOrders,
+      revenue,
       totalPayments,
       totalTransactions,
       activeSuspensions,
@@ -34,9 +38,17 @@ export class AdminService {
       activeStudentRows,
       activeVendorRows,
     ] = await Promise.all([
-      this.prisma.user.count(),
+      this.prisma.user.count({ where: { role: 'STUDENT' } }),
       this.prisma.vendor.count(),
-      this.prisma.order.count(),
+      this.prisma.order.count({ where: { deletedAt: null } }),
+      this.prisma.order.count({ where: { deletedAt: null, status: 'CANCELLED' } }),
+      // Non récupérées (CDC 30) : signalées par unclaimedAt, le statut ne change pas.
+      this.prisma.order.count({ where: { deletedAt: null, unclaimedAt: { not: null } } }),
+      // Chiffre d'affaires : commandes créditées à la vendeuse (READY et RECEIVED), 1 ticket = 1 FCFA.
+      this.prisma.order.aggregate({
+        where: { deletedAt: null, status: { in: [...CREDITED_STATUSES] } },
+        _sum: { totalTickets: true },
+      }),
       this.prisma.payment.count(),
       this.prisma.transaction.count(),
       this.prisma.user.count({ where: { isSuspended: true } }),
@@ -56,9 +68,12 @@ export class AdminService {
     ]);
 
     return {
-      totalUsers,
+      totalStudents,
       totalVendors,
       totalOrders,
+      cancelledOrders,
+      unclaimedOrders,
+      revenueTickets: revenue._sum.totalTickets ?? 0,
       totalPayments,
       totalTransactions,
       activeSuspensions,
