@@ -61,7 +61,11 @@ export class ReportsController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.STUDENT)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Récupérer un signalement (son propriétaire ou l\'administration web)' })
+  @ApiOperation({
+    summary: 'Récupérer un signalement (son propriétaire ou l\'administration web)',
+    description:
+      "Pour l'administration web (administration et supervision), la commande liée contient aussi ses lignes (nom, quantité, prix unitaire, menu ou composant). L'étudiant propriétaire reçoit le signalement seul.",
+  })
   @ApiResponse({ status: 200, description: 'Retourne le signalement.', type: ReportEntity })
   @ApiResponse({ status: 403, description: "Ce signalement n'est pas le vôtre." })
   @ApiResponse({ status: 404, description: 'Signalement introuvable.' })
@@ -74,10 +78,17 @@ export class ReportsController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: "Changer le statut d'un signalement (Admin seulement)" })
+  @ApiOperation({
+    summary: "Changer le statut d'un signalement (Admin seulement)",
+    description:
+      "Quand l'administration web passe le signalement à IN_PROGRESS ou RESOLVED, l'administrateur connecté (lu dans le jeton) est enregistré comme celui qui le traite. Le corps ne contient que le statut : tout autre champ est refusé (400).",
+  })
   @ApiResponse({ status: 200, description: 'Le signalement a été mis à jour.', type: ReportEntity })
+  @ApiResponse({ status: 400, description: 'Corps invalide (statut inconnu ou champ non autorisé).' })
   @ApiResponse({ status: 404, description: 'Signalement introuvable.' })
-  update(@Param('id') id: string, @Body() updateReportDto: UpdateReportDto) {
-    return this.reportsService.update(id, updateReportDto);
+  update(@Param('id') id: string, @Body() updateReportDto: UpdateReportDto, @Request() req) {
+    // Même convention que partner-applications : l'identité vient du jeton web, jamais du corps.
+    const treatedByWebUserId = req.user.__authKind === 'web' ? req.user.id : undefined;
+    return this.reportsService.update(id, updateReportDto, treatedByWebUserId);
   }
 }

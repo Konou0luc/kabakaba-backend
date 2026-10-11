@@ -5,11 +5,25 @@ import { CreateReportDto } from '../dto/create-report.dto';
 import { UpdateReportDto } from '../dto/update-report.dto';
 import { FindReportsQueryDto } from '../dto/find-reports-query.dto';
 
-// Relations simples pour la fiche admin web ; l'étudiant reçoit son signalement seul.
+// Relations pour la fiche admin web ; l'étudiant reçoit son signalement seul. La commande porte ses
+// lignes, pour juger un « composant manquant » ou une « commande incomplète » (CDC 35) : seulement
+// ce que l'administration voit déjà sur une commande (nom, quantité, prix unitaire, menu ou composant).
 const REPORT_WEB_INCLUDE = {
   student: { select: { id: true, firstName: true, lastName: true, phone: true } },
   vendor: { select: { id: true, canteenName: true } },
-  order: { select: { id: true, orderNumber: true, status: true, totalTickets: true, consumptionMode: true } },
+  order: {
+    select: {
+      id: true,
+      orderNumber: true,
+      status: true,
+      totalTickets: true,
+      consumptionMode: true,
+      items: {
+        select: { id: true, menuId: true, name: true, quantity: true, unitPrice: true },
+        orderBy: { createdAt: 'asc' as const },
+      },
+    },
+  },
 } as const;
 
 // Une commande ne peut être signalée qu'une fois prête ou récupérée (cahier V1.3, section 35).
@@ -163,7 +177,22 @@ export class ReportsService {
       if (actor.role !== WebUserRole.ADMIN && actor.role !== WebUserRole.SUPERVISION) {
         throw new ForbiddenException('Accès refusé à ce signalement');
       }
-      return report;
+      // Une ligne porte soit un menu (menuId), soit un composant libre : on expose ce fait sous
+      // la forme `kind`, sans les identifiants internes.
+      const { order } = report as typeof report & { order: { items: { id: string; menuId: string | null; name: string; quantity: number; unitPrice: number }[] } };
+      return {
+        ...report,
+        order: {
+          ...order,
+          items: order.items.map(({ id: itemId, menuId, name, quantity, unitPrice }) => ({
+            id: itemId,
+            name,
+            quantity,
+            unitPrice,
+            kind: menuId ? ('MENU' as const) : ('COMPONENT' as const),
+          })),
+        },
+      };
     }
 
     // Côté mobile, seul l'étudiant auteur du signalement y accède.
@@ -174,17 +203,22 @@ export class ReportsService {
     return report;
   }
 
-  async update(id: string, updateReportDto: UpdateReportDto) {
+  // treatedByWebUserId : administrateur web connecté, lu dans le jeton par le contrôleur (jamais dans
+  // le corps). Il est enregistré à chaque passage à IN_PROGRESS ou RESOLVED : le dernier administrateur
+  // qui change le statut remplace le précédent. resolvedAt est posé au premier passage à RESOLVED.
+  async update(id: string, updateReportDto: UpdateReportDto, treatedByWebUserId?: string) {
     const existing = await this.prisma.report.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Signalement avec l'identifiant ${id} introuvable`);
 
-    const resolvedAt =
-      updateReportDto.status === ReportStatus.RESOLVED && !existing.resolvedAt ? new Date() : undefined;
+    const { status } = updateReportDto;
+    const resolvedAt = status === ReportStatus.RESOLVED && !existing.resolvedAt ? new Date() : undefined;
+    const isTreatment = status === ReportStatus.IN_PROGRESS || status === ReportStatus.RESOLVED;
 
     return this.prisma.report.update({
       where: { id },
       data: {
-        ...updateReportDto,
+        ...(status ? { status } : {}),
+        ...(isTreatment && treatedByWebUserId ? { treatedByWebUserId } : {}),
         ...(resolvedAt ? { resolvedAt } : {}),
       },
     });
