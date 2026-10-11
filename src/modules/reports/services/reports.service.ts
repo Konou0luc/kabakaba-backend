@@ -15,6 +15,7 @@ const REPORT_WEB_INCLUDE = {
     select: {
       id: true,
       orderNumber: true,
+      createdAt: true,
       status: true,
       totalTickets: true,
       consumptionMode: true,
@@ -115,7 +116,7 @@ export class ReportsService {
         include: {
           student: { select: { id: true, firstName: true, lastName: true, campus: { select: { id: true, name: true } } } },
           vendor: { select: { id: true, canteenName: true } },
-          order: { select: { id: true, orderNumber: true } },
+          order: { select: { id: true, orderNumber: true, createdAt: true } },
         },
       }),
     ]);

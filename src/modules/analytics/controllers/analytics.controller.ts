@@ -20,7 +20,10 @@ export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
   @Get('orders-summary')
-  @ApiOperation({ summary: 'Commandes et chiffre d\'affaires sur une période (UTC), sans notion de campus' })
+  @ApiOperation({
+    summary:
+      "Commandes (par date de création) et chiffre d'affaires (par date de passage en « Prête ») sur une période (UTC), sans notion de campus",
+  })
   @ApiResponse({ status: 200, description: 'Totaux de la période et détail jour par jour (tous les jours présents).' })
   getOrdersSummary(@Query() query: OrdersSummaryQueryDto) {
     return this.analyticsService.getOrdersSummary(query.from, query.to);

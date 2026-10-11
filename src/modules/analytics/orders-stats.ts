@@ -7,11 +7,19 @@ import { utcDayKey } from './stats-range';
 // d'affaires et les ventes. 1 ticket = 1 FCFA.
 export const CREDITED_STATUSES = ['READY', 'RECEIVED'] as const;
 
+// Commande créée dans la période : sert aux compteurs (rattachés à `createdAt`).
 export interface OrderRow {
   createdAt: Date;
   status: string;
-  totalTickets: number;
   unclaimedAt: Date | null;
+}
+
+// Commande créditée à la vendeuse dans la période : sert au chiffre d'affaires (rattaché à `readyAt`,
+// comme l'écran des ventes de la vendeuse), qu'elle ait été créée dans la période ou avant.
+export interface CreditedOrderRow {
+  readyAt: Date | null;
+  status: string;
+  totalTickets: number;
 }
 
 export interface OrdersSummary {
@@ -39,7 +47,16 @@ export function completionRate(received: number, cancelled: number): number {
   return decided > 0 ? Math.round((received / decided) * 100) : 0;
 }
 
-export function summarizeOrders(rows: OrderRow[], dayKeys: string[]): OrdersSummary {
+/**
+ * Compteurs : `createdRows`, rattachés au jour UTC de `createdAt`.
+ * Chiffre d'affaires : `creditedRows`, rattachés au jour UTC de `readyAt` (statuts READY et RECEIVED
+ * seulement). Une ligne hors intervalle, ou sans `readyAt`, est ignorée.
+ */
+export function summarizeOrders(
+  createdRows: OrderRow[],
+  creditedRows: CreditedOrderRow[],
+  dayKeys: string[],
+): OrdersSummary {
   const daily = new Map(dayKeys.map((date) => [date, { date, orders: 0, revenueTickets: 0, cancelledOrders: 0 }]));
   let receivedOrders = 0;
   let cancelledOrders = 0;
@@ -47,7 +64,7 @@ export function summarizeOrders(rows: OrderRow[], dayKeys: string[]): OrdersSumm
   let revenueTickets = 0;
   let orders = 0;
 
-  for (const row of rows) {
+  for (const row of createdRows) {
     const day = daily.get(utcDayKey(row.createdAt));
     if (!day) continue; // hors intervalle : ignorée
     orders += 1;
@@ -58,10 +75,14 @@ export function summarizeOrders(rows: OrderRow[], dayKeys: string[]): OrdersSumm
       day.cancelledOrders += 1;
     }
     if (row.unclaimedAt) unclaimedOrders += 1;
-    if (isCredited(row.status)) {
-      revenueTickets += row.totalTickets;
-      day.revenueTickets += row.totalTickets;
-    }
+  }
+
+  for (const row of creditedRows) {
+    if (!row.readyAt || !isCredited(row.status)) continue;
+    const day = daily.get(utcDayKey(row.readyAt));
+    if (!day) continue; // hors intervalle : ignorée
+    revenueTickets += row.totalTickets;
+    day.revenueTickets += row.totalTickets;
   }
 
   return {

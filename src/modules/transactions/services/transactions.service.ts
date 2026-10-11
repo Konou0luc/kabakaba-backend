@@ -63,7 +63,7 @@ export class TransactionsService {
   private readonly displayInclude = {
     user: { select: { id: true, firstName: true, lastName: true, role: true, campus: { select: { name: true } } } },
     relatedOrder: {
-      select: { id: true, totalTickets: true, status: true, vendor: { select: { id: true, canteenName: true } } },
+      select: { id: true, orderNumber: true, totalTickets: true, status: true, vendor: { select: { id: true, canteenName: true } } },
     },
     relatedPayment: { select: { id: true, operator: true, amountFcfa: true, status: true } },
   } as const;

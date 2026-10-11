@@ -20,8 +20,10 @@ import * as crypto from 'crypto';
  * Fail-CLOSED : si CRON_SECRET n'est pas configuré côté serveur, la requête
  * est rejetée plutôt qu'acceptée en silence — même logique que
  * FEDAPAY_WEBHOOK_SECRET dans fedapay.service.ts. Un endpoint qui déclenche
- * des mouvements d'argent (recalcul de commissions, timeouts de commandes)
- * ne doit jamais être exécutable sans vérification possible.
+ * des opérations sensibles (passage des commandes programmées, qui débite des
+ * tickets et déduit du stock ; signalement des commandes non récupérées ; envoi
+ * de rappels aux étudiants) ne doit jamais être exécutable sans vérification
+ * possible.
  */
 @Injectable()
 export class CronAuthGuard implements CanActivate {

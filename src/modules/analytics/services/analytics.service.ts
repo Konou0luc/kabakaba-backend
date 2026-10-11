@@ -119,14 +119,22 @@ export class AnalyticsService {
   async getReviewsQuality(days = 30, from?: string, to?: string) { return this.withCache(`getReviewsQuality:${days}:${from ?? ''}:${to ?? ''}`, () => this.getReviewsQualityUncached(days, from, to)); }
 
   // Indicateurs d'administration sans notion de campus (CDC 39) : période en UTC, voir stats-range.ts.
+  // Les compteurs de commandes sont rattachés à la date de création ; le chiffre d'affaires est rattaché
+  // à la date de passage en « Prête » (`readyAt`), comme l'écran des ventes de la vendeuse.
   async getOrdersSummary(from?: string, to?: string) {
     const { since, until, dayKeys } = resolveUtcRange(from, to);
     return this.withCache(`getOrdersSummary:${dayKeys[0]}:${dayKeys[dayKeys.length - 1]}`, async () => {
-      const rows = await this.prisma.order.findMany({
-        where: { deletedAt: null, createdAt: { gte: since, lte: until } },
-        select: { createdAt: true, status: true, totalTickets: true, unclaimedAt: true },
-      });
-      return summarizeOrders(rows, dayKeys);
+      const [createdRows, creditedRows] = await Promise.all([
+        this.prisma.order.findMany({
+          where: { deletedAt: null, createdAt: { gte: since, lte: until } },
+          select: { createdAt: true, status: true, unclaimedAt: true },
+        }),
+        this.prisma.order.findMany({
+          where: { deletedAt: null, status: { in: [...CREDITED_STATUSES] }, readyAt: { gte: since, lte: until } },
+          select: { readyAt: true, status: true, totalTickets: true },
+        }),
+      ]);
+      return summarizeOrders(createdRows, creditedRows, dayKeys);
     });
   }
 
