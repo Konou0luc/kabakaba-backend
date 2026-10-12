@@ -162,7 +162,6 @@ model User {
   notifications        Notification[]
   devices              Device[]
   refreshTokens        RefreshToken[]
-  auditLogs            AuditLog[]
   payments             Payment[]
   referralsMade        Referral[]           @relation("ReferralReferrer")
   referralReceived     Referral?            @relation("ReferralReferee")
@@ -535,12 +534,8 @@ model Withdrawal {
   // de la plateforme (notamment le barème < 10 000 FCFA).
   feeRetained            Decimal          @default(0) @db.Decimal(10, 2)
   operator               String?
-  // Héritage du chantier FedaPay. payoutAmount est désormais le montant
-  // exact à envoyer manuellement ; les champs payoutReference/payoutRequestedAt
-  // restent conservés pour compatibilité avec les anciennes lignes.
+  // Montant exact à envoyer manuellement à la vendeuse.
   payoutAmount           Decimal?         @db.Decimal(10, 2)
-  payoutReference        String?          @unique
-  payoutRequestedAt      DateTime?
   payoutCompletedAt      DateTime?
   acceptedAt             DateTime?
   acceptedByWebUserId    String?
@@ -703,7 +698,6 @@ model RateLimitBucket {
 
 model AuditLog {
   id        String    @id @default(uuid())
-  adminId   String?
   action    String
   entity    String
   entityId  String
@@ -711,7 +705,6 @@ model AuditLog {
   createdAt DateTime  @default(now())
   deletedAt DateTime?
 
-  admin     User?    @relation(fields: [adminId], references: [id])
   webUserId String?
   webUser   WebUser? @relation(fields: [webUserId], references: [id])
 }

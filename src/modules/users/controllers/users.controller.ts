@@ -49,7 +49,7 @@ export class UsersController {
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
   @Roles(UserRole.ADMIN)
   @WebRoles(WebUserRole.SUPERVISION, WebUserRole.ADMIN)
-  @ApiOperation({ summary: 'Récupérer tous les utilisateurs (admin/super admin/dashboard web)' })
+  @ApiOperation({ summary: 'Récupérer tous les utilisateurs (administrateur mobile, comptes web Admin et Supervision)' })
   @ApiQuery({ type: FindUsersQueryDto })
   @ApiResponse({ status: 200, description: 'Retourne tous les utilisateurs avec pagination.' })
   findAll(@Query() query: FindUsersQueryDto) {

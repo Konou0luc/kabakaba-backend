@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { platformCoveredWithdrawalFee } from '../../vendors/pricing/withdrawal-fees';
 import { resolveUtcRange } from '../stats-range';

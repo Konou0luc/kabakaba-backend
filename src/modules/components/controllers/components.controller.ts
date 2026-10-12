@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserRole, WebUserRole } from '@prisma/client';
-import { ComponentsActor, ComponentsService } from '../services/components.service';
+import { ComponentsService } from '../services/components.service';
+import { VendorActor } from '../../../common/utils/vendor-access';
 import { CreateComponentCategoryDto } from '../dto/create-component-category.dto';
 import { UpdateComponentCategoryDto } from '../dto/update-component-category.dto';
 import { CreateComponentDto } from '../dto/create-component.dto';
@@ -15,7 +16,7 @@ import { Public } from '../../../common/decorators/public.decorator';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 
-function actorFromRequest(req: any): ComponentsActor {
+function actorFromRequest(req: any): VendorActor {
   return {
     id: req.user.id,
     role: req.user.role,

@@ -14,7 +14,8 @@ export class FindTransactionsQueryDto extends PaginationDto {
   @IsEnum(TransactionStatus)
   status?: TransactionStatus;
 
-  @ApiProperty({ required: false, description: 'Filtrer par identifiant utilisateur (admin/super admin seulement)' })
+  @ApiProperty({ required: false, description:
+      'Filtrer par identifiant utilisateur. Appliqué uniquement pour les comptes web Admin et Supervision ; ignoré pour les autres, qui ne voient que leurs propres transactions.', })
   @IsOptional()
   @IsString()
   userId?: string;

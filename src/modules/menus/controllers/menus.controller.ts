@@ -1,7 +1,8 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { UserRole, WebUserRole } from '@prisma/client';
-import { MenusActor, MenusService } from '../services/menus.service';
+import { MenusService } from '../services/menus.service';
+import { VendorActor } from '../../../common/utils/vendor-access';
 import { CreateMenuDto } from '../dto/create-menu.dto';
 import { UpdateMenuDto } from '../dto/update-menu.dto';
 import { ManagedMenuEntity, PublicMenuEntity } from '../entities/menu.entity';
@@ -11,7 +12,7 @@ import { Public } from '../../../common/decorators/public.decorator';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 
-function actorFromRequest(req: any): MenusActor {
+function actorFromRequest(req: any): VendorActor {
   return {
     id: req.user.id,
     role: req.user.role,

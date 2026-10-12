@@ -1,16 +1,11 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateMenuDto } from '../dto/create-menu.dto';
 import { UpdateMenuDto } from '../dto/update-menu.dto';
 import { MenuLineDto } from '../dto/menu-line.dto';
 import { menuPriceTickets, menuUnavailableComponents } from '../menu-pricing';
-
-export interface MenusActor {
-  id: string;
-  role: UserRole;
-  isAdmin: boolean;
-}
+import { assertCanActOnVendor, resolveTargetVendorId, VendorActor } from '../../../common/utils/vendor-access';
 
 // Les lignes sont chargées avec les composants : prix et disponibilité sont calculés
 // à chaque lecture, jamais stockés.
@@ -30,35 +25,6 @@ type MenuWithLines = Prisma.MenuGetPayload<{ include: typeof MENU_INCLUDE }>;
 @Injectable()
 export class MenusService {
   constructor(private readonly prisma: PrismaService) {}
-
-  // ─── Autorisation (même schéma que le module components) ──────────
-  // Une vendeuse n'agit que sur sa propre cantine (résolue depuis son compte),
-  // l'administrateur sur toutes.
-
-  private async resolveOwnVendorId(actor: MenusActor): Promise<string> {
-    const vendor = await this.prisma.vendor.findUnique({ where: { userId: actor.id } });
-    if (!vendor) {
-      throw new ForbiddenException('Aucune cantine associée à ce compte vendeur');
-    }
-    return vendor.id;
-  }
-
-  private async assertCanActOnVendor(vendorId: string, actor: MenusActor) {
-    if (actor.isAdmin) return;
-    const ownVendorId = await this.resolveOwnVendorId(actor);
-    if (vendorId !== ownVendorId) {
-      throw new ForbiddenException('Cet élément appartient à une autre cantine');
-    }
-  }
-
-  // vendorId du client ignoré pour une vendeuse ; obligatoire et vérifié pour un administrateur.
-  private async resolveTargetVendorId(dtoVendorId: string | undefined, actor: MenusActor): Promise<string> {
-    if (!actor.isAdmin) return this.resolveOwnVendorId(actor);
-    if (!dtoVendorId) throw new BadRequestException('vendorId est requis');
-    const vendor = await this.prisma.vendor.findUnique({ where: { id: dtoVendorId, deletedAt: null } });
-    if (!vendor) throw new NotFoundException(`Vendor with id ${dtoVendorId} not found`);
-    return vendor.id;
-  }
 
   // ─── Validation des lignes ────────────────────────────────────────
 
@@ -115,8 +81,8 @@ export class MenusService {
 
   // ─── Routes ───────────────────────────────────────────────────────
 
-  async create(dto: CreateMenuDto, actor: MenusActor) {
-    const vendorId = await this.resolveTargetVendorId(dto.vendorId, actor);
+  async create(dto: CreateMenuDto, actor: VendorActor) {
+    const vendorId = await resolveTargetVendorId(this.prisma, dto.vendorId, actor);
     const lines = await this.validateLines(dto.lines, vendorId);
     const menu = await this.prisma.menu.create({
       data: {
@@ -142,8 +108,8 @@ export class MenusService {
   }
 
   // Gestion (vendeuse propriétaire ou admin) : actifs et inactifs, jamais les supprimés.
-  async findManaged(vendorId: string, actor: MenusActor) {
-    await this.assertCanActOnVendor(vendorId, actor);
+  async findManaged(vendorId: string, actor: VendorActor) {
+    await assertCanActOnVendor(this.prisma, vendorId, actor);
     const menus = await this.prisma.menu.findMany({
       where: { vendorId, deletedAt: null },
       include: MENU_INCLUDE,
@@ -152,14 +118,14 @@ export class MenusService {
     return menus.map((menu) => this.toManagedView(menu));
   }
 
-  private async assertMenuOwnership(id: string, actor: MenusActor) {
+  private async assertMenuOwnership(id: string, actor: VendorActor) {
     const menu = await this.prisma.menu.findUnique({ where: { id, deletedAt: null } });
     if (!menu) throw new NotFoundException(`Menu with id ${id} not found`);
-    await this.assertCanActOnVendor(menu.vendorId, actor);
+    await assertCanActOnVendor(this.prisma, menu.vendorId, actor);
     return menu;
   }
 
-  async update(id: string, dto: UpdateMenuDto, actor: MenusActor) {
+  async update(id: string, dto: UpdateMenuDto, actor: VendorActor) {
     const menu = await this.assertMenuOwnership(id, actor);
 
     // Les champs obligatoires ne peuvent pas être mis à null (IsOptional laisse passer null).
@@ -185,7 +151,7 @@ export class MenusService {
     return this.toManagedView(updated!);
   }
 
-  async remove(id: string, actor: MenusActor) {
+  async remove(id: string, actor: VendorActor) {
     await this.assertMenuOwnership(id, actor);
     await this.prisma.menu.update({ where: { id }, data: { deletedAt: new Date() } });
     return { id, deleted: true };

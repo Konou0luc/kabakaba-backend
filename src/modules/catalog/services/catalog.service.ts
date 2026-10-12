@@ -1,51 +1,24 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateTakeawayOptionDto } from '../dto/create-takeaway-option.dto';
 import { UpdateTakeawayOptionDto } from '../dto/update-takeaway-option.dto';
-import { UserRole } from '@prisma/client';
+import { assertCanActOnVendor, resolveTargetVendorId, VendorActor } from '../../../common/utils/vendor-access';
 
-export interface CatalogActor {
-  id: string;
-  role: UserRole;
-  isAdmin: boolean;
-}
+// Message du refus (403) propre aux options d'emporté.
+const FOREIGN_OPTION_MESSAGE = 'Cette option appartient à une autre cantine';
 
 @Injectable()
 export class CatalogService {
   constructor(private readonly prisma: PrismaService) {}
 
-  // Résout le Vendor possédé par l'utilisateur connecté (rôle VENDOR).
-  private async resolveOwnVendorId(actor: CatalogActor): Promise<string> {
-    const vendor = await this.prisma.vendor.findUnique({ where: { userId: actor.id } });
-    if (!vendor) {
-      throw new ForbiddenException("Aucune cantine associée à ce compte vendeur");
-    }
-    return vendor.id;
-  }
-
   // Options d'emporté (propres à une cantine)
   // Une vendeuse n'agit que sur sa propre cantine (résolue depuis son compte),
-  // l'administrateur sur toutes.
-  private async assertCanActOnVendor(vendorId: string, actor: CatalogActor) {
-    if (actor.isAdmin) return;
-    const ownVendorId = await this.resolveOwnVendorId(actor);
-    if (vendorId !== ownVendorId) {
-      throw new ForbiddenException('Cette option appartient à une autre cantine');
-    }
-  }
+  // l'administrateur sur toutes (voir common/utils/vendor-access.ts).
 
-  async createTakeawayOption(dto: CreateTakeawayOptionDto, actor: CatalogActor) {
+  async createTakeawayOption(dto: CreateTakeawayOptionDto, actor: VendorActor) {
     // vendorId fourni par le client ignoré pour une vendeuse ;
     // obligatoire et vérifié pour un administrateur.
-    let vendorId: string;
-    if (actor.isAdmin) {
-      if (!dto.vendorId) throw new BadRequestException('vendorId est requis');
-      const vendor = await this.prisma.vendor.findUnique({ where: { id: dto.vendorId, deletedAt: null } });
-      if (!vendor) throw new NotFoundException(`Vendor with id ${dto.vendorId} not found`);
-      vendorId = vendor.id;
-    } else {
-      vendorId = await this.resolveOwnVendorId(actor);
-    }
+    const vendorId = await resolveTargetVendorId(this.prisma, dto.vendorId, actor);
     const { vendorId: _ignored, ...data } = dto;
     return this.prisma.takeawayOption.create({ data: { ...data, vendorId } });
   }
@@ -57,8 +30,8 @@ export class CatalogService {
 
   // Vue de gestion (vendeuse propriétaire ou admin) : actives et inactives,
   // jamais les supprimées.
-  async findManagedTakeawayOptions(vendorId: string, actor: CatalogActor, page: number = 1, limit: number = 10) {
-    await this.assertCanActOnVendor(vendorId, actor);
+  async findManagedTakeawayOptions(vendorId: string, actor: VendorActor, page: number = 1, limit: number = 10) {
+    await assertCanActOnVendor(this.prisma, vendorId, actor, FOREIGN_OPTION_MESSAGE);
     return this.paginateTakeawayOptions({ vendorId, deletedAt: null }, page, limit);
   }
 
@@ -80,18 +53,18 @@ export class CatalogService {
     return option;
   }
 
-  private async assertTakeawayOptionOwnership(id: string, actor: CatalogActor) {
+  private async assertTakeawayOptionOwnership(id: string, actor: VendorActor) {
     const option = await this.findOneTakeawayOption(id);
-    await this.assertCanActOnVendor(option.vendorId, actor);
+    await assertCanActOnVendor(this.prisma, option.vendorId, actor, FOREIGN_OPTION_MESSAGE);
     return option;
   }
 
-  async updateTakeawayOption(id: string, dto: UpdateTakeawayOptionDto, actor: CatalogActor) {
+  async updateTakeawayOption(id: string, dto: UpdateTakeawayOptionDto, actor: VendorActor) {
     await this.assertTakeawayOptionOwnership(id, actor);
     return this.prisma.takeawayOption.update({ where: { id }, data: dto });
   }
 
-  async removeTakeawayOption(id: string, actor: CatalogActor) {
+  async removeTakeawayOption(id: string, actor: VendorActor) {
     await this.assertTakeawayOptionOwnership(id, actor);
     return this.prisma.takeawayOption.update({ where: { id }, data: { deletedAt: new Date() } });
   }

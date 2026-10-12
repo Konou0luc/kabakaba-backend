@@ -54,7 +54,7 @@ export class TransactionsService {
 
     return {
       transactionsToday,
-      escrow: { total: Number(pendingOrders._sum.totalTickets ?? 0), count: pendingOrders._count },
+      pending: { total: Number(pendingOrders._sum.totalTickets ?? 0), count: pendingOrders._count },
       debitsCompleted: Number(debitedOrders._sum.totalTickets ?? 0),
       refunds: { total: Number(refundedOrders._sum.refundedTickets ?? 0), count: refundedOrders._count },
     };

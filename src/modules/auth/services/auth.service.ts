@@ -203,7 +203,7 @@ export class AuthService {
           }
         }
 
-        // CDC 2.1 — campus obligatoire à la première inscription.
+        // Campus obligatoire à la première inscription.
         if (!campusId?.trim()) {
           throw new BadRequestException(
             "Le campus est obligatoire à l'inscription. Veuillez sélectionner votre campus.",

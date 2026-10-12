@@ -104,20 +104,8 @@ export class ReviewsService {
     };
   }
 
-  async findOne(id: string) {
-    const review = await this.prisma.review.findUnique({
-      where: { id, deletedAt: null },
-      select: PUBLIC_REVIEW_SELECT,
-    });
-
-    if (!review) throw new NotFoundException(`Avis avec l'identifiant ${id} introuvable`);
-
-    return review;
-  }
-
-  // Usage interne uniquement (update/remove) : a besoin de studentId pour la
-  // vérification de propriété — ne jamais exposer directement via un
-  // contrôleur, contrairement à findOne() qui est la projection publique.
+  // Usage interne uniquement (update) : a besoin de studentId pour la
+  // vérification de propriété — ne jamais exposer directement via un contrôleur.
   private async findOneInternal(id: string) {
     const review = await this.prisma.review.findUnique({
       where: { id, deletedAt: null },

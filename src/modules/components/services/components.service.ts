@@ -1,11 +1,10 @@
 import {
   BadRequestException,
   ConflictException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserRole } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateComponentCategoryDto } from '../dto/create-component-category.dto';
 import { UpdateComponentCategoryDto } from '../dto/update-component-category.dto';
@@ -14,12 +13,7 @@ import { UpdateComponentDto } from '../dto/update-component.dto';
 import { AdjustStockDto } from '../dto/adjust-stock.dto';
 import { VendorNotificationsService } from '../../notifications/services/vendor-notifications.service';
 import { hasCrossedLowStockThreshold } from '../../notifications/low-stock';
-
-export interface ComponentsActor {
-  id: string;
-  role: UserRole;
-  isAdmin: boolean;
-}
+import { assertCanActOnVendor, resolveTargetVendorId, VendorActor } from '../../../common/utils/vendor-access';
 
 @Injectable()
 export class ComponentsService {
@@ -28,39 +22,10 @@ export class ComponentsService {
     private readonly vendorNotifications: VendorNotificationsService,
   ) {}
 
-  // ─── Autorisation (même schéma que les options d'emporté) ─────────
-  // Une vendeuse n'agit que sur sa propre cantine (résolue depuis son compte),
-  // l'administrateur sur toutes.
-
-  private async resolveOwnVendorId(actor: ComponentsActor): Promise<string> {
-    const vendor = await this.prisma.vendor.findUnique({ where: { userId: actor.id } });
-    if (!vendor) {
-      throw new ForbiddenException('Aucune cantine associée à ce compte vendeur');
-    }
-    return vendor.id;
-  }
-
-  private async assertCanActOnVendor(vendorId: string, actor: ComponentsActor) {
-    if (actor.isAdmin) return;
-    const ownVendorId = await this.resolveOwnVendorId(actor);
-    if (vendorId !== ownVendorId) {
-      throw new ForbiddenException('Cet élément appartient à une autre cantine');
-    }
-  }
-
-  // vendorId du client ignoré pour une vendeuse ; obligatoire et vérifié pour un administrateur.
-  private async resolveTargetVendorId(dtoVendorId: string | undefined, actor: ComponentsActor): Promise<string> {
-    if (!actor.isAdmin) return this.resolveOwnVendorId(actor);
-    if (!dtoVendorId) throw new BadRequestException('vendorId est requis');
-    const vendor = await this.prisma.vendor.findUnique({ where: { id: dtoVendorId, deletedAt: null } });
-    if (!vendor) throw new NotFoundException(`Vendor with id ${dtoVendorId} not found`);
-    return vendor.id;
-  }
-
   // ─── Catégories ───────────────────────────────────────────────────
 
-  async createCategory(dto: CreateComponentCategoryDto, actor: ComponentsActor) {
-    const vendorId = await this.resolveTargetVendorId(dto.vendorId, actor);
+  async createCategory(dto: CreateComponentCategoryDto, actor: VendorActor) {
+    const vendorId = await resolveTargetVendorId(this.prisma, dto.vendorId, actor);
     return this.prisma.componentCategory.create({ data: { vendorId, name: dto.name } });
   }
 
@@ -72,19 +37,19 @@ export class ComponentsService {
     });
   }
 
-  private async assertCategoryOwnership(id: string, actor: ComponentsActor) {
+  private async assertCategoryOwnership(id: string, actor: VendorActor) {
     const category = await this.prisma.componentCategory.findUnique({ where: { id, deletedAt: null } });
     if (!category) throw new NotFoundException(`Component category with id ${id} not found`);
-    await this.assertCanActOnVendor(category.vendorId, actor);
+    await assertCanActOnVendor(this.prisma, category.vendorId, actor);
     return category;
   }
 
-  async updateCategory(id: string, dto: UpdateComponentCategoryDto, actor: ComponentsActor) {
+  async updateCategory(id: string, dto: UpdateComponentCategoryDto, actor: VendorActor) {
     await this.assertCategoryOwnership(id, actor);
     return this.prisma.componentCategory.update({ where: { id }, data: { name: dto.name } });
   }
 
-  async removeCategory(id: string, actor: ComponentsActor) {
+  async removeCategory(id: string, actor: VendorActor) {
     await this.assertCategoryOwnership(id, actor);
     const used = await this.prisma.component.count({ where: { categoryId: id, deletedAt: null } });
     if (used > 0) {
@@ -105,8 +70,8 @@ export class ComponentsService {
     }
   }
 
-  async createComponent(dto: CreateComponentDto, actor: ComponentsActor) {
-    const vendorId = await this.resolveTargetVendorId(dto.vendorId, actor);
+  async createComponent(dto: CreateComponentDto, actor: VendorActor) {
+    const vendorId = await resolveTargetVendorId(this.prisma, dto.vendorId, actor);
     if (dto.categoryId) await this.assertCategoryBelongsToVendor(dto.categoryId, vendorId);
     const { vendorId: _ignored, ...data } = dto;
     return this.prisma.component.create({ data: { ...data, vendorId } });
@@ -124,22 +89,22 @@ export class ComponentsService {
   }
 
   // Gestion (vendeuse propriétaire ou admin) : tous les champs, jamais les supprimés.
-  async findManagedComponents(vendorId: string, actor: ComponentsActor) {
-    await this.assertCanActOnVendor(vendorId, actor);
+  async findManagedComponents(vendorId: string, actor: VendorActor) {
+    await assertCanActOnVendor(this.prisma, vendorId, actor);
     return this.prisma.component.findMany({
       where: { vendorId, deletedAt: null },
       orderBy: { createdAt: 'asc' },
     });
   }
 
-  private async assertComponentOwnership(id: string, actor: ComponentsActor) {
+  private async assertComponentOwnership(id: string, actor: VendorActor) {
     const component = await this.prisma.component.findUnique({ where: { id, deletedAt: null } });
     if (!component) throw new NotFoundException(`Component with id ${id} not found`);
-    await this.assertCanActOnVendor(component.vendorId, actor);
+    await assertCanActOnVendor(this.prisma, component.vendorId, actor);
     return component;
   }
 
-  async updateComponent(id: string, dto: UpdateComponentDto, actor: ComponentsActor) {
+  async updateComponent(id: string, dto: UpdateComponentDto, actor: VendorActor) {
     const component = await this.assertComponentOwnership(id, actor);
 
     // Les champs obligatoires ne peuvent pas être mis à null (IsOptional laisse passer null).
@@ -166,7 +131,7 @@ export class ComponentsService {
   // Un retrait qui fait passer la quantité de « au moins le seuil » à « sous le seuil » envoie une
   // alerte « Stock faible » à la vendeuse (CDC 41) : la quantité d'avant est la quantité renvoyée
   // par l'écriture plus le retrait. Aucune alerte pour un ajout.
-  async adjustStock(id: string, dto: AdjustStockDto, actor: ComponentsActor) {
+  async adjustStock(id: string, dto: AdjustStockDto, actor: VendorActor) {
     await this.assertComponentOwnership(id, actor);
 
     const amount = Math.abs(dto.delta);
@@ -204,7 +169,7 @@ export class ComponentsService {
     }
   }
 
-  async removeComponent(id: string, actor: ComponentsActor) {
+  async removeComponent(id: string, actor: VendorActor) {
     await this.assertComponentOwnership(id, actor);
 
     // Un composant utilisé par un menu non supprimé (actif ou non) ne peut pas être supprimé.

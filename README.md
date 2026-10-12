@@ -35,6 +35,7 @@ consulter `src/` pour les valeurs par défaut et le caractère obligatoire de ch
 | CORS et URL | `CORS_ALLOWED_ORIGINS`, `APP_URL` |
 | Crons internes | `CRON_SECRET` |
 | Commandes non récupérées | `UNCLAIMED_ORDER_DELAY_MINUTES` (facultative : entier positif, en minutes, défaut 60 ; toute autre valeur retombe sur 60) |
+| Exécution | `PORT` (facultative, défaut 3000), `NEST_SERVERLESS` (facultative, `true` pour le mode serverless hors Vercel) ; `NODE_ENV`, `VERCEL` et `VERCEL_ENV` sont lues mais fournies par la plateforme |
 | Documentation Swagger | `SWAGGER_USER`, `SWAGGER_PASSWORD` |
 | Paiements (FedaPay) | `FEDAPAY_SECRET_KEY`, `FEDAPAY_WEBHOOK_SECRET`, `FEDAPAY_BASE_URL` |
 | SMS (AfriqSMS) | `AFRIQSMS_API_KEY`, `AFRIQSMS_CLIENT_ID`, `AFRIQSMS_SENDER_ID`, `AFRIQSMS_BASE_URL` |

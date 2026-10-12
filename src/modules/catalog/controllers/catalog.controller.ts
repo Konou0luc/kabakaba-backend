@@ -17,7 +17,8 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
-import { CatalogService, CatalogActor } from '../services/catalog.service';
+import { CatalogService } from '../services/catalog.service';
+import { VendorActor } from '../../../common/utils/vendor-access';
 import { CreateTakeawayOptionDto } from '../dto/create-takeaway-option.dto';
 import { UpdateTakeawayOptionDto } from '../dto/update-takeaway-option.dto';
 import { TakeawayOptionEntity } from '../entities/takeaway-option.entity';
@@ -29,7 +30,7 @@ import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.g
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { Public } from '../../../common/decorators/public.decorator';
 
-function actorFromRequest(req: any): CatalogActor {
+function actorFromRequest(req: any): VendorActor {
   return {
     id: req.user.id,
     role: req.user.role,

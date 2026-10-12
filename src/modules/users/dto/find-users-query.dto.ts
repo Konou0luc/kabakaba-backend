@@ -17,7 +17,9 @@ export class FindUsersQueryDto extends PaginationDto {
 
   @ApiProperty({ required: false, description: 'Filtrer par statut de suspension' })
   @IsOptional()
+  // Un paramètre d'URL est une chaîne : « false » devient true avec enableImplicitConversion (main.ts).
+  // On lit donc la valeur d'origine ; toute autre chaîne reste telle quelle et @IsBoolean la refuse (400).
+  @Transform(({ obj, key }) => (obj[key] === 'true' ? true : obj[key] === 'false' ? false : obj[key]))
   @IsBoolean()
-  @Transform(({ value }) => value === 'true' || value === true)
   isSuspended?: boolean;
 }

@@ -34,7 +34,7 @@ export class VerifyOtpDto {
   @IsString()
   referralCode?: string;
 
-  // CDC 2.1 — campus d'appartenance à l'inscription (ex. UCAO, UL).
+  // Campus d'appartenance à l'inscription (ex. UCAO, UL).
   // Requis uniquement à la première création de compte ; ignoré à la reconnexion.
   @ApiPropertyOptional({
     example: 'uuid-campus',
