@@ -49,14 +49,22 @@ sont absentes.
 
 ## Base de données
 
-Schéma dans `prisma/schema.prisma`, migrations dans `prisma/migrations/`.
-Appliquer les migrations avec `npx prisma migrate deploy`.
+Schéma dans `prisma/schema.prisma`, migrations dans `prisma/migrations/`. Les migrations s'appliquent avec
+`npx prisma migrate deploy` (jamais `migrate dev` ni `migrate reset` sur une base qui porte l'index
+partiel des signalements).
+
+**À faire avant la mise en service** : l'historique de migrations d'avant la refonte ne correspond plus au
+schéma ; il doit être remplacé par une migration initiale unique, régénérée sur un poste de développement,
+puis appliquée à la base vide. La procédure complète, les commandes et les vérifications sont dans
+`docs/MIGRATION.md`. Ne pas lancer `prisma migrate deploy` sur la production avant cette régénération.
 
 ## Déploiement (Vercel)
 
 `vercel.json` redirige toutes les requêtes vers `api/index.js`, qui charge l'application compilée
 dans `dist/`. Les tâches planifiées sont des workflows GitHub Actions (`.github/workflows/`) qui
-appellent les routes `internal/cron/*` (authentifiées par `CRON_SECRET`) et `GET /api/v1/health` :
+appellent les routes `internal/cron/*` et `GET /api/v1/health`. Les routes de cron sont authentifiées par
+l'en-tête `x-cron-secret` : la valeur doit être la même dans la variable d'environnement Vercel `CRON_SECRET`
+et dans le **secret GitHub Actions** du même nom (`Settings > Secrets and variables > Actions`).
 
 | Workflow | Fréquence |
 |---|---|
@@ -68,3 +76,11 @@ appellent les routes `internal/cron/*` (authentifiées par `CRON_SECRET`) et `GE
 
 La planification GitHub Actions peut être retardée de quelques minutes : une commande programmée peut
 donc être passée un peu après son heure prévue.
+
+## Documentation du dépôt
+
+| Document | Contenu |
+|---|---|
+| `docs/MIGRATION.md` | Régénération de la migration initiale unique et application sur une base vide (Neon) |
+| `docs/API_MOBILE.md` | Contrat d'API pour l'équipe mobile : routes ajoutées, modifiées, supprimées, notifications |
+| `docs/ESSAIS_BASE_REELLE.md` | Essais à faire sur une vraie base avant l'ouverture aux utilisateurs |
