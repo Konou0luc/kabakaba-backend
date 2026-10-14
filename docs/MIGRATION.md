@@ -1,7 +1,7 @@
 # Migration initiale unique et mise en service
 
 > **État au moment de la rédaction (étape 27).** Le dossier `prisma/migrations/` contient encore
-> l'**ancien historique** (une quinzaine de migrations d'avant la refonte). Il **ne correspond plus**
+> l'**ancien historique** (28 dossiers de migrations d'avant la refonte). Il **ne correspond plus**
 > à `prisma/schema.prisma` : appliquer `npx prisma migrate deploy` en l'état créerait une base
 > différente du schéma (anciennes tables `Ambassador`, `Debt`, `Dispute`… présentes ; tables
 > `ScheduledOrder`, `Referral`, `Report`, `ComponentRupture`, `Component`, `Menu`… absentes).
@@ -15,6 +15,12 @@
 Cette procédure ne s'applique qu'à une base **sans aucune donnée** (la production est vide, il n'y a
 aucun client). Elle remplace l'historique de migrations ; elle n'est pas une migration de données.
 
+> **La base de production a déjà été migrée avec l'ancien historique.** Elle est vide de données, mais elle
+> contient les anciennes tables et la table `_prisma_migrations` de l'ancien historique : ce n'est **pas** une
+> base sans table. Il faut donc d'abord la remplacer ou la réinitialiser (étape 2 de la partie 2).
+> **Une base qui porte encore l'ancien `_prisma_migrations` ne doit jamais recevoir la nouvelle migration
+> sans cette étape** : les tables existantes entreraient en conflit avec la migration.
+
 ---
 
 ## 1. Régénérer la migration initiale unique (poste de développement)
@@ -23,6 +29,15 @@ Prérequis : Node.js, accès Internet (téléchargement du moteur Prisma), dép�
 (dernier commit : « refactor: autorisations de cantine partagées, booléens d'URL, renommage de
 escrow, commentaires et code sans usage », puis « chore: migration initiale unique, contrat d'API et
 essais sur base réelle »).
+
+**Option : script.** Un script `regenerer_migration.sh`, fourni à part, peut être placé à la racine du dépôt
+backend (`kabakaba-backend/`) pour enchaîner les cinq étapes de cette partie : installation des dépendances,
+génération de la migration, ajout de l'index partiel (1.1), vérification du SQL (1.2) et commit local (1.3). Il
+n'est pas versionné dans ce dépôt ; les commandes ci-dessous restent la référence.
+
+**L'ancien historique de migrations (`prisma/migrations/`, 28 dossiers) est supprimé du dépôt avec
+la régénération** (étape 2 des commandes) : le dossier ne contient ensuite que la migration unique et
+`migration_lock.toml`.
 
 ```bash
 cd kabakaba-backend
@@ -144,19 +159,47 @@ git push origin main
 
 ## 2. Appliquer la migration sur une base vide (Neon)
 
-À faire **une seule fois**, sur la base de production **vide**, après la partie 1.
+À faire **une seule fois**, sur une base de production **sans donnée et sans table**, après la partie 1 (l'étape 2
+ci-dessous explique comment obtenir une telle base à partir de la production actuelle).
 
 1. **Sauvegarde.** Même vide, créer une branche de sauvegarde Neon (ou un point de restauration) avant
    toute opération : `Neon > Branches > Create branch` à partir de la branche de production.
-2. **Vérifier que la base est vide.** Avec l'URL **directe** de la base (pas l'URL du pooler) :
+2. **Repartir d'une base sans table.** La production a déjà été migrée avec l'ancien historique : elle ne
+   contient aucune donnée utile, mais elle porte les anciennes tables (`Ambassador`, `Debt`, `Dispute`…) et
+   l'ancienne table `_prisma_migrations`. Choisir l'une des deux options.
+
+   - **Option A (recommandée) : créer une nouvelle base vide** dans le même projet Neon (console Neon,
+     `Databases`, nouvelle base). Utiliser **sa** chaîne de connexion : la chaîne **directe** (sans `-pooler`
+     dans le nom d'hôte) pour `prisma migrate deploy` à l'étape 4, puis la chaîne du **pooler** dans
+     `DATABASE_URL_PROD` sur Vercel à l'étape 6. L'ancienne base reste intacte et peut être supprimée plus
+     tard. Aucune vérification de données n'est nécessaire : la base est neuve.
+   - **Option B : réinitialiser le schéma de la base existante**, **uniquement après avoir vérifié qu'elle ne
+     contient aucune donnée utile**, et **après la sauvegarde par branche Neon de l'étape 1**. Avec l'URL
+     **directe**, compter les lignes des tables qui porteraient des données réelles (le solde des étudiants
+     est la colonne `User.walletBalance` : il n'existe pas de table `Wallet`) :
+     ```bash
+     psql "$URL_DIRECTE" -c 'SELECT (SELECT count(*) FROM "User") AS users, (SELECT count(*) FROM "Order") AS orders, (SELECT count(*) FROM "Transaction") AS transactions, (SELECT count(*) FROM "User" WHERE "walletBalance" <> 0) AS users_avec_solde;'
+     ```
+     Si l'une de ces valeurs n'est pas `0`, **s'arrêter** : choisir l'option A. La commande suivante supprime
+     aussi les comptes d'administration web (`WebUser`), les campus (`Campus`) et tout le reste du schéma
+     `public` : les compter (`SELECT count(*) FROM "WebUser";`, `SELECT count(*) FROM "Campus";`) et prévoir de
+     les recréer après la migration. Réinitialiser alors le schéma, avec le rôle propriétaire de la base :
+     ```bash
+     psql "$URL_DIRECTE" -c 'DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+     ```
+     Cette opération est irréversible (hors restauration de la branche de sauvegarde).
+
+   Dans les deux cas, l'ancien historique de migrations n'existe plus dans le dépôt (partie 1) et l'ancienne
+   table `_prisma_migrations` ne doit plus exister dans la base visée : l'étape 3 le contrôle.
+3. **Vérifier que la base est vide.** Avec l'URL **directe** de la base (pas l'URL du pooler) :
    ```bash
    psql "$URL_DIRECTE" -c "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public';"
    ```
-   Résultat attendu : `0` (ou seulement la table `_prisma_migrations` si elle existe déjà, vide).
-   **Si la base contient des tables ou des données, s'arrêter** : cette procédure ne s'applique qu'à
-   une base sans donnée.
-3. **Appliquer la migration.** `prisma migrate deploy` utilise `DATABASE_URL_PROD` : y mettre l'URL
-   **directe** de la base (la variante sans `-pooler` dans le nom d'hôte Neon), le temps de la
+   Résultat attendu : `0`. **Si la base contient des tables (la table `_prisma_migrations` de l'ancien
+   historique comprise) ou des données, s'arrêter** et reprendre l'étape 2 : cette procédure ne s'applique
+   qu'à une base sans donnée et sans table.
+4. **Appliquer la migration.** `prisma migrate deploy` utilise `DATABASE_URL_PROD` : y mettre l'URL
+   **directe** de la base visée à l'étape 2 (la variante sans `-pooler` dans le nom d'hôte Neon), le temps de la
    commande :
    ```bash
    cd kabakaba-backend
@@ -165,7 +208,7 @@ git push origin main
    ```
    Résultat attendu : « 1 migration found in prisma/migrations » puis « All migrations have been
    successfully applied ». Ne pas utiliser `migrate dev` ni `migrate reset`.
-4. **Vérifier les tables et l'index partiel.**
+5. **Vérifier les tables et l'index partiel.**
    ```bash
    psql "$URL_DIRECTE" -c "\dt" | head -60
    psql "$URL_DIRECTE" -c "\d \"Report\""        # doit lister Report_orderId_open_key avec le prédicat WHERE
@@ -175,16 +218,16 @@ git push origin main
    `Component`, `ComponentCategory`, `Menu`, `MenuLine`, `TakeawayOption` existent ; aucune table
    `Ambassador`, `Debt`, `MenuItem`, `MenuComponent`, `Dispute`, `VendorSchedule`, `PackagingOption`,
    `WithdrawalAppeal`, `AbuseLog`.
-5. **Remettre l'URL du pooler** dans `DATABASE_URL_PROD` sur Vercel (c'est l'URL de l'application) et
-   ne pas conserver l'URL directe dans un fichier du dépôt.
-6. **Générer le client.** Il est généré à chaque build (`npm run build` lance `prisma generate`) ;
+6. **Remettre l'URL du pooler** dans `DATABASE_URL_PROD` sur Vercel (c'est l'URL de l'application ; avec l'option A, celle de la
+   **nouvelle** base) et ne pas conserver l'URL directe dans un fichier du dépôt.
+7. **Générer le client.** Il est généré à chaque build (`npm run build` lance `prisma generate`) ;
    en local, `npx prisma generate`.
-7. **Passer aux essais.** Dérouler `docs/ESSAIS_BASE_REELLE.md` avant d'ouvrir l'application aux
+8. **Passer aux essais.** Dérouler `docs/ESSAIS_BASE_REELLE.md` avant d'ouvrir l'application aux
    utilisateurs.
 
 Réactivation des workflows : `scheduled-orders.yml`, `unclaimed-orders.yml` et
 `scheduling-reminders.yml` interrogent des tables qui n'existent qu'après cette migration. S'ils ont
-été désactivés en attendant, les réactiver une fois les vérifications de l'étape 4 passées (onglet
+été désactivés en attendant, les réactiver une fois les vérifications de l'étape 5 passées (onglet
 Actions de GitHub).
 
 ## 3. Changements de schéma ultérieurs

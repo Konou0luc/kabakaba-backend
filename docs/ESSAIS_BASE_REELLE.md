@@ -52,7 +52,14 @@ constaté dans la dernière colonne du tableau de la fin du document.
   SELECT count(*) FROM "Order" WHERE "vendorId" = '<id>' AND status = 'CONFIRMED'; -- 1 commande pour ce Riz
   SELECT id, "walletBalance" FROM "User" WHERE id IN ('<A>','<B>');               -- le perdant n'est pas débité
   ```
-- **Échec si** : stock négatif, deux commandes confirmées, un étudiant débité sans commande.
+- **Vue étudiante (sans jeton)** : `GET $API/components/<id cantine>` : `Riz` apparaît avec `available: false`, et
+  **aucune** réponse de cette route ne contient les clés `quantity`, `isAvailable` ni `lowStockThreshold` (la quantité
+  n'est pas visible des étudiants ; seule la liste de gestion, avec le jeton `V`, la renvoie).
+  ```bash
+  curl -s "$API/components/<id cantine>" | grep -c -E '"(quantity|isAvailable|lowStockThreshold)"'   # 0
+  ```
+- **Échec si** : stock négatif, deux commandes confirmées, un étudiant débité sans commande, ou une clé `quantity`,
+  `isAvailable` ou `lowStockThreshold` dans la liste publique des composants.
 
 ## 2. Numérotation : attribution, libération, simultanéité
 
@@ -226,8 +233,9 @@ Objectif : confirmer que le passage de **2 000 rappels** tient dans les **30 sec
 
 ## 11. Rupture enregistrée
 
-- **Action 1** : une commande qui amène un composant de `n` à `0`. **Attendu** : le composant devient indisponible
-  (`isAvailable = false`) et **une** ligne `ComponentRupture` est créée.
+- **Action 1** : une commande qui amène un composant de `n` à `0`. **Attendu** : `quantity = 0` (la colonne
+  `isAvailable` n'est pas modifiée : c'est le réglage de la vendeuse), le composant apparaît avec `available: false`
+  dans `GET /components/<vendorId>` (sans `quantity`) et **une** ligne `ComponentRupture` est créée.
 - **Action 2** : un retrait de stock (`PATCH …/stock`) qui amène un composant à `0`. **Attendu** : même résultat.
 - **Action 3** : deux commandes simultanées qui consomment ensemble le dernier stock : **une seule** rupture
   enregistrée pour ce passage à zéro.
