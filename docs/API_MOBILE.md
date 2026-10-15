@@ -308,6 +308,16 @@ Dans la liste `GET /reports` : `{ "data": [...], "meta": {...} }`, les plus réc
 - Tout utilisateur reçoit **automatiquement** un `referralCode` unique à la création de son compte : 8 caractères, majuscules et chiffres, sans `0`, `O`, `1`, `I` (exemple `K7M2QX9A`). Il est renvoyé dans le profil (`GET /users/me`) et dans la réponse d'authentification (`user.referralCode`).
 - `GET /referrals/me` (tout utilisateur connecté) : `{ "referralCode", "referredCount", "rewardedCount", "totalRewardTickets" }`.
 - **La saisie d'un code se fait toujours à l'inscription**, par le champ `referralCode` (facultatif) de `POST /auth/verify-otp`. Aucune route ne permet d'ajouter, modifier ou retirer un parrain ensuite : le lien est définitif. Le code est comparé sans tenir compte de la casse ni des espaces ; une chaîne vide est ignorée ; un code inconnu est refusé en 400 `Code de parrainage invalide ou inexistant`. Ce champ est ignoré quand un compte existant se reconnecte.
+
+### 5.3 bis Authentification étudiant — PIN (PWA)
+
+Parcours aligné sur le vendeur, sans mot de passe temporaire :
+
+1. **Première connexion / PIN oublié** : `POST /auth/send-otp` → `POST /auth/verify-otp` (campus + parrainage à l’inscription). Pour un compte `STUDENT`, la réponse n’émet **plus** de tokens de session : `{ "stage": "PIN_SETUP_REQUIRED", "pinSetupToken", "pinLength": 4, "phoneMasked" }`.
+2. **Pose du PIN** : `POST /auth/student/set-pin` `{ pinSetupToken, pin }` (4 chiffres, refus des PIN triviaux type `0000` / `1234`). Réponse : `user` + `accessToken` + `refreshToken`.
+3. **Connexions suivantes** : `POST /auth/student/login-pin` `{ phone, pin }` — sans SMS. Après 5 échecs : verrouillage 15 min (403).
+
+Les jetons d’étape portent un `scope` (`student_pin_setup`) et sont **refusés** par `JwtStrategy` comme access token. Le profil (`GET /users/me`) expose `hasPin` (booléen), jamais le hash.
 - **Récompense** : quand le filleul fait sa **première recharge réussie**, le parrain reçoit **100 tickets** (transaction `REFERRAL_BONUS`, notification), **une seule fois par filleul**. Pas de coupon en V1.
 - Supprimés : `POST /ambassadors/apply`, `POST /ambassadors/school-card`, `GET /ambassadors`, `GET /ambassadors/me`, `PATCH /ambassadors/:id`, et le champ `notifyAmbassador` du profil.
 

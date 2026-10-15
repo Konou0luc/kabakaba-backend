@@ -42,10 +42,14 @@ export class AuthController {
   @Post('verify-otp')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ summary: "Vérifier le code OTP et se connecter/s'inscrire" })
+  @ApiOperation({
+    summary:
+      "Vérifier le code OTP (inscription / reset PIN étudiant, ou session pour les autres rôles)",
+  })
   @ApiResponse({
     status: 200,
-    description: 'Code OTP vérifié, tokens renvoyés.',
+    description:
+      'Étudiant : stage PIN_SETUP_REQUIRED + pinSetupToken. Autres rôles : tokens de session.',
   })
   verifyOtp(@Body() verifyOtpDto: VerifyOtpDto) {
     return this.authService.verifyOtp(verifyOtpDto);

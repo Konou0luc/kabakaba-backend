@@ -28,11 +28,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: { sub: string; role: string; scope?: string }) {
-    // SÉCURITÉ : les jetons intermédiaires du parcours d'activation vendeur
-    // (scope vendor_onboarding / vendor_pin_setup) sont signés avec une clé
-    // dérivée distincte, mais on refuse en plus explicitement tout jeton
-    // porteur d'un `scope` ici. Un jeton d'étape ne doit jamais pouvoir
-    // servir de token d'accès, même si la dérivation de clé changeait.
+    // SÉCURITÉ : les jetons d'étape (vendor_onboarding / vendor_pin_setup /
+    // student_pin_setup) sont signés avec une clé dérivée distincte, mais on
+    // refuse en plus explicitement tout jeton porteur d'un `scope` ici. Un
+    // jeton d'étape ne doit jamais pouvoir servir de token d'accès.
     if (payload.scope) return null;
 
     let user = await this.prisma.user.findUnique({

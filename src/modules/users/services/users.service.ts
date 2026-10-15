@@ -48,12 +48,15 @@ const HIDDEN_USER_KEYS = [
 type HiddenUserKey = (typeof HIDDEN_USER_KEYS)[number];
 
 /** Retire les secrets du compte avant tout envoi au client. */
-export function sanitize<T extends object>(user: T): Omit<T, HiddenUserKey> {
+export function sanitize<T extends object>(
+  user: T,
+): Omit<T, HiddenUserKey> & { hasPin: boolean } {
   const copy = { ...(user as Record<string, unknown>) };
+  const hasPin = Boolean(copy.pinHash);
   for (const key of HIDDEN_USER_KEYS) {
     delete copy[key];
   }
-  return copy as Omit<T, HiddenUserKey>;
+  return { ...(copy as Omit<T, HiddenUserKey>), hasPin };
 }
 
 @Injectable()

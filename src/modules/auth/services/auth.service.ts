@@ -4,6 +4,8 @@ import {
   BadRequestException,
   ForbiddenException,
   ServiceUnavailableException,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -20,6 +22,7 @@ import {
   generateUniqueReferralCode,
   normalizeReferralCode,
 } from '../../referrals/referral-code';
+import { StudentAuthService } from './student-auth.service';
 
 @Injectable()
 export class AuthService {
@@ -29,6 +32,8 @@ export class AuthService {
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
     private readonly smsService: SmsService,
+    @Inject(forwardRef(() => StudentAuthService))
+    private readonly studentAuthService: StudentAuthService,
   ) {}
 
   async sendOtp(sendOtpDto: SendOtpDto) {
@@ -245,6 +250,18 @@ export class AuthService {
       });
     }
 
+    // Étudiant : pas de session tant que le PIN n’est pas posé (1ʳᵉ fois
+    // ou reset via OTP). Les connexions suivantes passent par login-pin.
+    if (user.role === UserRole.STUDENT) {
+      if (user.deletedAt) {
+        throw new ForbiddenException(
+          'Ce compte a été désactivé. Contacte le support kabakaba.',
+        );
+      }
+      return this.studentAuthService.issuePinSetupGrant(user.id, phone);
+    }
+
+    // Autres rôles (ex. vendeur via OTP legacy) : tokens classiques.
     const tokens = await this.issueTokens(user.id, user.role);
     await this.persistRefreshToken(user.id, tokens.refreshToken);
 
