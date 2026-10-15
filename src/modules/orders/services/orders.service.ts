@@ -469,9 +469,10 @@ export class OrdersService {
   };
 
   async update(id: string, updateOrderDto: UpdateOrderDto, actor: Actor) {
-    // L'étudiant ne change jamais le statut d'une commande.
-    if (!actor.isAdmin && actor.role !== UserRole.VENDOR) {
-      throw new ForbiddenException('Seuls la vendeuse et l’administrateur peuvent changer le statut d’une commande');
+    // CDC §26–28 : seul le cycle vendeuse fait avancer la commande. L’admin
+    // n’intervient pas sur les statuts (comme pour l’annulation, CDC §33).
+    if (actor.isAdmin || actor.role !== UserRole.VENDOR) {
+      throw new ForbiddenException('Seule la vendeuse peut changer le statut d’une commande');
     }
 
     // findOne vérifie aussi que la commande appartient à la cantine de la vendeuse.
@@ -552,12 +553,12 @@ export class OrdersService {
   }
 
   /**
-   * Annulation.
-   * - étudiant : ses propres commandes, tant qu'elles sont CONFIRMED ;
+   * Annulation (CDC §33).
+   * - étudiant : ses propres commandes, tant qu'elles sont CONFIRMED (motif optionnel) ;
    * - vendeuse : les commandes de sa cantine, avant READY (CONFIRMED ou
-   *   IN_PREPARATION) : elle n'est créditée qu'à READY ;
-   * - le motif est obligatoire pour tous les auteurs ;
-   * - personne n'annule une commande READY, RECEIVED ou déjà CANCELLED.
+   *   IN_PREPARATION), motif obligatoire ;
+   * - personne n'annule une commande READY, RECEIVED ou déjà CANCELLED ;
+   * - l'administrateur n'annule jamais.
    * Remboursement intégral en tickets et restitution du stock réservé,
    * appliqués une seule fois : le changement de statut conditionnel, la
    * restitution et le remboursement sont dans la même transaction.
@@ -594,8 +595,8 @@ export class OrdersService {
       throw new ForbiddenException('Vous ne pouvez pas annuler cette commande');
     }
 
-    // Motif obligatoire pour tous les auteurs, contrôlé avant toute écriture.
-    if (!reason) {
+    // CDC §33 : motif obligatoire uniquement pour la vendeuse.
+    if (cancelledBy === OrderCancelledBy.VENDOR && !reason) {
       throw new BadRequestException('Un motif est obligatoire pour annuler une commande');
     }
 
@@ -623,7 +624,7 @@ export class OrdersService {
           cancelledAt: new Date(),
           cancelledBy,
           cancelledById: changedById,
-          cancellationReason: reason,
+          cancellationReason: reason ?? null,
           refundedTickets: order.totalTickets,
           // L'annulation libère le numéro, attribuable aussitôt à une autre commande.
           activeOrderNumber: null,
@@ -685,7 +686,25 @@ export class OrdersService {
     });
 
     await this.notifyStudentOrderStatus(order.studentId, OrderStatus.CANCELLED, order.vendorId);
+    // CDC §41 : notification « remboursement » distincte de « commande annulée ».
+    await this.notifyStudentRefund(order.studentId, order.totalTickets);
     return { order: updated };
+  }
+
+  private async notifyStudentRefund(studentId: string, tickets: number) {
+    try {
+      await this.notifications.notifyUser(
+        studentId,
+        'Remboursement',
+        `${tickets} ticket${tickets > 1 ? 's' : ''} ont été recrédités sur ton portefeuille.`,
+        NotificationType.SUCCESS,
+      );
+    } catch (error) {
+      this.logger.error(
+        `Notif remboursement impossible student=${studentId}`,
+        error instanceof Error ? error.stack : error,
+      );
+    }
   }
 
   private async notifyStudentOrderStatus(
@@ -718,7 +737,7 @@ export class OrdersService {
       },
       [OrderStatus.CANCELLED]: {
         title: 'Commande annulée',
-        message: `Ta commande chez ${place} a été annulée. Tes tickets ont été remboursés.`,
+        message: `Ta commande chez ${place} a été annulée.`,
         type: NotificationType.WARNING,
       },
     };

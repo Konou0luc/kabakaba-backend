@@ -1,16 +1,21 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsNotEmpty, IsString, MaxLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength } from 'class-validator';
 
 export class CancelOrderDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     maxLength: 500,
-    description: 'Motif de l’annulation : obligatoire',
+    description:
+      'Motif de l’annulation. Obligatoire pour la vendeuse (CDC §33) ; optionnel pour l’étudiant.',
   })
-  // Espaces de début et de fin retirés avant la validation : un motif d'espaces est vide.
-  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
+  // Espaces retirés ; une chaîne vide devient undefined (motif absent).
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    return trimmed === '' ? undefined : trimmed;
+  })
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MaxLength(500)
-  reason: string;
+  reason?: string;
 }

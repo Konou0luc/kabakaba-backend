@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { UserRole, VendorCapacity } from '@prisma/client';
+import { OrderStatus, UserRole, VendorCapacity } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
@@ -449,9 +449,24 @@ export class VendorsService {
     if (!vendor) {
       throw new NotFoundException('Profil vendeur introuvable pour ce compte');
     }
+
+    // CDC §38 : montants en attente = commandes confirmées / en préparation
+    // (créditées au solde uniquement au passage à « Prête »).
+    const pending = await this.prisma.order.aggregate({
+      where: {
+        vendorId: vendor.id,
+        deletedAt: null,
+        status: { in: [OrderStatus.CONFIRMED, OrderStatus.IN_PREPARATION] },
+      },
+      _sum: { totalTickets: true },
+      _count: { _all: true },
+    });
+
     return {
       ...vendor,
       balanceFcfa: Number(vendor.balanceFcfa),
+      pendingAmountTickets: pending._sum.totalTickets ?? 0,
+      pendingOrdersCount: pending._count._all,
       campuses: vendor.campuses.map((vc) => vc.campus),
       campusName: vendor.campuses[0]?.campus.name ?? '',
       phone: vendor.user?.phone ?? null,

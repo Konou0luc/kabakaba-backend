@@ -21,6 +21,21 @@ export class VendorEntity extends BaseEntity {
   @ApiProperty({ example: 1500.50 })
   balanceFcfa: number;
 
+  @ApiProperty({
+    example: 3500,
+    required: false,
+    description:
+      'Montants en attente (tickets) : commandes Confirmée / En préparation non encore créditées (CDC §38). Présent sur GET /vendors/me.',
+  })
+  pendingAmountTickets?: number;
+
+  @ApiProperty({
+    example: 2,
+    required: false,
+    description: 'Nombre de commandes dont le montant est encore en attente. Présent sur GET /vendors/me.',
+  })
+  pendingOrdersCount?: number;
+
   @ApiProperty({ example: true })
   isActive: boolean;
 

@@ -104,21 +104,23 @@ export class OrdersController {
 
   @Patch(':id')
   @ApiBearerAuth()
-  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.VENDOR)
-  @WebRoles(WebUserRole.ADMIN)
-  @ApiOperation({ summary: "Faire avancer le statut d'une commande, dans l'ordre (Admin web ou Vendeuse)" })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.VENDOR)
+  @ApiOperation({
+    summary: "Faire avancer le statut d'une commande, dans l'ordre (Vendeuse uniquement)",
+    description:
+      'Cycle CDC §26 : Confirmée → En préparation → Prête → Récupérée. Réservé à la vendeuse de la cantine. L’administrateur ne change pas le statut des commandes.',
+  })
   @ApiResponse({
     status: 200,
     description: 'La commande a été mise à jour avec succès.',
     type: OrderEntity,
   })
   update(@Param('id') id: string, @Body() updateOrderDto: UpdateOrderDto, @Request() req) {
-    const isAdmin = req.user.role === UserRole.ADMIN;
     return this.ordersService.update(id, updateOrderDto, {
       id: req.user.id,
       role: req.user.role,
-      isAdmin,
+      isAdmin: false,
       authKind: req.user.__authKind,
     });
   }
@@ -130,7 +132,7 @@ export class OrdersController {
   @ApiOperation({
     summary: 'Annuler une commande (étudiant ou vendeuse)',
     description:
-      "Étudiant : ses commandes tant qu'elles sont CONFIRMED. Vendeuse : les commandes de sa cantine en CONFIRMED ou IN_PREPARATION. Le motif est obligatoire pour tous. Aucune annulation en READY, RECEIVED ou CANCELLED. L'administrateur n'annule jamais. Remboursement intégral en tickets, une seule fois.",
+      "Étudiant : ses commandes tant qu'elles sont CONFIRMED (motif optionnel). Vendeuse : les commandes de sa cantine en CONFIRMED ou IN_PREPARATION (motif obligatoire). Aucune annulation en READY, RECEIVED ou CANCELLED. L'administrateur n'annule jamais. Remboursement intégral en tickets, une seule fois.",
   })
   @ApiResponse({ status: 200, description: 'Commande annulée et remboursée : { order }' })
   cancel(@Param('id') id: string, @Body() dto: CancelOrderDto, @Request() req) {

@@ -34,7 +34,7 @@ l'administration web et sont listées pour information.
 | Contenu d'une commande | plats (`menuItemId`, composants, emballage) | **menus pré-composés** (`menuId`) et **composants libres** (`componentId`) |
 | Sur place ou à emporter | emballage (`packagingOptionId`) | `consumptionMode` (`ON_SITE` ou `TAKEAWAY`) et `takeawayOptionId` |
 | Ouverture de la cantine | `isOpen` et horaires | `capacityStatus` : `OPEN`, `BUSY`, `CLOSED` ; **plus d'horaires** |
-| Annulation | étudiant seulement, tant que `PENDING` | étudiant (`CONFIRMED`) ou vendeuse (`CONFIRMED`, `IN_PREPARATION`), **motif obligatoire** |
+| Annulation | étudiant seulement, tant que `PENDING` | étudiant (`CONFIRMED`, motif optionnel) ou vendeuse (`CONFIRMED`, `IN_PREPARATION`, **motif obligatoire**) |
 | Numéro de commande | aucun | `orderNumber` par cantine (`A-00` à `Z-10`) |
 | Litiges, créances, appels de retrait, transferts, ambassadeurs | présents | **supprimés** (voir partie 6) |
 | Nouveautés | | commandes programmées, signalements, parrainage, composants/menus, ventes par période, notifications vendeuse |
@@ -105,7 +105,7 @@ Refus fréquents (400 sauf mention) :
 
 ### 2.2 `PATCH /orders/:id` : modifiée (vendeuse)
 
-Rôles : `VENDOR` (sa propre cantine) ; l'administration web (`ADMIN`) peut aussi changer le statut. Corps : `{ "status": "IN_PREPARATION" | "READY" | "RECEIVED" }`.
+Rôles : `VENDOR` uniquement (sa propre cantine). L'administration ne change pas le statut des commandes. Corps : `{ "status": "IN_PREPARATION" | "READY" | "RECEIVED" }`.
 
 - Transitions **dans l'ordre strict** : `CONFIRMED` → `IN_PREPARATION` → `READY` → `RECEIVED`. Toute autre transition est refusée (400).
 - `RECEIVED` (« Récupérée ») est posé **manuellement** par la vendeuse. Il n'y a plus de passage automatique.
@@ -118,7 +118,7 @@ Rôles : `VENDOR` (sa propre cantine) ; l'administration web (`ADMIN`) peut auss
 
 Rôles : `STUDENT` **et maintenant `VENDOR`** (avant : étudiant seulement).
 
-Corps (nouveau, **obligatoire**) : `{ "reason": "texte non vide" }` (espaces de début et de fin retirés, 500 caractères au plus). Le motif est obligatoire pour tous les auteurs.
+Corps : `{ "reason": "texte" }` (optionnel pour l'étudiant ; **obligatoire pour la vendeuse**, espaces de début et de fin retirés, 500 caractères au plus).
 
 | Auteur | Statuts annulables |
 |---|---|
@@ -126,9 +126,9 @@ Corps (nouveau, **obligatoire**) : `{ "reason": "texte non vide" }` (espaces de 
 | Vendeuse (sa cantine) | `CONFIRMED` et `IN_PREPARATION` |
 | Les deux | **plus aucune annulation à partir de `READY`** |
 
-Effets : statut `CANCELLED`, `cancelledBy` (`STUDENT` ou `VENDOR`), `cancellationReason`, `cancelledAt`, **remboursement intégral en tickets** (`refundedTickets`, transaction `REFUND`), **stock restitué**, notification à l'étudiant. Réponse **201** : `{ "order": { ... } }` (la commande annulée, champs propres seulement, sans `items`).
+Effets : statut `CANCELLED`, `cancelledBy` (`STUDENT` ou `VENDOR`), `cancellationReason` (si fourni), `cancelledAt`, **remboursement intégral en tickets** (`refundedTickets`, transaction `REFUND`), **stock restitué**, notifications étudiant « Commande annulée » puis « Remboursement ». Réponse **200** : `{ "order": { ... } }` (la commande annulée, champs propres seulement, sans `items`).
 
-Refus : 400 `Un motif est obligatoire pour annuler une commande` (ou validation du champ `reason`), 400 `Cette commande est déjà annulée`, 400 `Vous ne pouvez annuler une commande que tant qu’elle est confirmée` (étudiant) ou `Une commande ne peut plus être annulée une fois prête ou récupérée` (vendeuse), 400 `La commande a été modifiée entre-temps : annulation impossible` (requête simultanée), 403 commande d'un autre étudiant ou d'une autre cantine, 404 commande introuvable.
+Refus : 400 `Un motif est obligatoire pour annuler une commande` (vendeuse sans motif), 400 `Cette commande est déjà annulée`, 400 `Vous ne pouvez annuler une commande que tant qu’elle est confirmée` (étudiant) ou `Une commande ne peut plus être annulée une fois prête ou récupérée` (vendeuse), 400 `La commande a été modifiée entre-temps : annulation impossible` (requête simultanée), 403 commande d'un autre étudiant ou d'une autre cantine, 404 commande introuvable.
 
 Un administrateur n'annule jamais une commande (403).
 
@@ -206,7 +206,7 @@ Corps de `POST /scheduled-orders` :
 
 Objet renvoyé : `id`, `studentId`, `vendorId`, `scheduledFor`, `consumptionMode`, `takeawayOptionId`, `items` (`[{ menuId?, componentId?, quantity }]`), `status`, `orderId`, `failureReason`, `processedAt`, `cancelledAt`, `createdAt`, `updatedAt`, `vendor: { id, canteenName }`, `order: { id, orderNumber, status }` (null tant que non passée).
 
-Exécution (côté serveur, toutes les 5 minutes, avec un retard possible de quelques minutes, 20 commandes au plus par passage) : à l'heure prévue la commande est créée par la même logique que `POST /orders`, **avec une différence : une cantine `BUSY` est acceptée**. Succès : `PLACED` avec `orderId`, notification « Commande confirmée ». Échec (cantine `CLOSED` ou inactive, stock insuffisant, solde insuffisant, article supprimé…) : `FAILED` avec `failureReason`, rien n'est débité, notification « Commande programmée non passée ». Une commande `PLACED` suit ensuite les règles d'une commande normale (annulation avec motif, etc.).
+Exécution (côté serveur, toutes les 5 minutes, avec un retard possible de quelques minutes, 20 commandes au plus par passage) : à l'heure prévue la commande est créée par la même logique que `POST /orders`, **avec une différence : une cantine `BUSY` est acceptée**. Succès : `PLACED` avec `orderId`, notification « Commande confirmée ». Échec (cantine `CLOSED` ou inactive, stock insuffisant, solde insuffisant, article supprimé…) : `FAILED` avec `failureReason`, rien n'est débité, notification « Commande programmée non passée ». Une commande `PLACED` suit ensuite les règles d'une commande normale (annulation selon le rôle, etc.).
 
 ---
 
@@ -218,7 +218,7 @@ Exécution (côté serveur, toutes les 5 minutes, avec un retard possible de que
 - `PATCH /vendors/me` : le corps accepte `capacityStatus` (remplace `isOpen`) ainsi que `canteenName`, `logoUrl`, `bannerUrl` et `description`. Les champs `isActive`, `suspensionReason` et `campusIds` passent la validation mais sont **ignorés** sur cette route. 403 `Compte vendeur inactif — modification impossible` si la cantine est inactive. Réponse 200 : la cantine à jour (champs propres, dont `userId`), `balanceFcfa` en nombre, sans `campuses`.
 - Les fiches publiques (`GET /vendors`, `GET /vendors/:id`) renvoient `id`, `canteenName`, `logoUrl`, `bannerUrl`, `description`, `isActive`, `capacityStatus`, `createdAt`.
 - Effets : `OPEN` accepte tout ; `BUSY` n'accepte plus de commande **immédiate** mais honore les commandes **programmées** ; `CLOSED` bloque tout, programmées comprises.
-- Le profil `GET /vendors/me` renvoie : `id`, `userId`, `canteenName`, `logoUrl`, `bannerUrl`, `description`, `balanceFcfa` (nombre), `isActive`, `capacityStatus`, `suspendedAt`, `suspensionReason`, `createdAt`, `updatedAt`, `user: { phone }`, `campuses` (`[{ id, name, city, institution }]`), `campusName` (premier campus) et `phone`.
+- Le profil `GET /vendors/me` renvoie : `id`, `userId`, `canteenName`, `logoUrl`, `bannerUrl`, `description`, `balanceFcfa` (nombre, solde disponible), `pendingAmountTickets` (montants en attente : commandes `CONFIRMED` / `IN_PREPARATION`), `pendingOrdersCount`, `isActive`, `capacityStatus`, `suspendedAt`, `suspensionReason`, `createdAt`, `updatedAt`, `user: { phone }`, `campuses` (`[{ id, name, city, institution }]`), `campusName` (premier campus) et `phone`.
 
 ### 4.2 Composants et catégories (nouveau)
 
@@ -334,7 +334,7 @@ Le mobile ne doit plus appeler ces routes (elles répondent 404).
 | Composants de plat | `POST /catalog/menu-components`, `GET /catalog/menu-components/:itemId`, `GET /catalog/menu-components/detail/:id`, `PATCH/DELETE /catalog/menu-components/:id` | `/components` |
 | Emballages | `POST /catalog/packaging-options`, `GET /catalog/packaging-options/:itemId`, `GET /catalog/packaging-options/detail/:id`, `PATCH/DELETE /catalog/packaging-options/:id` | options d'emporté (`/catalog/takeaway-options`) |
 | Horaires | `GET/POST /vendors/:vendorId/schedules`, `DELETE /vendors/:vendorId/schedules/:id` | `capacityStatus` |
-| Remboursement vendeuse | `POST /orders/:id/refund` | `POST /orders/:id/cancel` (motif obligatoire) |
+| Remboursement vendeuse | `POST /orders/:id/refund` | `POST /orders/:id/cancel` (motif obligatoire pour la vendeuse) |
 | Transferts | `POST /wallet/send` | aucun (fonction supprimée) |
 | Litiges | `POST /disputes`, `GET /disputes`, `GET /disputes/stats`, `GET /disputes/:id`, `GET /disputes/:id/context`, `PATCH /disputes/:id` | signalements (`/reports`) |
 | Créances | `GET /transactions/debts` | aucun |
@@ -355,7 +355,8 @@ Les notifications sont créées dans l'application (liste) et envoyées en push.
 | Étudiant | commande confirmée | Commande confirmée | `Ta commande chez <cantine> est confirmée.` | `SUCCESS` |
 | Étudiant | passage à `IN_PREPARATION` | Commande en préparation | `<cantine> prépare ta commande.` | `INFO` |
 | Étudiant | passage à `READY` | Commande prête | `Ta commande chez <cantine> est prête. Va la récupérer.` | `SUCCESS` |
-| Étudiant | annulation | Commande annulée | `Ta commande chez <cantine> a été annulée. Tes tickets ont été remboursés.` | `WARNING` |
+| Étudiant | annulation | Commande annulée | `Ta commande chez <cantine> a été annulée.` | `WARNING` |
+| Étudiant | remboursement (après annulation) | Remboursement | `<n> ticket(s) ont été recrédités sur ton portefeuille.` | `SUCCESS` |
 | Vendeuse | nouvelle commande (immédiate ou programmée exécutée) | Nouvelle commande | `Commande A-05 (sur place).` ou `Commande A-05 (à emporter).` | `INFO` |
 | Vendeuse | un composant passe de « au moins le seuil » à « sous le seuil » (commande ou retrait de stock) | Stock faible | `<composant> : il ne reste que <n> en stock.` | `WARNING` |
 | Étudiant | commande programmée en échec | Commande programmée non passée | `Ta commande programmée chez <cantine> n'a pas pu être passée (<motif>). Aucun ticket n'a été débité.` | `WARNING` |
