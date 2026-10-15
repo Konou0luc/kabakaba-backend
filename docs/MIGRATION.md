@@ -1,16 +1,14 @@
 # Migration initiale unique et mise en service
 
-> **État au moment de la rédaction (étape 27).** Le dossier `prisma/migrations/` contient encore
-> l'**ancien historique** (28 dossiers de migrations d'avant la refonte). Il **ne correspond plus**
-> à `prisma/schema.prisma` : appliquer `npx prisma migrate deploy` en l'état créerait une base
-> différente du schéma (anciennes tables `Ambassador`, `Debt`, `Dispute`… présentes ; tables
-> `ScheduledOrder`, `Referral`, `Report`, `ComponentRupture`, `Component`, `Menu`… absentes).
-> **Ne pas déployer ni appliquer de migration avant d'avoir fait la partie 1 ci-dessous.**
+> **État actuel.** `prisma/migrations/` contient **une seule migration**, `20261014083729_init`, plus
+> `migration_lock.toml`. Elle a été générée par le moteur officiel de Prisma à partir de
+> `prisma/schema.prisma` (36 tables, 12 enums, clés et index du schéma), puis complétée de l'index
+> unique partiel des signalements (voir 1.1). L'ancien historique (28 dossiers) a été supprimé.
 >
-> La régénération n'a pas pu être faite dans l'environnement qui a préparé l'étape 27 : le moteur
-> Prisma (`schema-engine`) ne peut pas y être téléchargé (`binaries.prisma.sh` injoignable), donc
-> `prisma migrate diff` ne produit rien. Le SQL n'a volontairement **pas** été écrit à la main.
-> Les commandes exactes à lancer sur un poste normal sont ci-dessous.
+> **La partie 1 n'est donc plus à faire** : elle reste la procédure pour régénérer la migration si
+> `prisma/schema.prisma` change avant la mise en service. **La partie 2 reste obligatoire** : cette
+> migration se déploie sur une base **sans table**, jamais sur la base qui porte l'ancien
+> `_prisma_migrations` (voir l'étape 2 de la partie 2).
 
 Cette procédure ne s'applique qu'à une base **sans aucune donnée** (la production est vide, il n'y a
 aucun client). Elle remplace l'historique de migrations ; elle n'est pas une migration de données.

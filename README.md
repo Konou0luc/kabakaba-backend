@@ -53,10 +53,9 @@ Schéma dans `prisma/schema.prisma`, migrations dans `prisma/migrations/`. Les m
 `npx prisma migrate deploy` (jamais `migrate dev` ni `migrate reset` sur une base qui porte l'index
 partiel des signalements).
 
-**À faire avant la mise en service** : l'historique de migrations d'avant la refonte ne correspond plus au
-schéma ; il doit être remplacé par une migration initiale unique, régénérée sur un poste de développement,
-puis appliquée à la base vide. La procédure complète, les commandes et les vérifications sont dans
-`docs/MIGRATION.md`. Ne pas lancer `prisma migrate deploy` sur la production avant cette régénération.
+**Migration initiale unique** : `prisma/migrations/` contient une seule migration (`*_init`) qui crée tout le
+schéma. Elle s'applique sur une base **sans aucune table** (voir `docs/MIGRATION.md`, partie 2) ; ne jamais
+l'appliquer sur une base qui porte encore l'ancien historique de migrations.
 
 ## Déploiement (Vercel)
 

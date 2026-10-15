@@ -1,2 +1,0 @@
-ALTER TABLE "Withdrawal" ADD COLUMN IF NOT EXISTS "operator" TEXT;
-ALTER TABLE "Withdrawal" ADD COLUMN IF NOT EXISTS "payoutAmount" DECIMAL(10,2);
