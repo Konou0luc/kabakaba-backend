@@ -7,6 +7,7 @@ import { UpdateVendorDto } from '../dto/update-vendor.dto';
 import { FindVendorsForAdminQueryDto } from '../dto/find-vendors-for-admin-query.dto';
 import { SalesGroupBy, SalesQueryDto } from '../dto/sales-query.dto';
 import { generateUniqueReferralCode } from '../../referrals/referral-code';
+import { toTogoE164 } from '../../../common/utils/phone-e164';
 
 const SALT_ROUNDS = 10;
 
@@ -67,6 +68,13 @@ export class VendorsService {
       throw new NotFoundException(`Campus introuvable(s) : ${missing.join(', ')}`);
     }
 
+    const canonicalPhone = toTogoE164(phone);
+    if (!canonicalPhone) {
+      throw new BadRequestException(
+        'Numéro de téléphone invalide. Utilise un numéro togolais à 8 chiffres.',
+      );
+    }
+
     const hashedPassword = await bcrypt.hash(temporaryPassword, SALT_ROUNDS);
 
     try {
@@ -75,7 +83,7 @@ export class VendorsService {
           data: {
             firstName,
             lastName,
-            phone,
+            phone: canonicalPhone,
             email,
             password: hashedPassword,
             role: UserRole.VENDOR,

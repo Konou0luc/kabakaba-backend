@@ -16,7 +16,8 @@
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/src/main",
-    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix"
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "bootstrap:supervision": "node scripts/bootstrap-supervision.mjs"
   },
   "dependencies": {
     "@nestjs/axios": "^4.0.1",

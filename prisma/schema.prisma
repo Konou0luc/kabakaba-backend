@@ -136,11 +136,11 @@ model User {
   suspensionUntil    DateTime?
   suspensionReason   String?
   mustChangePassword Boolean   @default(false)
-  // Authentification vendeur mobile par code PIN (voir VendorAuthService).
+  // Authentification mobile par code PIN (vendeur + étudiant).
   // pinHash est un bcrypt appliqué NON PAS au PIN brut mais à son HMAC
-  // poivré côté serveur : un PIN à 4 chiffres ne représente que 10 000
-  // combinaisons, donc une fuite de la base seule ne doit pas suffire à le
-  // retrouver hors ligne sans le secret applicatif.
+  // poivré côté serveur (préfixe distinct vendor-pin / student-pin) : un PIN
+  // à 4 chiffres ne représente que 10 000 combinaisons, donc une fuite de la
+  // base seule ne doit pas suffire à le retrouver hors ligne sans le secret.
   pinHash            String?
   pinFailedAttempts  Int       @default(0)
   pinLockedUntil     DateTime?

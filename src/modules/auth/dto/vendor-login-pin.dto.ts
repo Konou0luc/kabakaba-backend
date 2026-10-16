@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsPhoneNumber, IsString, Matches } from 'class-validator';
+import { NormalizeTogoPhone } from '../../../common/utils/phone-e164';
 import { VENDOR_PIN_LENGTH } from '../constants/vendor-pin.constants';
 
 export class VendorLoginPinDto {
@@ -7,6 +8,7 @@ export class VendorLoginPinDto {
     example: '+22890000000',
     description: 'Numéro de téléphone du compte vendeur',
   })
+  @NormalizeTogoPhone()
   @IsPhoneNumber()
   @IsNotEmpty()
   phone!: string;

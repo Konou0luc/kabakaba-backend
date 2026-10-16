@@ -10,7 +10,7 @@ import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
-import { sanitize } from '../../users/services/users.service';
+import { sanitize, UsersService } from '../../users/services/users.service';
 import { AuthService } from './auth.service';
 import { VendorActivateStartDto } from '../dto/vendor-activate-start.dto';
 import { VendorActivateVerifyOtpDto } from '../dto/vendor-activate-verify-otp.dto';
@@ -47,6 +47,7 @@ import {
 export class VendorAuthService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly usersService: UsersService,
     private readonly authService: AuthService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
@@ -55,7 +56,7 @@ export class VendorAuthService {
   async activateStart(dto: VendorActivateStartDto) {
     const { phone, password } = dto;
 
-    const user = await this.prisma.user.findUnique({ where: { phone } });
+    const user = await this.usersService.findByPhone(phone);
 
     // Message volontairement identique pour « numéro inconnu », « compte non
     // vendeur » et « mot de passe faux » : l'écran de connexion ne doit pas
@@ -63,10 +64,15 @@ export class VendorAuthService {
     const invalid = new UnauthorizedException(
       'Numéro de téléphone ou mot de passe invalide',
     );
-    if (!user || !user.password || user.role !== UserRole.VENDOR) throw invalid;
+    if (!user || !user.password || user.role !== UserRole.VENDOR || !user.phone) {
+      throw invalid;
+    }
     if (!(await bcrypt.compare(password, user.password))) throw invalid;
 
-    this.assertAccountUsable(user);
+    const account = await this.usersService.canonicalizePhone(user);
+    if (!account.phone) throw invalid;
+
+    this.assertAccountUsable(account);
 
     const vendor = await this.prisma.vendor.findFirst({
       where: { userId: user.id, deletedAt: null },
@@ -80,15 +86,15 @@ export class VendorAuthService {
 
     // L'OTP n'est envoyé qu'après validation complète des identifiants, pour
     // ne pas transformer cette route en générateur de SMS gratuits.
-    await this.authService.sendOtp({ phone });
+    await this.authService.sendOtp({ phone: account.phone });
 
     return {
       stage: 'OTP_REQUIRED' as const,
       onboardingToken: await this.signStepToken(
-        user.id,
+        account.id,
         VENDOR_SCOPE_ONBOARDING,
       ),
-      phoneMasked: maskPhone(phone),
+      phoneMasked: maskPhone(account.phone),
       pinLength: VENDOR_PIN_LENGTH,
     };
   }
@@ -176,12 +182,14 @@ export class VendorAuthService {
   async loginPin(dto: VendorLoginPinDto) {
     const { phone, pin } = dto;
 
-    const user = await this.prisma.user.findUnique({ where: { phone } });
+    const user = await this.usersService.findByPhone(phone);
 
     const invalid = new UnauthorizedException(
       'Numéro de téléphone ou code PIN invalide',
     );
-    if (!user || user.role !== UserRole.VENDOR || !user.pinHash) throw invalid;
+    if (!user || user.role !== UserRole.VENDOR || !user.pinHash || !user.phone) {
+      throw invalid;
+    }
 
     this.assertAccountUsable(user);
 
@@ -198,14 +206,15 @@ export class VendorAuthService {
 
     // Succès : on repart d'un compteur vierge, sinon des échecs espacés dans
     // le temps finiraient par verrouiller un vendeur légitime.
-    if (user.pinFailedAttempts !== 0 || user.pinLockedUntil) {
+    const account = await this.usersService.canonicalizePhone(user);
+    if (account.pinFailedAttempts !== 0 || account.pinLockedUntil) {
       await this.prisma.user.update({
-        where: { id: user.id },
+        where: { id: account.id },
         data: { pinFailedAttempts: 0, pinLockedUntil: null },
       });
     }
 
-    return this.openSession(user);
+    return this.openSession(account);
   }
 
   private async openSession(user: {

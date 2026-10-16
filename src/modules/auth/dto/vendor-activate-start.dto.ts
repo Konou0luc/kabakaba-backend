@@ -1,11 +1,13 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsNotEmpty, IsPhoneNumber, IsString } from 'class-validator';
+import { NormalizeTogoPhone } from '../../../common/utils/phone-e164';
 
 export class VendorActivateStartDto {
   @ApiProperty({
     example: '+22890000000',
     description: 'Numéro de téléphone du compte vendeur',
   })
+  @NormalizeTogoPhone()
   @IsPhoneNumber()
   @IsNotEmpty()
   phone!: string;

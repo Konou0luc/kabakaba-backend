@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsEmail, IsNotEmpty, IsPhoneNumber, IsString, MinLength } from 'class-validator';
+import { NormalizeTogoPhone } from '../../../common/utils/phone-e164';
 
 /**
  * Informations personnelles de la personne qui détient physiquement la
@@ -21,6 +22,7 @@ export class CreateVendorPersonDto {
 
   @ApiProperty({ example: '+22890000000', description: 'Téléphone de contact du vendeur' })
   @IsNotEmpty()
+  @NormalizeTogoPhone()
   @IsPhoneNumber('TG')
   phone: string;
 

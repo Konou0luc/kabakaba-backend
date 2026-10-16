@@ -1,9 +1,11 @@
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
+import { toTogoE164 } from '../../../common/utils/phone-e164';
 import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
@@ -134,8 +136,61 @@ export class UsersService {
     return this.prisma.user.findUnique({ where: { email } });
   }
 
+  /**
+   * Retrouve un compte par téléphone, quelle que soit la forme saisie à la
+   * création (`+228 90 12 34 56`, `90123456`…). Ne réécrit rien : la mise au
+   * format canonique se fait après une authentification réussie.
+   */
   async findByPhone(phone: string) {
-    return this.prisma.user.findUnique({ where: { phone } });
+    const canonical = toTogoE164(phone);
+    const lookup = canonical ?? phone;
+
+    const exact = await this.prisma.user.findUnique({
+      where: { phone: lookup },
+    });
+    if (exact || !canonical) return exact;
+
+    const national = canonical.slice(4);
+    const candidates = await this.prisma.user.findMany({
+      where: { phone: { contains: national } },
+      take: 20,
+    });
+    const matches = candidates.filter(
+      (user) => toTogoE164(user.phone) === canonical,
+    );
+    return matches.length === 1 ? matches[0] : null;
+  }
+
+  /**
+   * Aligne `User.phone` sur `+228` + 8 chiffres. Indispensable avant l'envoi
+   * d'un OTP : le code est rangé sous le numéro tel qu'il est en base, et la
+   * vérification relit cette même colonne.
+   */
+  async canonicalizePhone<T extends { id: string; phone: string | null }>(
+    user: T,
+  ): Promise<T> {
+    const canonical = toTogoE164(user.phone);
+    if (!canonical || user.phone === canonical) return user;
+
+    try {
+      const updated = await this.prisma.user.update({
+        where: { id: user.id },
+        data: { phone: canonical },
+      });
+      return { ...user, ...updated };
+    } catch (error) {
+      if (
+        typeof error === 'object' &&
+        error !== null &&
+        'code' in error &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'Ce numéro est déjà associé à un autre compte. Contacte un administrateur kabakaba.',
+        );
+      }
+      throw error;
+    }
   }
 
   async update(id: string, updateUserDto: UpdateUserDto, actor: Actor) {
