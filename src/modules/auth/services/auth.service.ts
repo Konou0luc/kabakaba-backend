@@ -15,7 +15,6 @@ import { UsersService, sanitize } from '../../users/services/users.service';
 import { SmsService } from '../../sms/services/sms.service';
 import { SendOtpDto } from '../dto/send-otp.dto';
 import { VerifyOtpDto } from '../dto/verify-otp.dto';
-import { LoginEmailDto } from '../dto/login-email.dto';
 import * as bcrypt from 'bcrypt';
 import { UserRole } from '@prisma/client';
 import {
@@ -261,38 +260,9 @@ export class AuthService {
       return this.studentAuthService.issuePinSetupGrant(user.id, phone);
     }
 
-    // Autres rôles (ex. vendeur via OTP legacy) : tokens classiques.
-    const tokens = await this.issueTokens(user.id, user.role);
-    await this.persistRefreshToken(user.id, tokens.refreshToken);
-
-    return {
-      user: sanitize(user),
-      ...tokens,
-    };
-  }
-
-  async loginEmail(loginEmailDto: LoginEmailDto) {
-    const { email, password } = loginEmailDto;
-
-    const user = await this.usersService.findByEmail(email);
-    if (!user) throw new UnauthorizedException('Identifiants invalides');
-
-    if (!user.password)
-      throw new UnauthorizedException(
-        'Veuillez utiliser la connexion par téléphone',
-      );
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid)
-      throw new UnauthorizedException('Identifiants invalides');
-
-    const tokens = await this.issueTokens(user.id, user.role);
-    await this.persistRefreshToken(user.id, tokens.refreshToken);
-
-    return {
-      user: sanitize(user),
-      ...tokens,
-    };
+    throw new ForbiddenException(
+      'La connexion se fait avec le numéro de téléphone et le code PIN.',
+    );
   }
 
   /**
@@ -441,8 +411,8 @@ export class AuthService {
       );
     }
 
-    const accessExpiresIn = this.tokenTtl('JWT_ACCESS_EXPIRES', '7d');
-    const refreshExpiresIn = this.tokenTtl('JWT_REFRESH_EXPIRES', '30d');
+    const accessExpiresIn = this.tokenTtl('JWT_ACCESS_EXPIRES', '15m');
+    const refreshExpiresIn = this.tokenTtl('JWT_REFRESH_EXPIRES', '7d');
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(
@@ -473,7 +443,7 @@ export class AuthService {
     familyId?: string,
   ) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
-    const refreshTtl = this.tokenTtl('JWT_REFRESH_EXPIRES', '30d');
+    const refreshTtl = this.tokenTtl('JWT_REFRESH_EXPIRES', '7d');
     const expiresAt = new Date(Date.now() + this.ttlToMs(refreshTtl));
 
     // Hygiène : purge les tokens déjà expirés de cet utilisateur à chaque
@@ -503,7 +473,7 @@ export class AuthService {
 
   private ttlToMs(ttl: string): number {
     const match = /^(\d+)([smhd])$/.exec(ttl);
-    if (!match) return 30 * 24 * 60 * 60 * 1000;
+    if (!match) return 7 * 24 * 60 * 60 * 1000;
     const amount = Number(match[1]);
     switch (match[2]) {
       case 's':

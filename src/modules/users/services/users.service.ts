@@ -6,12 +6,9 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { toTogoE164 } from '../../../common/utils/phone-e164';
-import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
-import * as bcrypt from 'bcrypt';
 import { UserRole } from '@prisma/client';
 import { SuspensionsService } from './suspensions.service';
-import { generateUniqueReferralCode } from '../../referrals/referral-code';
 
 interface Actor {
   id: string;
@@ -23,7 +20,6 @@ const SELF_UPDATABLE_FIELDS = [
   'firstName',
   'lastName',
   'avatarUrl',
-  'password',
   'notifyOrders',
   'notifyPromotions',
 ] as const;
@@ -67,24 +63,6 @@ export class UsersService {
     private readonly prisma: PrismaService,
     private readonly suspensionsService: SuspensionsService,
   ) {}
-
-  // Auto-inscription publique — rôle toujours forcé à STUDENT.
-  async create(createUserDto: CreateUserDto) {
-    const hashedPassword = createUserDto.password
-      ? await bcrypt.hash(createUserDto.password, 10)
-      : undefined;
-
-    const user = await this.prisma.user.create({
-      data: {
-        ...createUserDto,
-        password: hashedPassword,
-        role: UserRole.STUDENT,
-        referralCode: await generateUniqueReferralCode(this.prisma),
-      },
-    });
-
-    return sanitize(user);
-  }
 
   async findAll(
     page: number = 1,
@@ -285,26 +263,7 @@ export class UsersService {
       if (!campus) throw new NotFoundException('Campus invalide ou inexistant');
     }
 
-    const passwordChanged =
-      typeof payload.password === 'string' && payload.password.length > 0;
-    if (passwordChanged && payload.password) {
-      payload = {
-        ...payload,
-        password: await bcrypt.hash(payload.password, 10),
-      };
-    }
-    const securityStateChanged = passwordChanged;
-
-    const updated = await this.prisma.$transaction(async (tx) => {
-      const result = await tx.user.update({ where: { id }, data: payload });
-      if (securityStateChanged) {
-        await tx.refreshToken.updateMany({
-          where: { userId: id, revoked: false },
-          data: { revoked: true },
-        });
-      }
-      return result;
-    });
+    const updated = await this.prisma.user.update({ where: { id }, data: payload });
     return sanitize(updated);
   }
 

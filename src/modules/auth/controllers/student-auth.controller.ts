@@ -1,7 +1,9 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { Public } from '../../../common/decorators/public.decorator';
+import { issueMobileSessionCookies } from '../../../common/utils/mobile-session-cookie';
 import { StudentAuthService } from '../services/student-auth.service';
 import { StudentSetPinDto } from '../dto/student-set-pin.dto';
 import { StudentLoginPinDto } from '../dto/student-login-pin.dto';
@@ -21,12 +23,15 @@ export class StudentAuthController {
   })
   @ApiResponse({
     status: 200,
-    description: 'PIN enregistré, tokens de session renvoyés.',
+    description: 'PIN enregistré, session ouverte dans un cookie HttpOnly.',
   })
   @ApiResponse({ status: 400, description: 'Code PIN trop simple.' })
   @ApiResponse({ status: 401, description: 'Jeton d’étape invalide ou expiré.' })
-  setPin(@Body() dto: StudentSetPinDto) {
-    return this.studentAuthService.setPin(dto);
+  async setPin(@Body() dto: StudentSetPinDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.studentAuthService.setPin(dto);
+    const csrfToken = issueMobileSessionCookies(res, 'student', result.accessToken, result.refreshToken);
+    const { accessToken: _access, refreshToken: _refresh, ...safe } = result;
+    return { ...safe, csrfToken };
   }
 
   @Public()
@@ -36,13 +41,16 @@ export class StudentAuthController {
   @ApiOperation({
     summary: 'Connexions suivantes — téléphone + code PIN (sans SMS)',
   })
-  @ApiResponse({ status: 200, description: 'Connexion réussie, tokens renvoyés.' })
+  @ApiResponse({ status: 200, description: 'Connexion réussie, session ouverte dans un cookie HttpOnly.' })
   @ApiResponse({ status: 401, description: 'Code PIN invalide.' })
   @ApiResponse({
     status: 403,
     description: 'PIN temporairement verrouillé après trop d’échecs.',
   })
-  loginPin(@Body() dto: StudentLoginPinDto) {
-    return this.studentAuthService.loginPin(dto);
+  async loginPin(@Body() dto: StudentLoginPinDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.studentAuthService.loginPin(dto);
+    const csrfToken = issueMobileSessionCookies(res, 'student', result.accessToken, result.refreshToken);
+    const { accessToken: _access, refreshToken: _refresh, ...safe } = result;
+    return { ...safe, csrfToken };
   }
 }

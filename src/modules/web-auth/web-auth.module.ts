@@ -7,10 +7,12 @@ import { WebUsersController } from './controllers/web-users.controller';
 import { WebAuthService } from './services/web-auth.service';
 import { WebUsersService } from './services/web-users.service';
 import { WebJwtStrategy } from './strategies/web-jwt.strategy';
+import { SmsModule } from '../sms/sms.module';
 
 @Module({
   imports: [
     PassportModule,
+    SmsModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       useFactory: (configService: ConfigService) => {

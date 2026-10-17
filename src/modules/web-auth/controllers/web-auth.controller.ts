@@ -7,7 +7,7 @@ import { WebVerify2faDto } from '../dto/web-verify-2fa.dto';
 import { WebFirstLoginDto } from '../dto/web-first-login.dto';
 import { WebSetPasswordDto } from '../dto/web-set-password.dto';
 import { WebVerify2faSetupDto } from '../dto/web-verify-2fa-setup.dto';
-import { VerifyPasswordResetDto } from '../dto/verify-password-reset.dto';
+import { VerifyPasswordResetDto, StartPasswordResetDto } from '../dto/verify-password-reset.dto';
 import { ConfirmPasswordResetDto } from '../dto/confirm-password-reset.dto';
 import { WebUserEntity } from '../entities/web-user.entity';
 import { extractBearerToken } from '../../../common/utils/extract-bearer-token';
@@ -100,21 +100,24 @@ export class WebAuthController {
     });
   }
 
-  // ─── Réinitialisation de mot de passe (TOTP ou clé de secours) ──────
-  //
-  // Facteur unique : aucun canal externe (email/SMS) branché. Possession
-  // du TOTP (ou d'une clé de secours) suffit à elle seule à réinitialiser
-  // le mot de passe — voir le commentaire du service pour le détail du
-  // compromis de sécurité assumé.
+  // SMS envoyé au téléphone du compte, puis code d'authentification.
+  @Post('password-reset/start')
+  @HttpCode(HttpStatus.OK)
+  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @ApiOperation({ summary: 'Demande de reset : envoie un SMS si le compte a un téléphone et un 2FA actif' })
+  @ApiResponse({ status: 200, description: 'Réponse identique que le compte existe ou non.' })
+  startPasswordReset(@Body() dto: StartPasswordResetDto) {
+    return this.webAuthService.startPasswordReset(dto.email);
+  }
 
   @Post('password-reset/verify')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 5, ttl: 60000 } })
-  @ApiOperation({ summary: 'Étape 1/2 reset : vérifie email + code TOTP/clé de secours → jeton de session de reset' })
-  @ApiResponse({ status: 200, description: 'Facteur valide, jeton de reset renvoyé.' })
+  @ApiOperation({ summary: 'Vérifie le code SMS et le code TOTP (ou clé de secours)' })
+  @ApiResponse({ status: 200, description: 'Les deux facteurs sont valides, jeton de reset renvoyé.' })
   @ApiResponse({ status: 401, description: 'Identifiants ou code invalides (erreur générique, anti-énumération).' })
   verifyPasswordReset(@Body() dto: VerifyPasswordResetDto) {
-    return this.webAuthService.verifyPasswordReset(dto.email, dto.code);
+    return this.webAuthService.verifyPasswordReset(dto.email, dto.smsCode, dto.code);
   }
 
   @Post('password-reset/confirm')

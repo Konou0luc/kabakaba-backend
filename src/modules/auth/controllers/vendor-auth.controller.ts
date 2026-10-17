@@ -1,6 +1,7 @@
-import { Body, Controller, HttpCode, HttpStatus, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Post, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { VendorAuthService } from '../services/vendor-auth.service';
 import { VendorActivateStartDto } from '../dto/vendor-activate-start.dto';
 import { VendorActivateVerifyOtpDto } from '../dto/vendor-activate-verify-otp.dto';
@@ -8,6 +9,7 @@ import { VendorSetPinDto } from '../dto/vendor-set-pin.dto';
 import { VendorLoginPinDto } from '../dto/vendor-login-pin.dto';
 import { VendorResendOtpDto } from '../dto/vendor-resend-otp.dto';
 import { Public } from '../../../common/decorators/public.decorator';
+import { issueMobileSessionCookies } from '../../../common/utils/mobile-session-cookie';
 
 @ApiTags('Auth vendeur (mobile)')
 @Controller('auth/vendor')
@@ -64,11 +66,14 @@ export class VendorAuthController {
   })
   @ApiResponse({
     status: 200,
-    description: 'PIN enregistré, tokens de session renvoyés.',
+    description: 'PIN enregistré, session ouverte dans un cookie HttpOnly.',
   })
   @ApiResponse({ status: 400, description: 'Code PIN trop simple.' })
-  activateSetPin(@Body() dto: VendorSetPinDto) {
-    return this.vendorAuthService.setPin(dto);
+  async activateSetPin(@Body() dto: VendorSetPinDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.vendorAuthService.setPin(dto);
+    const csrfToken = issueMobileSessionCookies(res, 'vendor', result.accessToken, result.refreshToken);
+    const { accessToken: _access, refreshToken: _refresh, ...safe } = result;
+    return { ...safe, csrfToken };
   }
 
   @Public()
@@ -78,14 +83,17 @@ export class VendorAuthController {
   @ApiOperation({ summary: 'Connexions suivantes — téléphone + code PIN' })
   @ApiResponse({
     status: 200,
-    description: 'Connexion réussie, tokens renvoyés.',
+    description: 'Connexion réussie, session ouverte dans un cookie HttpOnly.',
   })
   @ApiResponse({ status: 401, description: 'Code PIN invalide.' })
   @ApiResponse({
     status: 403,
     description: 'PIN temporairement verrouillé après trop d’échecs.',
   })
-  loginPin(@Body() dto: VendorLoginPinDto) {
-    return this.vendorAuthService.loginPin(dto);
+  async loginPin(@Body() dto: VendorLoginPinDto, @Res({ passthrough: true }) res: Response) {
+    const result = await this.vendorAuthService.loginPin(dto);
+    const csrfToken = issueMobileSessionCookies(res, 'vendor', result.accessToken, result.refreshToken);
+    const { accessToken: _access, refreshToken: _refresh, ...safe } = result;
+    return { ...safe, csrfToken };
   }
 }

@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, IsPhoneNumber, IsString, MinLength } from 'class-validator';
+import { IsEmail, IsEnum, IsNotEmpty, IsPhoneNumber, IsString, MinLength } from 'class-validator';
 import { WebUserRole } from '@prisma/client';
 
 /**
@@ -33,10 +33,10 @@ export class ProvisionWebUserDto {
   @IsEnum(WebUserRole)
   role: WebUserRole;
 
-  @ApiProperty({ example: '+22890000000', required: false, description: 'Format international obligatoire (+228...)' })
-  @IsOptional()
+  @ApiProperty({ example: '+22890000000', description: 'Téléphone qui recevra le SMS de réinitialisation. Format international.' })
+  @IsNotEmpty()
   @IsPhoneNumber()
-  phone?: string;
+  phone: string;
 
   @ApiProperty({ example: 'Xk7mPq2wRt', minLength: 8, description: 'Mot de passe temporaire à transmettre au nouvel utilisateur' })
   @IsNotEmpty()

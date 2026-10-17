@@ -2,6 +2,7 @@ import { Body, Controller, Delete, Get, Post, Query, Request, UseGuards } from '
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { UserRole } from '@prisma/client';
 import { Roles } from '../../../common/decorators/roles.decorator';
+import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
 import { RegisterDeviceDto } from '../dto/register-device.dto';
@@ -11,7 +12,8 @@ import { DevicesService } from '../services/devices.service';
 @Controller('devices')
 @ApiBearerAuth()
 @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
-@Roles(UserRole.STUDENT, UserRole.VENDOR, UserRole.ADMIN)
+@Roles(UserRole.STUDENT, UserRole.VENDOR)
+@WebRoles()
 export class DevicesController {
   constructor(private readonly devicesService: DevicesService) {}
 

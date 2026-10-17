@@ -42,14 +42,12 @@ export class NotificationsController {
     description: 'Retourne toutes les notifications actives avec pagination.',
   })
   findAll(@Query() paginationDto: PaginationDto, @Request() req) {
-    let userId: string | undefined;
-    if (req.user.role !== UserRole.ADMIN) {
-      userId = req.user.id;
-    }
+    const isWebAdmin =
+      req.user.__authKind === 'web' && req.user.role === WebUserRole.ADMIN;
     return this.notificationsService.findAll(
       paginationDto.page,
       paginationDto.limit,
-      userId,
+      isWebAdmin ? undefined : req.user.id,
     );
   }
 
@@ -62,7 +60,8 @@ export class NotificationsController {
   @ApiResponse({ status: 200, description: 'Retourne la notification.', type: NotificationEntity })
   @ApiResponse({ status: 404, description: 'Notification introuvable.' })
   findOne(@Param('id') id: string, @Request() req) {
-    const isAdmin = req.user.role === UserRole.ADMIN;
+    const isAdmin =
+      req.user.__authKind === 'web' && req.user.role === WebUserRole.ADMIN;
     return this.notificationsService.findOne(id, { id: req.user.id, isAdmin });
   }
 
@@ -78,7 +77,8 @@ export class NotificationsController {
     type: NotificationEntity,
   })
   update(@Param('id') id: string, @Body() updateNotificationDto: UpdateNotificationDto, @Request() req) {
-    const isAdmin = req.user.role === UserRole.ADMIN;
+    const isAdmin =
+      req.user.__authKind === 'web' && req.user.role === WebUserRole.ADMIN;
     return this.notificationsService.update(id, updateNotificationDto, { id: req.user.id, isAdmin });
   }
 

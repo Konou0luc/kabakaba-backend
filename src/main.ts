@@ -158,7 +158,7 @@ export async function createNestApp() {
   app.enableCors({
     origin: getAllowedOrigins(),
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-CSRF-Token'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Request-Id', 'X-CSRF-Token', 'X-Kabakaba-App'],
     credentials: true,
   });
 

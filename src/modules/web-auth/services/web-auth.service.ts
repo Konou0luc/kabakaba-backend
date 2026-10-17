@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, ServiceUnavailableException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -8,6 +8,7 @@ import * as QRCode from 'qrcode';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { WebUserRole } from '@prisma/client';
 import { decryptSecret, encryptSecret } from '../../../common/utils/secret-crypto';
+import { SmsService } from '../../sms/services/sms.service';
 
 const SALT_ROUNDS = 10;
 // 10 minutes plutôt que 5 : entre la saisie du mot de passe et le
@@ -24,10 +25,13 @@ type TokenPurpose = 'web_2fa_challenge' | 'web_onboarding' | 'web_session' | 'we
 
 @Injectable()
 export class WebAuthService {
+  private readonly logger = new Logger(WebAuthService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly smsService: SmsService,
   ) {}
 
   private get accessSecret() {
@@ -479,35 +483,44 @@ export class WebAuthService {
     };
   }
 
-  // ─── Réinitialisation de mot de passe (TOTP ou clé de secours) ──────
+  // ─── Réinitialisation : SMS + TOTP (ou clé de secours) ──────────
   //
-  // Facteur unique volontaire : aucun canal externe (email/SMS) branché.
-  // Possession du TOTP (ou d'une clé de secours) suffit à elle seule à
-  // réinitialiser le mot de passe — décision assumée, pas de canal
-  // externe disponible pour le moment.
-  //
-  // Anti-énumération : la même erreur générique est renvoyée que le
-  // compte n'existe pas, n'ait pas de 2FA actif, ou que le code soit
-  // invalide — aucune différence observable entre ces cas.
+  // Le code d'authentification seul ne suffit plus. Le compte doit avoir
+  // un téléphone : un SMS est envoyé, puis vérifié avec le TOTP.
 
-  async verifyPasswordReset(email: string, code: string) {
+  async startPasswordReset(email: string) {
+    const generic = {
+      message: 'Si le compte peut être réinitialisé, un code a été envoyé par SMS.',
+    };
+    const webUser = await this.prisma.webUser.findUnique({ where: { email } });
+    if (!this.canResetPassword(webUser) || !webUser?.phone) return generic;
+
+    try {
+      await this.sendResetSms(webUser.phone);
+    } catch (error) {
+      this.logger.error(
+        'Envoi du SMS de réinitialisation impossible',
+        error instanceof Error ? error.stack : error,
+      );
+    }
+    return generic;
+  }
+
+  async verifyPasswordReset(email: string, smsCode: string, code: string) {
     const genericError = new UnauthorizedException('Identifiants ou code invalides');
 
     const webUser = await this.prisma.webUser.findUnique({ where: { email } });
-    if (
-      !webUser ||
-      !webUser.isActive ||
-      webUser.deletedAt ||
-      webUser.mustChangePassword ||
-      !webUser.twoFaEnabled ||
-      !webUser.twoFaSecret
-    ) {
+    if (!this.canResetPassword(webUser) || !webUser?.phone) throw genericError;
+
+    try {
+      await this.consumeResetSms(webUser.phone, smsCode);
+    } catch {
       throw genericError;
     }
 
     const { valid: codeIsValid, backupCodeUsed } = await this.verifyTotpOrBackupCode(
       webUser.id,
-      await this.getTotpSecret(webUser.twoFaSecret),
+      await this.getTotpSecret(webUser.twoFaSecret!),
       code,
     );
     if (!codeIsValid) throw genericError;
@@ -520,6 +533,95 @@ export class WebAuthService {
         ? { warning: 'Clé de secours utilisée — celle-ci est maintenant consommée.' }
         : {}),
     };
+  }
+
+  private canResetPassword(webUser: {
+    isActive: boolean;
+    deletedAt: Date | null;
+    mustChangePassword: boolean;
+    twoFaEnabled: boolean;
+    twoFaSecret: string | null;
+    phone: string | null;
+  } | null): webUser is {
+    isActive: boolean;
+    deletedAt: Date | null;
+    mustChangePassword: boolean;
+    twoFaEnabled: boolean;
+    twoFaSecret: string;
+    phone: string | null;
+  } {
+    return Boolean(
+      webUser &&
+      webUser.isActive &&
+      !webUser.deletedAt &&
+      !webUser.mustChangePassword &&
+      webUser.twoFaEnabled &&
+      webUser.twoFaSecret,
+    );
+  }
+
+  private resetPhoneKey(phone: string) {
+    return `web-reset:${phone.trim()}`;
+  }
+
+  private async sendResetSms(phone: string) {
+    const key = this.resetPhoneKey(phone);
+    await this.prisma.otpCode.deleteMany({ where: { phone: key, expiresAt: { lt: new Date() } } });
+
+    const existing = await this.prisma.otpCode.findFirst({
+      where: { phone: key, used: false, expiresAt: { gt: new Date() } },
+    });
+    if (existing && existing.attempts >= 5) {
+      throw new BadRequestException('Trop de tentatives, veuillez demander un nouveau code');
+    }
+
+    const smsCode = crypto.randomInt(100000, 1000000).toString();
+    const hashedCode = await bcrypt.hash(smsCode, 10);
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    if (existing) {
+      await this.prisma.otpCode.update({
+        where: { id: existing.id },
+        data: { code: hashedCode, expiresAt, attempts: existing.attempts + 1 },
+      });
+    } else {
+      await this.prisma.otpCode.create({
+        data: { phone: key, code: hashedCode, expiresAt },
+      });
+    }
+
+    try {
+      await this.smsService.sendSms(phone, `Votre code de réinitialisation Kabakaba est: ${smsCode}`);
+    } catch {
+      throw new ServiceUnavailableException('Impossible d’envoyer le code de vérification.');
+    }
+  }
+
+  private async consumeResetSms(phone: string, smsCode: string) {
+    const key = this.resetPhoneKey(phone);
+    const otp = await this.prisma.otpCode.findFirst({
+      where: { phone: key, used: false, expiresAt: { gt: new Date() } },
+    });
+    if (!otp || otp.attempts >= 5) {
+      throw new UnauthorizedException('Identifiants ou code invalides');
+    }
+
+    const isValid = await bcrypt.compare(smsCode, otp.code);
+    if (!isValid) {
+      await this.prisma.otpCode.updateMany({
+        where: { id: otp.id, used: false, attempts: { lt: 5 } },
+        data: { attempts: { increment: 1 } },
+      });
+      throw new UnauthorizedException('Identifiants ou code invalides');
+    }
+
+    const claimed = await this.prisma.otpCode.updateMany({
+      where: { id: otp.id, used: false, expiresAt: { gt: new Date() } },
+      data: { used: true },
+    });
+    if (claimed.count === 0) {
+      throw new UnauthorizedException('Identifiants ou code invalides');
+    }
   }
 
   async confirmPasswordReset(resetSessionToken: string, newPassword: string) {

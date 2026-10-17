@@ -1,7 +1,6 @@
 import {
   Controller,
   Get,
-  Post,
   Body,
   Patch,
   Param,
@@ -9,7 +8,6 @@ import {
   Request,
   UseGuards,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
 import {
   ApiTags,
   ApiOperation,
@@ -18,7 +16,6 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { UsersService } from '../services/users.service';
-import { CreateUserDto } from '../dto/create-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { UserEntity } from '../entities/user.entity';
 import { FindUsersQueryDto } from '../dto/find-users-query.dto';
@@ -34,15 +31,6 @@ import { GetCurrentUserId } from '../../../common/decorators/get-current-user.de
 @Controller('users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}
-
-  @Post()
-  @Throttle({ default: { limit: 10, ttl: 60000 } })
-  @ApiOperation({ summary: 'Auto-inscription étudiant (public) — le rôle est toujours forcé à STUDENT' })
-  @ApiResponse({ status: 201, description: "L'utilisateur a été créé avec succès.", type: UserEntity })
-  @ApiResponse({ status: 400, description: 'Requête invalide.' })
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
-  }
 
   @Get()
   @ApiBearerAuth()
