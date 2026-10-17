@@ -3,39 +3,36 @@ import { BadRequestException } from '@nestjs/common';
 /**
  * Grille tarifaire des recharges Kabakaba.
  *
- * L’étudiant saisit un montant en FCFA (ce qu’il paiera chez FedaPay).
- * Les frais de palier sont **inclus** dans ce montant — on ne redemande
- * pas de frais en plus. Les tickets crédités = montant − frais du palier.
+ * L’étudiant saisit le montant FCFA qu’il paie (500 → 10 000).
+ * Les frais sont inclus dans ce montant ; tickets = montant − frais.
  *
- * Exemple : 2 200 FCFA → palier 1 000–2 999 (frais 200) → 2 000 tickets.
- *
- * ⚠️ SÉCURITÉ : tickets et montant sont toujours dérivés côté serveur.
+ * ⚠️ SÉCURITÉ : tickets et frais sont toujours dérivés côté serveur.
  */
 
-export const MIN_RECHARGE_TICKETS = 500;
-export const MAX_RECHARGE_TICKETS = 10_000;
+export const MIN_RECHARGE_AMOUNT_FCFA = 500;
+export const MAX_RECHARGE_AMOUNT_FCFA = 10_000;
 
-/** Montant min/max que l’étudiant peut saisir (tickets + frais). */
-export const MIN_RECHARGE_AMOUNT_FCFA = MIN_RECHARGE_TICKETS + 100; // 600
-export const MAX_RECHARGE_AMOUNT_FCFA = MAX_RECHARGE_TICKETS + 500; // 10 500
+/** Conservés pour le mode legacy tickets → montant. */
+export const MIN_RECHARGE_TICKETS = 400; // 500 − 100
+export const MAX_RECHARGE_TICKETS = 9_500; // 10 000 − 500
 
-const FEE_BRACKETS: Array<{ minTickets: number; maxTickets: number; fee: number }> = [
-  { minTickets: 500, maxTickets: 999, fee: 100 },
-  { minTickets: 1_000, maxTickets: 2_999, fee: 200 },
-  { minTickets: 3_000, maxTickets: 4_999, fee: 250 },
-  { minTickets: 5_000, maxTickets: 9_999, fee: 300 },
-  { minTickets: 10_000, maxTickets: 10_000, fee: 500 },
+const FEE_BY_AMOUNT: Array<{ min: number; max: number; fee: number }> = [
+  { min: 500, max: 999, fee: 100 },
+  { min: 1_000, max: 4_999, fee: 200 },
+  { min: 5_000, max: 9_999, fee: 300 },
+  { min: 10_000, max: 10_000, fee: 500 },
 ];
 
-function feeForTickets(tickets: number): number {
-  for (const b of FEE_BRACKETS) {
-    if (tickets >= b.minTickets && tickets <= b.maxTickets) return b.fee;
+function feeForAmount(amount: number): number {
+  for (const b of FEE_BY_AMOUNT) {
+    if (amount >= b.min && amount <= b.max) return b.fee;
   }
-  throw new BadRequestException('Nombre de tickets hors barème');
+  throw new BadRequestException('Montant hors barème de recharge');
 }
 
 /**
- * Ancien sens : tickets → montant à payer (toujours utile en interne).
+ * Ancien sens : tickets désirés → montant à payer (tickets + frais du palier).
+ * Les paliers suivent le montant payé (tickets + fee).
  */
 export function computeRechargeAmountFcfa(tickets: number): number {
   if (!Number.isInteger(tickets)) {
@@ -43,36 +40,35 @@ export function computeRechargeAmountFcfa(tickets: number): number {
   }
   if (tickets < MIN_RECHARGE_TICKETS) {
     throw new BadRequestException(
-      `Le montant minimum de recharge est de ${MIN_RECHARGE_TICKETS} tickets`,
+      `Le montant minimum de recharge est de ${MIN_RECHARGE_AMOUNT_FCFA} FCFA`,
     );
   }
   if (tickets > MAX_RECHARGE_TICKETS) {
     throw new BadRequestException(
-      `Le montant maximum de recharge en une fois est de ${MAX_RECHARGE_TICKETS} tickets`,
+      `Le montant maximum de recharge en une fois est de ${MAX_RECHARGE_AMOUNT_FCFA} FCFA`,
     );
   }
-  return tickets + feeForTickets(tickets);
+  // Cherche le plus petit montant exact tickets + fee dans le barème.
+  for (const b of FEE_BY_AMOUNT) {
+    const amount = tickets + b.fee;
+    if (amount >= b.min && amount <= b.max) return amount;
+  }
+  throw new BadRequestException('Nombre de tickets hors barème');
 }
 
 export interface RechargeQuote {
-  /** Montant que l’étudiant paie (saisi ou exact du barème). */
+  /** Montant que l’étudiant paie. */
   amountFcfa: number;
-  /** Tickets qui seront crédités après paiement SUCCESS. */
+  /** Tickets crédités après paiement SUCCESS. */
   ticketsReceived: number;
-  /** Frais de palier inclus dans amountFcfa. */
+  /** Frais inclus dans amountFcfa. */
   feeFcfa: number;
-  /** true si amountFcfa correspond exactement à tickets + fee. */
   exact: boolean;
   summaryLines: string[];
 }
 
 /**
  * Sens mobile : montant FCFA saisi → tickets reçus.
- *
- * 1) Cherche une correspondance exacte (montant = tickets + frais du palier).
- * 2) Sinon, prend le **maximum de tickets** tel que tickets + frais ≤ montant
- *    (l’étudiant paie le montant saisi chez FedaPay ; le surplus de quelques
- *    FCFA hors barème exact reste un surplus plateforme).
  */
 export function quoteRechargeFromAmountFcfa(amountFcfa: number): RechargeQuote {
   const amount = Math.floor(Number(amountFcfa));
@@ -81,59 +77,29 @@ export function quoteRechargeFromAmountFcfa(amountFcfa: number): RechargeQuote {
   }
   if (amount < MIN_RECHARGE_AMOUNT_FCFA) {
     throw new BadRequestException(
-      `Montant minimum : ${MIN_RECHARGE_AMOUNT_FCFA} FCFA (soit ${MIN_RECHARGE_TICKETS} tickets)`,
+      `Montant minimum : ${MIN_RECHARGE_AMOUNT_FCFA} FCFA`,
     );
   }
   if (amount > MAX_RECHARGE_AMOUNT_FCFA) {
     throw new BadRequestException(
-      `Montant maximum : ${MAX_RECHARGE_AMOUNT_FCFA} FCFA (soit ${MAX_RECHARGE_TICKETS} tickets)`,
+      `Montant maximum : ${MAX_RECHARGE_AMOUNT_FCFA} FCFA`,
     );
   }
 
-  // 1) Correspondance exacte
-  for (const b of FEE_BRACKETS) {
-    const tickets = amount - b.fee;
-    if (tickets >= b.minTickets && tickets <= b.maxTickets) {
-      return {
-        amountFcfa: amount,
-        ticketsReceived: tickets,
-        feeFcfa: b.fee,
-        exact: true,
-        summaryLines: [
-          `Vous payez : ${amount} FCFA`,
-          `Frais de service (inclus) : ${b.fee} FCFA`,
-          `Tickets crédités : ${tickets}`,
-        ],
-      };
-    }
-  }
-
-  // 2) Meilleur effort : max tickets abordables
-  let bestTickets = 0;
-  let bestFee = 0;
-  for (let t = MIN_RECHARGE_TICKETS; t <= MAX_RECHARGE_TICKETS; t++) {
-    const fee = feeForTickets(t);
-    if (t + fee <= amount && t > bestTickets) {
-      bestTickets = t;
-      bestFee = fee;
-    }
-  }
-  if (bestTickets < MIN_RECHARGE_TICKETS) {
-    throw new BadRequestException(
-      `Montant trop faible pour une recharge. Minimum ${MIN_RECHARGE_AMOUNT_FCFA} FCFA.`,
-    );
+  const feeFcfa = feeForAmount(amount);
+  const ticketsReceived = amount - feeFcfa;
+  if (ticketsReceived < 1) {
+    throw new BadRequestException('Montant trop faible pour une recharge');
   }
 
   return {
     amountFcfa: amount,
-    ticketsReceived: bestTickets,
-    feeFcfa: bestFee,
-    exact: false,
+    ticketsReceived,
+    feeFcfa,
+    exact: true,
     summaryLines: [
-      `Vous payez : ${amount} FCFA`,
-      `Frais de service (inclus) : ${bestFee} FCFA`,
-      `Tickets crédités : ${bestTickets}`,
-      `(Montant hors case exacte du barème — tickets = maximum possible)`,
+      `Tu paies ${amount} FCFA`,
+      `${ticketsReceived} tickets crédités`,
     ],
   };
 }
