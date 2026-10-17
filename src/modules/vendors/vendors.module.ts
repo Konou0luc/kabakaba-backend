@@ -4,9 +4,10 @@ import { VendorsService } from './services/vendors.service';
 import { WithdrawalsController } from './controllers/withdrawals.controller';
 import { WithdrawalsService } from './services/withdrawals.service';
 import { NotificationsModule } from '../notifications/notifications.module';
+import { MediaModule } from '../../common/media/media.module';
 
 @Module({
-  imports: [NotificationsModule],
+  imports: [NotificationsModule, MediaModule],
   controllers: [VendorsController, WithdrawalsController],
   providers: [VendorsService, WithdrawalsService],
   exports: [VendorsService],

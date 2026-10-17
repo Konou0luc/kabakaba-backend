@@ -60,6 +60,18 @@ export class StudentAuthService {
 
     assertPinIsNotTrivial(dto.pin);
 
+    const firstName = dto.firstName?.trim() || '';
+    const lastName = dto.lastName?.trim() || '';
+    const profileIncomplete =
+      !user.firstName?.trim() || !user.lastName?.trim();
+
+    // 1ʳᵉ inscription : prénom + nom obligatoires avant d’ouvrir la session.
+    if (profileIncomplete && (!firstName || !lastName)) {
+      throw new BadRequestException(
+        'Le prénom et le nom sont obligatoires pour finaliser ton inscription.',
+      );
+    }
+
     const pinHash = await bcrypt.hash(this.pepperPin(dto.pin), 10);
 
     const updated = await this.prisma.$transaction(async (tx) => {
@@ -70,6 +82,11 @@ export class StudentAuthService {
           pinUpdatedAt: new Date(),
           pinFailedAttempts: 0,
           pinLockedUntil: null,
+          ...(profileIncomplete
+            ? { firstName, lastName }
+            : firstName && lastName
+              ? { firstName, lastName }
+              : {}),
         },
       });
       await tx.refreshToken.updateMany({

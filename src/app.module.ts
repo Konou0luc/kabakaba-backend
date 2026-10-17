@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
-import { APP_GUARD } from '@nestjs/core';
+import { APP_GUARD, APP_INTERCEPTOR } from '@nestjs/core';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { DistributedThrottlerStorage } from './common/throttling/distributed-throttler.storage';
+import { StudentProfileCompleteInterceptor } from './common/interceptors/student-profile-complete.interceptor';
 import { PrismaService } from './database/services/prisma.service';
 import { AppController } from './app.controller';
 import { AnalyticsModule } from './modules/analytics/analytics.module';
@@ -71,6 +72,12 @@ import { ReferralsModule } from './modules/referrals/referrals.module';
     ReferralsModule,
   ],
   controllers: [AppController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [
+    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: StudentProfileCompleteInterceptor,
+    },
+  ],
 })
 export class AppModule {}

@@ -4,11 +4,13 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CloudinaryService } from '../../../common/media/cloudinary.service';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { toTogoE164 } from '../../../common/utils/phone-e164';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { UserRole } from '@prisma/client';
 import { SuspensionsService } from './suspensions.service';
+import { isStudentProfileComplete } from '../../../common/utils/student-profile';
 
 interface Actor {
   id: string;
@@ -48,13 +50,18 @@ type HiddenUserKey = (typeof HIDDEN_USER_KEYS)[number];
 /** Retire les secrets du compte avant tout envoi au client. */
 export function sanitize<T extends object>(
   user: T,
-): Omit<T, HiddenUserKey> & { hasPin: boolean } {
+): Omit<T, HiddenUserKey> & { hasPin: boolean; profileComplete: boolean } {
   const copy = { ...(user as Record<string, unknown>) };
   const hasPin = Boolean(copy.pinHash);
+  const profileComplete = isStudentProfileComplete({
+    role: copy.role as string | undefined,
+    firstName: copy.firstName as string | null | undefined,
+    lastName: copy.lastName as string | null | undefined,
+  });
   for (const key of HIDDEN_USER_KEYS) {
     delete copy[key];
   }
-  return { ...(copy as Omit<T, HiddenUserKey>), hasPin };
+  return { ...(copy as Omit<T, HiddenUserKey>), hasPin, profileComplete };
 }
 
 @Injectable()
@@ -62,6 +69,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly suspensionsService: SuspensionsService,
+    private readonly cloudinary: CloudinaryService,
   ) {}
 
   async findAll(
@@ -265,6 +273,22 @@ export class UsersService {
 
     const updated = await this.prisma.user.update({ where: { id }, data: payload });
     return sanitize(updated);
+  }
+
+  async uploadAvatar(
+    userId: string,
+    file: { buffer: Buffer; mimetype: string; size: number },
+  ) {
+    this.cloudinary.assertImage(file);
+    const avatarUrl = await this.cloudinary.uploadBuffer(
+      file.buffer,
+      'kabakaba/avatars',
+    );
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { avatarUrl },
+    });
+    return { avatarUrl };
   }
 
 }

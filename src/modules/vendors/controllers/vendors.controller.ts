@@ -6,14 +6,19 @@ import {
   Patch,
   Param,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
   Request,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiQuery,
 } from '@nestjs/swagger';
 import { VendorsService } from '../services/vendors.service';
@@ -118,6 +123,56 @@ export class VendorsController {
       bannerUrl: body.bannerUrl,
       canteenName: body.canteenName,
     });
+  }
+
+  @Post('me/logo')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.VENDOR)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({ summary: 'Logo cantine (Cloudinary)' })
+  uploadLogo(
+    @Request() req,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; size: number },
+  ) {
+    return this.vendorsService.uploadMeImage(
+      req.user.id,
+      file,
+      'logoUrl',
+      'kabakaba/vendor-logos',
+    );
+  }
+
+  @Post('me/banner')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.VENDOR)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({ summary: 'Bannière cantine (Cloudinary)' })
+  uploadBanner(
+    @Request() req,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; size: number },
+  ) {
+    return this.vendorsService.uploadMeImage(
+      req.user.id,
+      file,
+      'bannerUrl',
+      'kabakaba/vendor-banners',
+    );
   }
 
   @Get('admin/:id')

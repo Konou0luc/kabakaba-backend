@@ -1,18 +1,24 @@
 import {
   Controller,
   Get,
+  Post,
   Body,
   Patch,
   Param,
   Query,
   Request,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
   ApiResponse,
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiQuery,
 } from '@nestjs/swagger';
 import { UsersService } from '../services/users.service';
@@ -51,6 +57,26 @@ export class UsersController {
   @ApiResponse({ status: 200, description: "Retourne l'utilisateur actuel.", type: UserEntity })
   getMe(@GetCurrentUserId() userId: string) {
     return this.usersService.findOne(userId);
+  }
+
+  @Post('me/avatar')
+  @ApiBearerAuth()
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FileInterceptor('file'))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: { file: { type: 'string', format: 'binary' } },
+    },
+  })
+  @ApiOperation({ summary: 'Photo de profil étudiant (Cloudinary)' })
+  @ApiResponse({ status: 201, description: '{ avatarUrl }' })
+  uploadAvatar(
+    @GetCurrentUserId() userId: string,
+    @UploadedFile() file: { buffer: Buffer; mimetype: string; size: number },
+  ) {
+    return this.usersService.uploadAvatar(userId, file);
   }
 
   @Get(':id')

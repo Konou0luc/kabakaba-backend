@@ -8,6 +8,7 @@ import { FindVendorsForAdminQueryDto } from '../dto/find-vendors-for-admin-query
 import { SalesGroupBy, SalesQueryDto } from '../dto/sales-query.dto';
 import { generateUniqueReferralCode } from '../../referrals/referral-code';
 import { toTogoE164 } from '../../../common/utils/phone-e164';
+import { CloudinaryService } from '../../../common/media/cloudinary.service';
 
 const SALT_ROUNDS = 10;
 
@@ -47,7 +48,10 @@ const PUBLIC_VENDOR_SELECT = {
 
 @Injectable()
 export class VendorsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cloudinary: CloudinaryService,
+  ) {}
 
   /**
    * Crée le compte vendeur (User) et la cantine (Vendor) dans une seule
@@ -509,6 +513,18 @@ export class VendorsService {
       ...updated,
       balanceFcfa: Number(updated.balanceFcfa),
     };
+  }
+
+  async uploadMeImage(
+    userId: string,
+    file: { buffer: Buffer; mimetype: string; size: number },
+    field: 'logoUrl' | 'bannerUrl',
+    folder: string,
+  ) {
+    this.cloudinary.assertImage(file);
+    const url = await this.cloudinary.uploadBuffer(file.buffer, folder);
+    await this.updateMe(userId, { [field]: url });
+    return field === 'logoUrl' ? { logoUrl: url } : { bannerUrl: url };
   }
 
 }

@@ -314,10 +314,12 @@ Dans la liste `GET /reports` : `{ "data": [...], "meta": {...} }`, les plus réc
 Parcours aligné sur le vendeur, sans mot de passe temporaire :
 
 1. **Première connexion / PIN oublié** : `POST /auth/send-otp` → `POST /auth/verify-otp` (campus + parrainage à l’inscription). Pour un compte `STUDENT`, la réponse n’émet **plus** de tokens de session : `{ "stage": "PIN_SETUP_REQUIRED", "pinSetupToken", "pinLength": 4, "phoneMasked" }`.
-2. **Pose du PIN** : `POST /auth/student/set-pin` `{ pinSetupToken, pin }` (4 chiffres, refus des PIN triviaux type `0000` / `1234`). Réponse : `user` + `accessToken` + `refreshToken`.
+2. **Identité + pose du PIN** : `POST /auth/student/set-pin` `{ pinSetupToken, pin, firstName?, lastName? }` (4 chiffres, refus des PIN triviaux type `0000` / `1234`). **`firstName` et `lastName` sont obligatoires** si le compte n’a pas encore de nom (1ʳᵉ inscription) — sinon 400. Réponse : `user` + `accessToken` + `refreshToken` ; `user.profileComplete` indique si prénom+nom sont renseignés.
 3. **Connexions suivantes** : `POST /auth/student/login-pin` `{ phone, pin }` — sans SMS. Après 5 échecs : verrouillage 15 min (403).
 
-Les jetons d’étape portent un `scope` (`student_pin_setup`) et sont **refusés** par `JwtStrategy` comme access token. Le profil (`GET /users/me`) expose `hasPin` (booléen), jamais le hash.
+Tant que `profileComplete = false`, les routes métier répondent **403** `PROFILE_SETUP_REQUIRED` ; seuls `GET /users/me`, `PATCH /users/:id` (soi-même), logout/refresh restent accessibles pour compléter le profil.
+
+Les jetons d’étape portent un `scope` (`student_pin_setup`) et sont **refusés** par `JwtStrategy` comme access token. Le profil (`GET /users/me`) expose `hasPin` et `profileComplete` (booléens), jamais le hash.
 - **Récompense** : quand le filleul fait sa **première recharge réussie**, le parrain reçoit **100 tickets** (transaction `REFERRAL_BONUS`, notification), **une seule fois par filleul**. Pas de coupon en V1.
 - Supprimés : `POST /ambassadors/apply`, `POST /ambassadors/school-card`, `GET /ambassadors`, `GET /ambassadors/me`, `PATCH /ambassadors/:id`, et le champ `notifyAmbassador` du profil.
 
