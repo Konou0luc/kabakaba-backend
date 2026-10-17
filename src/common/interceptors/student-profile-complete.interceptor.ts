@@ -23,6 +23,9 @@ export class StudentProfileCompleteInterceptor implements NestInterceptor {
       method: string;
       path?: string;
       url?: string;
+      originalUrl?: string;
+      baseUrl?: string;
+      route?: { path?: string };
       user?: {
         id: string;
         role: string;
@@ -40,8 +43,19 @@ export class StudentProfileCompleteInterceptor implements NestInterceptor {
       return next.handle();
     }
 
-    const path = req.path || req.url || '';
-    if (isStudentProfileAllowlisted(req.method, path, user.id)) {
+    // Express peut exposer /api/v1/users/:id (originalUrl) ou /users/:id (path).
+    const candidates = [
+      req.originalUrl,
+      req.url,
+      `${req.baseUrl || ''}${req.path || ''}`,
+      req.path,
+      req.route?.path,
+    ].filter(Boolean) as string[];
+
+    const allowed = candidates.some((p) =>
+      isStudentProfileAllowlisted(req.method, p, user.id),
+    );
+    if (allowed) {
       return next.handle();
     }
 
