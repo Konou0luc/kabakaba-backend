@@ -22,12 +22,26 @@ export class FedapayService {
 
   /**
    * Mapping opérateur Kabakaba → mode FedaPay (Togo).
-   * Aligné sur le SDK / usages marché (Moov = moov_tg, Yas/Mixx = mtn_open).
+   * Docs FedaPay :
+   * - Moov Togo / Flooz → `moov_tg`
+   * - TogoCel T-Money / Mixx by Yas → `togocel`
+   * ⚠️ `mtn_open` = MTN Bénin (pas Yas Togo) — ne pas l’utiliser ici.
    */
   private static readonly OPERATOR_TO_MODE: Record<string, string> = {
     FLOOZ: 'moov_tg',
-    MIXX: 'mtn_open',
+    MIXX: 'togocel',
   };
+
+  /** Expose le mode FedaPay pour un opérateur Kabakaba. */
+  resolveMode(operator: string): string {
+    const mode = FedapayService.OPERATOR_TO_MODE[operator];
+    if (!mode) {
+      throw new BadRequestException(
+        `Opérateur de paiement non supporté par FedaPay: ${operator}`,
+      );
+    }
+    return mode;
+  }
 
   constructor(
     private readonly configService: ConfigService,
@@ -73,6 +87,7 @@ export class FedapayService {
     description: string,
     customer: { name: string; email?: string; phone?: string },
     metadata?: Record<string, any>,
+    operator?: string,
   ): Promise<any> {
     if (!this.secretKey || !this.baseUrl) {
       throw new InternalServerErrorException('FedaPay n’est pas configuré');
@@ -104,6 +119,10 @@ export class FedapayService {
       },
       custom_metadata: metadata,
     };
+    // Mode dès la création (recommandé FedaPay pour le flux sans redirection).
+    if (operator) {
+      payload.mode = this.resolveMode(operator);
+    }
     if (returnUrl) {
       payload.callback_url = returnUrl;
     }
@@ -160,12 +179,7 @@ export class FedapayService {
       throw new BadRequestException('Référence de transaction manquante');
     }
 
-    const mode = FedapayService.OPERATOR_TO_MODE[operator];
-    if (!mode) {
-      throw new BadRequestException(
-        `Opérateur de paiement non supporté par FedaPay: ${operator}`,
-      );
-    }
+    const mode = this.resolveMode(operator);
 
     let token: string | undefined;
     try {
@@ -208,10 +222,27 @@ export class FedapayService {
         this.httpService.post(chargeUrl, payload, { headers: this.getHeaders() }),
       );
 
+      const body = response.data || {};
+      // Erreur métier explicite même en HTTP 2xx.
+      const softError = body?.error || body?.errors;
+      if (softError) {
+        const detail =
+          typeof softError === 'string' ? softError : JSON.stringify(softError);
+        this.logger.error(
+          `FedaPay charge soft-fail txn=${transactionId} mode=${mode}: ${detail}`,
+        );
+        throw new BadRequestException(
+          friendlyFedapayMessage(
+            detail,
+            "Impossible d'envoyer la demande Mobile Money. Vérifie le numéro et l'opérateur.",
+          ),
+        );
+      }
+
       this.logger.log(
-        `Paiement Mobile Money initié txn=${transactionId} mode=${mode} op=${operator}`,
+        `Paiement Mobile Money initié txn=${transactionId} mode=${mode} op=${operator} phone=***${national.number.slice(-4)}`,
       );
-      return response.data;
+      return body;
     } catch (error) {
       const detail = fedapayErrorDetail(error);
       this.logger.error(
@@ -358,14 +389,20 @@ function splitCustomerName(name: string): { firstname: string; lastname: string 
   };
 }
 
+/**
+ * Format aligné sur le SDK / usages Togo qui marchent :
+ * `{ number: "+228XXXXXXXX", country: "tg" }` (E.164 avec +).
+ * L’ancien format national seul (`70123456`) fait souvent échouer le push MM.
+ */
 function toFedapayPhone(
   phone?: string,
 ): { number: string; country: 'tg' } | undefined {
   if (!phone) return undefined;
   const digits = phone.replace(/\D/g, '');
-  const national = digits.startsWith('228') ? digits.slice(3) : digits;
+  const withCountry = digits.startsWith('228') ? digits : `228${digits}`;
+  const national = withCountry.slice(3);
   if (national.length < 8) return undefined;
-  return { number: national, country: 'tg' };
+  return { number: `+${withCountry}`, country: 'tg' };
 }
 
 function fallbackStudentEmail(phone?: string): string {

@@ -17,6 +17,7 @@ import {
   ApiBearerAuth,
   ApiQuery,
 } from '@nestjs/swagger';
+import { SkipThrottle, Throttle } from '@nestjs/throttler';
 import { PaymentsService } from '../services/payments.service';
 import { CreatePaymentIntentDto, PreviewRechargeDto } from '../dto/create-payment-intent.dto';
 import { InitiatePaymentDto } from '../dto/initiate-payment.dto';
@@ -105,6 +106,7 @@ export class PaymentsController {
     );
   }
 
+  @SkipThrottle()
   @Post('webhook')
   @ApiOperation({
     summary: 'Webhook pour les notifications de statut de paiement FedaPay',
@@ -141,6 +143,8 @@ export class PaymentsController {
     );
   }
 
+  /** Poll client : plus permissif que la limite globale (évite 429 pendant l’attente MM). */
+  @Throttle({ default: { limit: 120, ttl: 60000 } })
   @Get(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)

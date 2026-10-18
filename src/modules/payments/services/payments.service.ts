@@ -85,7 +85,8 @@ export class PaymentsService {
         email: user.email || undefined,
         phone: user.phone || undefined,
       },
-      { userId, ticketsReceived, feeFcfa },
+      { userId, ticketsReceived, feeFcfa, operator: params.operator },
+      params.operator,
     );
 
     const payment = await this.prisma.payment.create({
@@ -396,7 +397,17 @@ export class PaymentsService {
     try {
       const data = await this.fedapayService.getTransaction(payment.fedapayReference);
       const tx = data?.transaction ?? data?.['v1/transaction'] ?? data;
-      const status = String(tx?.status ?? '').toLowerCase();
+      const rawStatus = tx?.status;
+      const status = String(
+        typeof rawStatus === 'object' && rawStatus != null
+          ? rawStatus.name || rawStatus.status || rawStatus
+          : rawStatus ?? '',
+      ).toLowerCase();
+
+      this.logger.debug(
+        `Sync FedaPay payment=${payment.id} ref=${payment.fedapayReference} status=${status}`,
+      );
+
       if (status === 'approved') {
         await this.applyPaymentOutcome(payment, PaymentStatus.SUCCESS, {
           confirmedAmount: Number(tx?.amount),
@@ -408,8 +419,12 @@ export class PaymentsService {
         status === 'failed' ||
         status === 'expired'
       ) {
+        this.logger.warn(
+          `FedaPay a refusé payment=${payment.id} status=${status}`,
+        );
         await this.applyPaymentOutcome(payment, PaymentStatus.FAILED);
       }
+      // pending / sent / transferred / etc. → on laisse PENDING
     } catch (error) {
       this.logger.warn(
         `Sync FedaPay impossible payment=${payment.id}: ${
