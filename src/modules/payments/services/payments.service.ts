@@ -419,8 +419,9 @@ export class PaymentsService {
         status === 'failed' ||
         status === 'expired'
       ) {
+        const errCode = tx?.last_error_code || tx?.lastErrorCode || null;
         this.logger.warn(
-          `FedaPay a refusé payment=${payment.id} status=${status}`,
+          `FedaPay a refusé payment=${payment.id} status=${status} last_error_code=${errCode}`,
         );
         await this.applyPaymentOutcome(payment, PaymentStatus.FAILED);
       }
@@ -432,6 +433,27 @@ export class PaymentsService {
         }`,
       );
     }
+  }
+
+  /** Message lisible à partir du code d’erreur FedaPay. */
+  explainFedapayError(code: string | null | undefined, operator?: string): string | null {
+    if (!code) return null;
+    const c = String(code).toUpperCase();
+    if (c === 'ACCOUNT_NOT_FOUND') {
+      return operator === 'MIXX'
+        ? 'Ce numéro n’a pas de compte Mixx/Yas. Essaie Flooz (Moov) si c’est un numéro Moov.'
+        : 'Compte Mobile Money introuvable pour ce numéro / opérateur.';
+    }
+    if (c === 'INSUFFICIENT_FUNDS' || c === 'BALANCE_INSUFFICIENT') {
+      return 'Solde Mobile Money insuffisant.';
+    }
+    if (c === 'USER_CANCELED' || c === 'CANCELLED_BY_CUSTOMER') {
+      return 'Paiement annulé sur le téléphone.';
+    }
+    if (c === 'TIMEOUT' || c === 'EXPIRED') {
+      return 'Délai dépassé — tu n’as pas validé le prompt à temps.';
+    }
+    return `Paiement refusé (${c}).`;
   }
 
   async findAll(page: number = 1, limit: number = 10, userId?: string) {
@@ -472,7 +494,7 @@ export class PaymentsService {
   }
 
   async findOne(id: string, actor: Actor) {
-    const payment = await this.getPaymentOrThrow(id);
+    let payment = await this.getPaymentOrThrow(id);
 
     const isAdmin = actor.kind === 'web' && actor.role === 'ADMIN';
     if (!isAdmin && payment.userId !== actor.id) {
@@ -481,7 +503,29 @@ export class PaymentsService {
 
     if (payment.status === PaymentStatus.PENDING && payment.fedapayReference) {
       await this.syncPendingFromFedapay(payment);
-      return this.getPaymentOrThrow(id);
+      payment = await this.getPaymentOrThrow(id);
+    }
+
+    // Enrichit FAILED avec la raison FedaPay (ex. ACCOUNT_NOT_FOUND).
+    if (payment.status === PaymentStatus.FAILED && payment.fedapayReference) {
+      try {
+        const data = await this.fedapayService.getTransaction(
+          payment.fedapayReference,
+        );
+        const tx = data?.transaction ?? data?.['v1/transaction'] ?? data;
+        const errCode = tx?.last_error_code || tx?.lastErrorCode || null;
+        const failureReason = this.explainFedapayError(
+          errCode,
+          payment.operator,
+        );
+        return {
+          ...payment,
+          fedapayErrorCode: errCode,
+          failureReason,
+        };
+      } catch {
+        /* ignore */
+      }
     }
 
     return payment;

@@ -21,17 +21,17 @@ export class FedapayService {
   private readonly environment: FedapayEnv;
 
   /**
-   * Mapping opérateur Kabakaba → mode FedaPay.
-   * - FLOOZ (Moov Togo) → `moov_tg`
-   * - MIXX (Mixx by Yas) → `mtn_open`
+   * Modes FedaPay (doc https://docs.fedapay.com/fr/payment-methods) :
+   * - FLOOZ = Moov Togo → `moov_tg`
+   * - MIXX  = Mixx By Yas → `togocel`
    *
-   * Note : la doc publique cite parfois `togocel`, mais sur le compte live
-   * Kabakaba `POST /v1/togocel` renvoie 400 « Opération non autorisée ».
-   * `POST /v1/mtn_open` répond 200 (vérifié 2026-10-18). Aligné Adèle Delices.
+   * Sur le compte live Kabakaba, `togocel` en push renvoie encore
+   * « Opération non autorisée » → fallback lien Checkout (`paymentUrl`).
+   * Ne PAS utiliser `mtn_open` pour Mixx (MTN Bénin → ACCOUNT_NOT_FOUND au Togo).
    */
   private static readonly OPERATOR_TO_MODE: Record<string, string> = {
     FLOOZ: 'moov_tg',
-    MIXX: 'mtn_open',
+    MIXX: 'togocel',
   };
 
   /** Expose le mode FedaPay pour un opérateur Kabakaba. */
@@ -173,11 +173,21 @@ export class FedapayService {
     }
   }
 
+  /**
+   * Initie le débit Mobile Money.
+   * @returns `{ channel: 'push' | 'redirect', paymentUrl?, fedapay?, mode }`
+   */
   async initiateMobileMoneyPayment(
     transactionId: string,
     phoneNumber: string,
     operator: string,
-  ): Promise<any> {
+  ): Promise<{
+    channel: 'push' | 'redirect';
+    mode: string;
+    paymentUrl?: string;
+    message?: string;
+    fedapay?: unknown;
+  }> {
     if (!transactionId) {
       throw new BadRequestException('Référence de transaction manquante');
     }
@@ -185,6 +195,7 @@ export class FedapayService {
     const mode = this.resolveMode(operator);
 
     let token: string | undefined;
+    let paymentUrl: string | undefined;
     try {
       const tokenUrl = `${this.baseUrl}/v1/transactions/${transactionId}/token`;
       const tokenResponse: AxiosResponse<any> = await firstValueFrom(
@@ -194,6 +205,10 @@ export class FedapayService {
         tokenResponse.data?.token ||
         tokenResponse.data?.payment_token?.token ||
         tokenResponse.data?.['v1/token']?.token;
+      paymentUrl =
+        tokenResponse.data?.url ||
+        tokenResponse.data?.payment_url ||
+        undefined;
     } catch (error) {
       const detail = fedapayErrorDetail(error);
       this.logger.error(`Erreur token FedaPay: ${detail}`);
@@ -208,62 +223,68 @@ export class FedapayService {
       );
     }
 
-    // Docs FedaPay (paiement sans redirection) :
-    // phone_number: { number: "70341309", country: "tg" }  ← national, SANS +228
-    // https://docs.fedapay.com/fr/integration-api/collects-management
+    // Doc FedaPay push : { number, country }. On envoie national + tg.
     const chargePhone = toFedapayChargePhone(phoneNumber);
     if (!chargePhone) {
       throw new BadRequestException('Numéro Mobile Money invalide');
     }
 
+    const chargeUrl = `${this.baseUrl}/v1/${mode}`;
+    const payload = { token, phone_number: chargePhone };
+
+    this.logger.log(
+      `FedaPay charge → ${chargeUrl} phone=${JSON.stringify(chargePhone)} op=${operator}`,
+    );
+
     try {
-      // POST /v1/togocel ou /v1/moov_tg
-      // Format doc FedaPay : { number: "70341309", country: "tg" } (national)
-      const chargeUrl = `${this.baseUrl}/v1/${mode}`;
-      const payload = {
-        token,
-        phone_number: chargePhone,
-      };
-
-      this.logger.log(
-        `FedaPay charge → ${chargeUrl} phone=${JSON.stringify(chargePhone)} op=${operator}`,
-      );
-
       const response: AxiosResponse<any> = await firstValueFrom(
         this.httpService.post(chargeUrl, payload, { headers: this.getHeaders() }),
       );
-
       const body = response.data || {};
-      // Erreur métier explicite même en HTTP 2xx.
-      const softError = body?.error || body?.errors;
+      const softError = body?.error;
       if (softError) {
         const detail =
           typeof softError === 'string' ? softError : JSON.stringify(softError);
-        this.logger.error(
-          `FedaPay charge soft-fail txn=${transactionId} mode=${mode}: ${detail}`,
-        );
         throw new BadRequestException(
           friendlyFedapayMessage(
             detail,
-            "Impossible d'envoyer la demande Mobile Money. Vérifie le numéro et l'opérateur.",
+            "Impossible d'envoyer la demande Mobile Money.",
           ),
         );
       }
-
       this.logger.log(
-        `Paiement MM initié txn=${transactionId} mode=${mode} op=${operator} phone_fmt=national:***${chargePhone.number.slice(-4)}`,
+        `Push MM OK txn=${transactionId} mode=${mode} op=${operator}`,
       );
-      return body;
+      return { channel: 'push', mode, fedapay: body };
     } catch (error) {
       if (error instanceof BadRequestException) throw error;
       const detail = fedapayErrorDetail(error);
       this.logger.error(
-        `Erreur initiation MM FedaPay txn=${transactionId} mode=${mode} phone_fmt=national:***${chargePhone.number.slice(-4)}: ${detail}`,
+        `Push MM FAIL txn=${transactionId} mode=${mode}: ${detail}`,
       );
+
+      // Compte sans collectes Mixx (togocel) activées → page Checkout FedaPay.
+      const unauthorized =
+        /op[eé]ration non autoris|not.?authorized|forbidden/i.test(detail);
+      if (unauthorized && paymentUrl) {
+        this.logger.warn(
+          `Mode ${mode} non autorisé en push — fallback redirect url pour txn=${transactionId}`,
+        );
+        return {
+          channel: 'redirect',
+          mode,
+          paymentUrl,
+          message:
+            'Mixx n’est pas activé en push sur FedaPay. Paie via la page sécurisée (choisis Mixx).',
+        };
+      }
+
       throw new BadRequestException(
         friendlyFedapayMessage(
           detail,
-          "Impossible d'envoyer la demande Mobile Money. Vérifie le numéro et réessaie.",
+          unauthorized
+            ? 'Mixx (togocel) n’est pas activé sur le compte FedaPay. Active-le dans le dashboard FedaPay ou contacte leur support.'
+            : "Impossible d'envoyer la demande Mobile Money. Vérifie le numéro et réessaie.",
         ),
       );
     }
