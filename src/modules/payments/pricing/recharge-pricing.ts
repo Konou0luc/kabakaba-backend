@@ -3,8 +3,10 @@ import { BadRequestException } from '@nestjs/common';
 /**
  * Grille tarifaire des recharges Kabakaba.
  *
- * L’étudiant saisit le montant FCFA qu’il paie (500 → 10 000).
- * Les frais sont inclus dans ce montant ; tickets = montant − frais.
+ * UX recommandée : l’étudiant choisit les **tickets souhaités**.
+ * Le montant à payer = tickets + frais du palier.
+ *
+ * Sens inverse (legacy) : montant payé → tickets = montant − frais.
  *
  * ⚠️ SÉCURITÉ : tickets et frais sont toujours dérivés côté serveur.
  */
@@ -12,9 +14,9 @@ import { BadRequestException } from '@nestjs/common';
 export const MIN_RECHARGE_AMOUNT_FCFA = 500;
 export const MAX_RECHARGE_AMOUNT_FCFA = 10_000;
 
-/** Conservés pour le mode legacy tickets → montant. */
-export const MIN_RECHARGE_TICKETS = 400; // 500 − 100
-export const MAX_RECHARGE_TICKETS = 9_500; // 10 000 − 500
+/** Tickets min/max (500 FCFA − 100 = 400 ; 10 000 − 500 = 9 500). */
+export const MIN_RECHARGE_TICKETS = 400;
+export const MAX_RECHARGE_TICKETS = 9_500;
 
 const FEE_BY_AMOUNT: Array<{ min: number; max: number; fee: number }> = [
   { min: 500, max: 999, fee: 100 },
@@ -31,7 +33,7 @@ function feeForAmount(amount: number): number {
 }
 
 /**
- * Ancien sens : tickets désirés → montant à payer (tickets + frais du palier).
+ * Tickets désirés → montant à payer (tickets + frais du palier).
  * Les paliers suivent le montant payé (tickets + fee).
  */
 export function computeRechargeAmountFcfa(tickets: number): number {
@@ -40,15 +42,14 @@ export function computeRechargeAmountFcfa(tickets: number): number {
   }
   if (tickets < MIN_RECHARGE_TICKETS) {
     throw new BadRequestException(
-      `Le montant minimum de recharge est de ${MIN_RECHARGE_AMOUNT_FCFA} FCFA`,
+      `Minimum : ${MIN_RECHARGE_TICKETS} tickets (soit ${MIN_RECHARGE_AMOUNT_FCFA} FCFA payés)`,
     );
   }
   if (tickets > MAX_RECHARGE_TICKETS) {
     throw new BadRequestException(
-      `Le montant maximum de recharge en une fois est de ${MAX_RECHARGE_AMOUNT_FCFA} FCFA`,
+      `Maximum : ${MAX_RECHARGE_TICKETS} tickets en une fois`,
     );
   }
-  // Cherche le plus petit montant exact tickets + fee dans le barème.
   for (const b of FEE_BY_AMOUNT) {
     const amount = tickets + b.fee;
     if (amount >= b.min && amount <= b.max) return amount;
@@ -57,7 +58,7 @@ export function computeRechargeAmountFcfa(tickets: number): number {
 }
 
 export interface RechargeQuote {
-  /** Montant que l’étudiant paie. */
+  /** Montant que l’étudiant paie (Mobile Money). */
   amountFcfa: number;
   /** Tickets crédités après paiement SUCCESS. */
   ticketsReceived: number;
@@ -67,8 +68,40 @@ export interface RechargeQuote {
   summaryLines: string[];
 }
 
+function buildSummary(
+  ticketsReceived: number,
+  feeFcfa: number,
+  amountFcfa: number,
+): string[] {
+  return [
+    `Tu veux ${ticketsReceived} tickets`,
+    `Frais de service : ${feeFcfa} FCFA`,
+    `Tu paies ${amountFcfa} FCFA`,
+  ];
+}
+
 /**
- * Sens mobile : montant FCFA saisi → tickets reçus.
+ * UX principale : tickets souhaités → montant à payer + frais.
+ * Ex. 500 tickets → frais 100 → paie 600 FCFA.
+ */
+export function quoteRechargeFromTickets(ticketsDesired: number): RechargeQuote {
+  const tickets = Math.floor(Number(ticketsDesired));
+  if (!Number.isFinite(tickets) || tickets <= 0) {
+    throw new BadRequestException('Nombre de tickets invalide');
+  }
+  const amountFcfa = computeRechargeAmountFcfa(tickets);
+  const feeFcfa = amountFcfa - tickets;
+  return {
+    amountFcfa,
+    ticketsReceived: tickets,
+    feeFcfa,
+    exact: true,
+    summaryLines: buildSummary(tickets, feeFcfa, amountFcfa),
+  };
+}
+
+/**
+ * Sens legacy / amount-first : montant FCFA saisi → tickets reçus.
  */
 export function quoteRechargeFromAmountFcfa(amountFcfa: number): RechargeQuote {
   const amount = Math.floor(Number(amountFcfa));
@@ -97,9 +130,6 @@ export function quoteRechargeFromAmountFcfa(amountFcfa: number): RechargeQuote {
     ticketsReceived,
     feeFcfa,
     exact: true,
-    summaryLines: [
-      `Tu paies ${amount} FCFA`,
-      `${ticketsReceived} tickets crédités`,
-    ],
+    summaryLines: buildSummary(ticketsReceived, feeFcfa, amount),
   };
 }

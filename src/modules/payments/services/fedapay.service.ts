@@ -1,9 +1,16 @@
-import { Injectable, Logger, BadRequestException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  BadRequestException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
 import { AxiosResponse } from 'axios';
 import * as crypto from 'crypto';
+
+type FedapayEnv = 'live' | 'sandbox' | 'development';
 
 @Injectable()
 export class FedapayService {
@@ -11,26 +18,52 @@ export class FedapayService {
   private readonly secretKey: string;
   private readonly baseUrl: string;
   private readonly webhookSecret: string;
+  private readonly environment: FedapayEnv;
 
-  // Mapping opérateur Kabakaba -> "mode" attendu par l'API FedaPay
+  /**
+   * Mapping opérateur Kabakaba → mode FedaPay (Togo).
+   * Aligné sur le SDK / usages marché (Moov = moov_tg, Yas/Mixx = mtn_open).
+   */
   private static readonly OPERATOR_TO_MODE: Record<string, string> = {
-    FLOOZ: 'moov_tg', // Flooz = Moov Money Togo
-    MIXX: 'togocel', // Mixx by Yas = ex-Togocel Money
+    FLOOZ: 'moov_tg',
+    MIXX: 'mtn_open',
   };
 
   constructor(
     private readonly configService: ConfigService,
     private readonly httpService: HttpService,
   ) {
-    this.secretKey = this.configService.get<string>('FEDAPAY_SECRET_KEY') || '';
-    this.baseUrl = this.configService.get<string>('FEDAPAY_BASE_URL') || '';
-    this.webhookSecret = this.configService.get<string>('FEDAPAY_WEBHOOK_SECRET') || '';
+    this.secretKey = (this.configService.get<string>('FEDAPAY_SECRET_KEY') || '').trim();
+    this.webhookSecret = (
+      this.configService.get<string>('FEDAPAY_WEBHOOK_SECRET') || ''
+    ).trim();
+    this.environment = resolveFedapayEnvironment(
+      this.configService.get<string>('FEDAPAY_ENVIRONMENT'),
+      this.secretKey,
+    );
+    this.baseUrl = resolveFedapayBaseUrl(
+      this.configService.get<string>('FEDAPAY_BASE_URL'),
+      this.environment,
+      this.secretKey,
+    );
+
+    this.logger.log(
+      `FedaPay prêt · env=${this.environment} · base=${this.baseUrl || '(manquant)'} · key=${
+        this.secretKey ? `${this.secretKey.slice(0, 8)}…` : '(manquant)'
+      }`,
+    );
+    if (!this.webhookSecret) {
+      this.logger.warn(
+        'FEDAPAY_WEBHOOK_SECRET manquant — les webhooks seront rejetés (fail-closed).',
+      );
+    }
   }
 
   private getHeaders() {
     return {
       Authorization: `Bearer ${this.secretKey}`,
       'Content-Type': 'application/json',
+      Accept: 'application/json',
     };
   }
 
@@ -47,16 +80,20 @@ export class FedapayService {
 
     const { firstname, lastname } = splitCustomerName(customer.name);
     const phoneNumber = toFedapayPhone(customer.phone);
-    const appUrl = (this.configService.get<string>('APP_URL') || '').replace(/\/$/, '');
-    const callbackPath = appUrl.endsWith('/api/v1')
-      ? '/payments/webhook'
-      : '/api/v1/payments/webhook';
+    // callback_url = URL de retour navigateur (pas le webhook signé).
+    // Pour le push Mobile Money on peut l’omettre ; sinon page publique app.
+    const returnUrl = (
+      this.configService.get<string>('FEDAPAY_RETURN_URL') ||
+      this.configService.get<string>('APP_PUBLIC_URL') ||
+      ''
+    )
+      .trim()
+      .replace(/\/$/, '');
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       description,
       amount: Math.trunc(amount),
       currency: { iso: currency },
-      callback_url: appUrl ? `${appUrl}${callbackPath}` : undefined,
       customer: {
         firstname,
         lastname,
@@ -67,6 +104,9 @@ export class FedapayService {
       },
       custom_metadata: metadata,
     };
+    if (returnUrl) {
+      payload.callback_url = returnUrl;
+    }
 
     try {
       const url = `${this.baseUrl}/v1/transactions`;
@@ -86,10 +126,11 @@ export class FedapayService {
       this.logger.log(`Transaction FedaPay créée: ${transaction.id}`);
       return { ...response.data, transaction };
     } catch (error) {
+      if (error instanceof BadRequestException) throw error;
       const detail = fedapayErrorDetail(error);
       this.logger.error(`Erreur création transaction FedaPay: ${detail}`);
       throw new BadRequestException(
-        'Erreur lors de la création de la transaction',
+        friendlyFedapayMessage(detail, 'Impossible de créer le paiement'),
       );
     }
   }
@@ -100,15 +141,13 @@ export class FedapayService {
       const response: AxiosResponse<any> = await firstValueFrom(
         this.httpService.get(url, { headers: this.getHeaders() }),
       );
-
       return response.data;
     } catch (error) {
-      const err = error as Error & { stack?: string };
-      this.logger.error(
-        `Erreur lors de la récupération de la transaction FedaPay: ${err.message}`,
-        err.stack,
+      const detail = fedapayErrorDetail(error);
+      this.logger.error(`Erreur récupération transaction FedaPay: ${detail}`);
+      throw new BadRequestException(
+        'Erreur lors de la récupération de la transaction',
       );
-      throw new BadRequestException('Erreur lors de la récupération de la transaction');
     }
   }
 
@@ -117,6 +156,10 @@ export class FedapayService {
     phoneNumber: string,
     operator: string,
   ): Promise<any> {
+    if (!transactionId) {
+      throw new BadRequestException('Référence de transaction manquante');
+    }
+
     const mode = FedapayService.OPERATOR_TO_MODE[operator];
     if (!mode) {
       throw new BadRequestException(
@@ -124,22 +167,21 @@ export class FedapayService {
       );
     }
 
-    // 1. Générer un token de paiement pour la transaction déjà créée
     let token: string | undefined;
     try {
       const tokenUrl = `${this.baseUrl}/v1/transactions/${transactionId}/token`;
       const tokenResponse: AxiosResponse<any> = await firstValueFrom(
         this.httpService.post(tokenUrl, {}, { headers: this.getHeaders() }),
       );
-      token = tokenResponse.data?.token;
+      token =
+        tokenResponse.data?.token ||
+        tokenResponse.data?.payment_token?.token ||
+        tokenResponse.data?.['v1/token']?.token;
     } catch (error) {
-      const err = error as Error & { stack?: string };
-      this.logger.error(
-        `Erreur lors de la génération du token FedaPay: ${err.message}`,
-        err.stack,
-      );
+      const detail = fedapayErrorDetail(error);
+      this.logger.error(`Erreur token FedaPay: ${detail}`);
       throw new BadRequestException(
-        'Erreur lors de la génération du token de paiement',
+        friendlyFedapayMessage(detail, 'Impossible de préparer le paiement'),
       );
     }
 
@@ -154,8 +196,8 @@ export class FedapayService {
       throw new BadRequestException('Numéro Mobile Money invalide');
     }
 
-    // 2. Déclencher le débit Mobile Money directement (sans redirection)
     try {
+      // SDK officiel : POST /v1/{mode} avec { token, phone_number }
       const chargeUrl = `${this.baseUrl}/v1/${mode}`;
       const payload = {
         token,
@@ -167,27 +209,23 @@ export class FedapayService {
       );
 
       this.logger.log(
-        `Paiement Mobile Money initié pour la transaction ${transactionId} (mode: ${mode})`,
+        `Paiement Mobile Money initié txn=${transactionId} mode=${mode} op=${operator}`,
       );
       return response.data;
     } catch (error) {
-      const err = error as Error & { stack?: string };
+      const detail = fedapayErrorDetail(error);
       this.logger.error(
-        `Erreur lors de l'initiation du paiement Mobile Money: ${err.message}`,
-        err.stack,
+        `Erreur initiation MM FedaPay txn=${transactionId} mode=${mode}: ${detail}`,
       );
       throw new BadRequestException(
-        "Erreur lors de l'initiation du paiement",
+        friendlyFedapayMessage(
+          detail,
+          "Impossible d'envoyer la demande Mobile Money. Vérifie le numéro et réessaie.",
+        ),
       );
     }
   }
 
-  /**
-   * Vérifie la signature d'un webhook FedaPay (header X-FEDAPAY-SIGNATURE
-   * au format "t=<timestamp>,s=<signature>", HMAC-SHA256 sur `${t}.${rawBody}`).
-   * Lève une BadRequestException si la signature est absente, invalide, ou
-   * si le timestamp est trop ancien (protection anti-rejeu).
-   */
   private static readonly WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
 
   verifyWebhookSignature(
@@ -197,9 +235,6 @@ export class FedapayService {
     const secret = this.webhookSecret;
 
     if (!secret) {
-      // Fail-CLOSED : un webhook financier ne doit jamais être accepté
-      // sans vérification de signature possible. Si le secret manque,
-      // on rejette la requête au lieu de l'accepter en silence.
       this.logger.error(
         'FEDAPAY_WEBHOOK_SECRET non configuré : webhook rejeté (fail-closed).',
       );
@@ -228,10 +263,6 @@ export class FedapayService {
       throw new BadRequestException('Format de signature de webhook invalide');
     }
 
-    // Anti-rejeu : le timestamp fait partie du message signé (il ne peut donc
-    // pas être falsifié sans invalider la signature), on rejette s'il est
-    // trop éloigné de l'heure serveur — qu'il soit trop vieux (webhook
-    // intercepté et rejoué) ou dans le futur (horloge cliente incohérente).
     const timestampSeconds = Number(timestamp);
     if (!Number.isFinite(timestampSeconds)) {
       throw new BadRequestException('Format de signature de webhook invalide');
@@ -250,12 +281,73 @@ export class FedapayService {
 
     const isValid =
       expectedSignature.length === signature.length &&
-      crypto.timingSafeEqual(Buffer.from(expectedSignature), Buffer.from(signature));
+      crypto.timingSafeEqual(
+        Buffer.from(expectedSignature),
+        Buffer.from(signature),
+      );
 
     if (!isValid) {
       throw new BadRequestException('Signature de webhook invalide');
     }
   }
+}
+
+function normalizeEnvironment(value?: string): FedapayEnv | null {
+  // Tolère les .env mal formés du type: sandbox" # ou "live
+  const normalized = (value || '')
+    .trim()
+    .replace(/^["']|["'].*$/g, '')
+    .toLowerCase();
+  if (!normalized) return null;
+  if (normalized === 'live' || normalized === 'production') return 'live';
+  if (normalized === 'development' || normalized === 'dev') return 'development';
+  if (normalized === 'sandbox' || normalized === 'test') return 'sandbox';
+  return null;
+}
+
+function resolveFedapayEnvironment(
+  configured: string | undefined,
+  secretKey: string,
+): FedapayEnv {
+  const fromKey = secretKey.startsWith('sk_live')
+    ? 'live'
+    : secretKey.startsWith('sk_sandbox') || secretKey.startsWith('sk_test')
+      ? 'sandbox'
+      : null;
+  const fromEnv = normalizeEnvironment(configured);
+  // La clé prime : sk_live ne doit jamais frapper sandbox-api.
+  if (fromKey) return fromKey;
+  return fromEnv || 'sandbox';
+}
+
+function resolveFedapayBaseUrl(
+  configured: string | undefined,
+  environment: FedapayEnv,
+  secretKey: string,
+): string {
+  const explicit = (configured || '').trim().replace(/\/$/, '');
+  const fromEnv =
+    environment === 'live'
+      ? 'https://api.fedapay.com'
+      : environment === 'development'
+        ? 'https://dev-api.fedapay.com'
+        : 'https://sandbox-api.fedapay.com';
+
+  if (!explicit) return fromEnv;
+
+  // Garde-fou : clé live + URL sandbox (ou l’inverse) → forcer l’URL cohérente.
+  const isSandboxHost = /sandbox-api\.fedapay\.com/i.test(explicit);
+  const isLiveHost = /(?:^|\/\/)api\.fedapay\.com/i.test(explicit);
+  if (secretKey.startsWith('sk_live') && isSandboxHost) {
+    return 'https://api.fedapay.com';
+  }
+  if (
+    (secretKey.startsWith('sk_sandbox') || secretKey.startsWith('sk_test')) &&
+    isLiveHost
+  ) {
+    return 'https://sandbox-api.fedapay.com';
+  }
+  return explicit;
 }
 
 function splitCustomerName(name: string): { firstname: string; lastname: string } {
@@ -266,7 +358,9 @@ function splitCustomerName(name: string): { firstname: string; lastname: string 
   };
 }
 
-function toFedapayPhone(phone?: string): { number: string; country: 'tg' } | undefined {
+function toFedapayPhone(
+  phone?: string,
+): { number: string; country: 'tg' } | undefined {
   if (!phone) return undefined;
   const digits = phone.replace(/\D/g, '');
   const national = digits.startsWith('228') ? digits.slice(3) : digits;
@@ -280,7 +374,10 @@ function fallbackStudentEmail(phone?: string): string {
 }
 
 function fedapayErrorDetail(error: unknown): string {
-  const ax = error as { message?: string; response?: { status?: number; data?: unknown } };
+  const ax = error as {
+    message?: string;
+    response?: { status?: number; data?: unknown };
+  };
   const data = ax.response?.data;
   const body =
     typeof data === 'string'
@@ -289,4 +386,21 @@ function fedapayErrorDetail(error: unknown): string {
         ? JSON.stringify(data)
         : '';
   return [ax.response?.status, ax.message, body].filter(Boolean).join(' ');
+}
+
+function friendlyFedapayMessage(detail: string, fallback: string): string {
+  const lower = detail.toLowerCase();
+  if (/401|unauthorized|invalid.?api.?key|authentication/i.test(lower)) {
+    return 'Configuration FedaPay invalide (clé / environnement). Contacte le support.';
+  }
+  if (/404|mode.?not.?found|unknown.?mode/i.test(lower)) {
+    return 'Opérateur Mobile Money indisponible pour le moment.';
+  }
+  if (/phone|numéro|number/i.test(lower)) {
+    return 'Numéro Mobile Money refusé. Vérifie le numéro et réessaie.';
+  }
+  if (/429|too many|rate/i.test(lower)) {
+    return 'Trop de tentatives. Réessaie dans un instant.';
+  }
+  return fallback;
 }

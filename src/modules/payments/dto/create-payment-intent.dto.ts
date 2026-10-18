@@ -9,37 +9,35 @@ import {
 } from '../pricing/recharge-pricing';
 
 /**
- * L’étudiant fournit **soit** amountFcfa (recommandé — UX mobile),
- * **soit** ticketsReceived (rétrocompat). Pas les deux en conflit :
- * si amountFcfa est présent, il prime.
+ * L’étudiant fournit **soit** ticketsReceived (recommandé — tickets souhaités),
+ * **soit** amountFcfa (montant payé). Si les deux sont présents, ticketsReceived prime.
  */
 export class CreatePaymentIntentDto {
   @ApiPropertyOptional({
-    example: 2200,
+    example: 500,
     description:
-      'Montant en FCFA que l’étudiant va payer (frais inclus). ' +
-      'Les tickets crédités sont calculés serveur selon le barème. ' +
-      'Exemple : 2200 FCFA → 2000 tickets (frais 200 inclus).',
-  })
-  @ValidateIf((o) => o.ticketsReceived === undefined || o.ticketsReceived === null)
-  @IsNotEmpty({ message: 'Indiquez amountFcfa ou ticketsReceived' })
-  @IsInt()
-  @Min(MIN_RECHARGE_AMOUNT_FCFA)
-  @Max(MAX_RECHARGE_AMOUNT_FCFA)
-  amountFcfa?: number;
-
-  @ApiPropertyOptional({
-    example: 2000,
-    description:
-      'Ancien mode : nombre de tickets souhaités. Le montant à payer est alors calculé serveur. ' +
-      'Préférer amountFcfa côté mobile.',
+      'Tickets souhaités sur le portefeuille. Le montant à payer (tickets + frais) ' +
+      'est calculé serveur. Ex. 500 tickets → 600 FCFA (frais 100).',
   })
   @ValidateIf((o) => o.amountFcfa === undefined || o.amountFcfa === null)
-  @IsNotEmpty({ message: 'Indiquez amountFcfa ou ticketsReceived' })
+  @IsNotEmpty({ message: 'Indiquez ticketsReceived ou amountFcfa' })
   @IsInt()
   @Min(MIN_RECHARGE_TICKETS)
   @Max(MAX_RECHARGE_TICKETS)
   ticketsReceived?: number;
+
+  @ApiPropertyOptional({
+    example: 600,
+    description:
+      'Montant FCFA payé (frais inclus). Alternative à ticketsReceived. ' +
+      'Ex. 600 FCFA → 500 tickets (frais 100).',
+  })
+  @ValidateIf((o) => o.ticketsReceived === undefined || o.ticketsReceived === null)
+  @IsNotEmpty({ message: 'Indiquez ticketsReceived ou amountFcfa' })
+  @IsInt()
+  @Min(MIN_RECHARGE_AMOUNT_FCFA)
+  @Max(MAX_RECHARGE_AMOUNT_FCFA)
+  amountFcfa?: number;
 
   @ApiProperty({
     enum: PaymentOperator,
@@ -51,14 +49,30 @@ export class CreatePaymentIntentDto {
   operator: PaymentOperator;
 }
 
+/**
+ * Preview : ticketsDesired (recommandé) ou amountFcfa.
+ */
 export class PreviewRechargeDto {
-  @ApiProperty({
-    example: 2200,
-    description: 'Montant FCFA saisi par l’étudiant (frais inclus dans ce montant).',
+  @ApiPropertyOptional({
+    example: 500,
+    description:
+      'Tickets souhaités. Ex. 500 → tu paies 600 FCFA (frais 100).',
   })
-  @IsNotEmpty()
+  @ValidateIf((o) => o.amountFcfa === undefined || o.amountFcfa === null)
+  @IsNotEmpty({ message: 'Indiquez ticketsDesired ou amountFcfa' })
+  @IsInt()
+  @Min(MIN_RECHARGE_TICKETS)
+  @Max(MAX_RECHARGE_TICKETS)
+  ticketsDesired?: number;
+
+  @ApiPropertyOptional({
+    example: 600,
+    description: 'Montant FCFA payé (frais inclus). Alternative à ticketsDesired.',
+  })
+  @ValidateIf((o) => o.ticketsDesired === undefined || o.ticketsDesired === null)
+  @IsNotEmpty({ message: 'Indiquez ticketsDesired ou amountFcfa' })
   @IsInt()
   @Min(MIN_RECHARGE_AMOUNT_FCFA)
   @Max(MAX_RECHARGE_AMOUNT_FCFA)
-  amountFcfa: number;
+  amountFcfa?: number;
 }

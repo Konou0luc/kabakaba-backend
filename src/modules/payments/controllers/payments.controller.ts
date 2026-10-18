@@ -43,13 +43,16 @@ export class PaymentsController {
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.STUDENT)
   @ApiOperation({
-    summary: 'Récap recharge (sans paiement) — montant FCFA → tickets',
+    summary: 'Récap recharge (sans paiement)',
     description:
-      "L'étudiant saisit le montant qu'il va payer. Les frais sont inclus ; " +
-      'on renvoie les tickets qui seront crédités. Ex. 2200 FCFA → 2000 tickets.',
+      'Préférer ticketsDesired : 500 tickets → paie 600 FCFA (frais 100). ' +
+      'Ou amountFcfa : 600 FCFA → 500 tickets.',
   })
   previewRecharge(@Body() dto: PreviewRechargeDto) {
-    return this.paymentsService.previewRecharge(dto.amountFcfa);
+    return this.paymentsService.previewRecharge({
+      ticketsDesired: dto.ticketsDesired,
+      amountFcfa: dto.amountFcfa,
+    });
   }
 
   @Post('intent')
@@ -59,7 +62,7 @@ export class PaymentsController {
   @ApiOperation({
     summary: 'Créer une intention de paiement (Étudiant)',
     description:
-      'Préférer amountFcfa (montant payé, frais inclus). ticketsReceived reste accepté (legacy).',
+      'Préférer ticketsReceived (tickets souhaités). amountFcfa reste accepté.',
   })
   @ApiResponse({
     status: 201,

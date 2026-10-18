@@ -7,8 +7,8 @@ import { NotificationsService } from '../../notifications/services/notifications
 import { PaymentStatus, UserRole, NotificationType } from '@prisma/client';
 import { REFERRAL_REWARD_TICKETS } from '../../referrals/referral.constants';
 import {
-  computeRechargeAmountFcfa,
   quoteRechargeFromAmountFcfa,
+  quoteRechargeFromTickets,
 } from '../pricing/recharge-pricing';
 
 interface Actor {
@@ -29,16 +29,24 @@ export class PaymentsService {
   ) {}
 
   /**
-   * Récap mobile : montant FCFA saisi → tickets + frais inclus (sans créer de paiement).
+   * Récap sans paiement.
+   * - ticketsDesired (recommandé) : 500 tickets → paie 600 (frais 100)
+   * - amountFcfa : 600 FCFA → 500 tickets
    */
-  previewRecharge(amountFcfa: number) {
-    return quoteRechargeFromAmountFcfa(amountFcfa);
+  previewRecharge(params: { amountFcfa?: number; ticketsDesired?: number }) {
+    if (params.ticketsDesired != null) {
+      return quoteRechargeFromTickets(params.ticketsDesired);
+    }
+    if (params.amountFcfa != null) {
+      return quoteRechargeFromAmountFcfa(params.amountFcfa);
+    }
+    throw new BadRequestException('Indiquez ticketsDesired ou amountFcfa');
   }
 
   /**
    * Crée l’intention de paiement.
-   * - Mode recommandé : amountFcfa (ce que l’étudiant paie, frais inclus)
-   * - Mode legacy : ticketsReceived (on recalcule le montant à payer)
+   * - Mode recommandé : ticketsReceived (tickets souhaités → montant = tickets + frais)
+   * - Mode alternatif : amountFcfa (montant payé → tickets = montant − frais)
    */
   async createPaymentIntent(
     params: { amountFcfa?: number; ticketsReceived?: number; operator: string },
@@ -52,24 +60,20 @@ export class PaymentsService {
     let feeFcfa: number;
     let quoteLines: string[];
 
-    if (params.amountFcfa != null) {
-      // UX mobile : l’étudiant saisit ce qu’il paie ; tickets dérivés serveur.
+    if (params.ticketsReceived != null) {
+      const quote = quoteRechargeFromTickets(params.ticketsReceived);
+      amount = quote.amountFcfa;
+      ticketsReceived = quote.ticketsReceived;
+      feeFcfa = quote.feeFcfa;
+      quoteLines = quote.summaryLines;
+    } else if (params.amountFcfa != null) {
       const quote = quoteRechargeFromAmountFcfa(params.amountFcfa);
       amount = quote.amountFcfa;
       ticketsReceived = quote.ticketsReceived;
       feeFcfa = quote.feeFcfa;
       quoteLines = quote.summaryLines;
-    } else if (params.ticketsReceived != null) {
-      ticketsReceived = params.ticketsReceived;
-      amount = computeRechargeAmountFcfa(ticketsReceived);
-      feeFcfa = amount - ticketsReceived;
-      quoteLines = [
-        `Vous payez : ${amount} FCFA`,
-        `Frais de service (inclus) : ${feeFcfa} FCFA`,
-        `Tickets crédités : ${ticketsReceived}`,
-      ];
     } else {
-      throw new BadRequestException('Indiquez amountFcfa ou ticketsReceived');
+      throw new BadRequestException('Indiquez ticketsReceived ou amountFcfa');
     }
 
     const fedapayTransaction = await this.fedapayService.createTransaction(
@@ -119,23 +123,13 @@ export class PaymentsService {
       throw new BadRequestException('Paiement déjà initié ou traité');
     }
 
-    try {
-      return await this.fedapayService.initiateMobileMoneyPayment(
-        payment.fedapayReference || '',
-        phoneNumber,
-        payment.operator,
-      );
-    } catch (error) {
-      try {
-        await this.applyPaymentOutcome(payment, PaymentStatus.FAILED);
-      } catch (notifyError) {
-        this.logger.error(
-          `Marquage échec recharge impossible payment=${payment.id}`,
-          notifyError instanceof Error ? notifyError.stack : notifyError,
-        );
-      }
-      throw error;
-    }
+    // Ne pas marquer FAILED ici : une erreur FedaPay (réseau, numéro, mode)
+    // doit laisser le paiement PENDING pour permettre un nouvel essai d’initiate.
+    return this.fedapayService.initiateMobileMoneyPayment(
+      payment.fedapayReference || '',
+      phoneNumber,
+      payment.operator,
+    );
   }
 
   async handleWebhook(rawBody: string, signatureHeader?: string) {
@@ -164,7 +158,11 @@ export class PaymentsService {
     });
 
     if (!payment) {
-      throw new NotFoundException('Paiement introuvable pour cette transaction');
+      // Ne pas renvoyer 404 à FedaPay (retries / bruit) — ignorer proprement.
+      this.logger.warn(
+        `Webhook FedaPay: aucun paiement local pour transaction ${transactionId}`,
+      );
+      return { message: 'Paiement inconnu — ignoré' };
     }
 
     let newStatus: PaymentStatus;
