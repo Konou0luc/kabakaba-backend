@@ -94,7 +94,8 @@ export class FedapayService {
     }
 
     const { firstname, lastname } = splitCustomerName(customer.name);
-    const phoneNumber = toFedapayPhone(customer.phone);
+    // Client : E.164 accepté à la création ; le push MM utilise le format national.
+    const phoneNumber = toFedapayCustomerPhone(customer.phone);
     // callback_url = URL de retour navigateur (pas le webhook signé).
     // Pour le push Mobile Money on peut l’omettre ; sinon page publique app.
     const returnUrl = (
@@ -205,18 +206,26 @@ export class FedapayService {
       );
     }
 
-    const national = toFedapayPhone(phoneNumber);
-    if (!national) {
+    // Docs FedaPay (paiement sans redirection) :
+    // phone_number: { number: "70341309", country: "tg" }  ← national, SANS +228
+    // https://docs.fedapay.com/fr/integration-api/collects-management
+    const chargePhone = toFedapayChargePhone(phoneNumber);
+    if (!chargePhone) {
       throw new BadRequestException('Numéro Mobile Money invalide');
     }
 
     try {
-      // SDK officiel : POST /v1/{mode} avec { token, phone_number }
+      // POST /v1/togocel ou /v1/moov_tg
+      // Format doc FedaPay : { number: "70341309", country: "tg" } (national)
       const chargeUrl = `${this.baseUrl}/v1/${mode}`;
       const payload = {
         token,
-        phone_number: national,
+        phone_number: chargePhone,
       };
+
+      this.logger.log(
+        `FedaPay charge → ${chargeUrl} phone=${JSON.stringify(chargePhone)} op=${operator}`,
+      );
 
       const response: AxiosResponse<any> = await firstValueFrom(
         this.httpService.post(chargeUrl, payload, { headers: this.getHeaders() }),
@@ -240,13 +249,14 @@ export class FedapayService {
       }
 
       this.logger.log(
-        `Paiement Mobile Money initié txn=${transactionId} mode=${mode} op=${operator} phone=***${national.number.slice(-4)}`,
+        `Paiement MM initié txn=${transactionId} mode=${mode} op=${operator} phone_fmt=national:***${chargePhone.number.slice(-4)}`,
       );
       return body;
     } catch (error) {
+      if (error instanceof BadRequestException) throw error;
       const detail = fedapayErrorDetail(error);
       this.logger.error(
-        `Erreur initiation MM FedaPay txn=${transactionId} mode=${mode}: ${detail}`,
+        `Erreur initiation MM FedaPay txn=${transactionId} mode=${mode} phone_fmt=national:***${chargePhone.number.slice(-4)}: ${detail}`,
       );
       throw new BadRequestException(
         friendlyFedapayMessage(
@@ -390,19 +400,35 @@ function splitCustomerName(name: string): { firstname: string; lastname: string 
 }
 
 /**
- * Format aligné sur le SDK / usages Togo qui marchent :
- * `{ number: "+228XXXXXXXX", country: "tg" }` (E.164 avec +).
- * L’ancien format national seul (`70123456`) fait souvent échouer le push MM.
+ * Client à la création de transaction (docs FedaPay) :
+ * `{ number: "+228XXXXXXXX", country: "tg" }`.
  */
-function toFedapayPhone(
+function toFedapayCustomerPhone(
   phone?: string,
 ): { number: string; country: 'tg' } | undefined {
   if (!phone) return undefined;
   const digits = phone.replace(/\D/g, '');
   const withCountry = digits.startsWith('228') ? digits : `228${digits}`;
   const national = withCountry.slice(3);
-  if (national.length < 8) return undefined;
+  if (national.length < 8 || national.length > 10) return undefined;
   return { number: `+${withCountry}`, country: 'tg' };
+}
+
+/**
+ * Push Mobile Money sans redirection (docs FedaPay) :
+ * `{ number: "70341309", country: "tg" }` — **national uniquement**, pas de +228.
+ * Mixx (`togocel`) refuse souvent le format E.164 ; Moov peut être plus tolérant.
+ * @see https://docs.fedapay.com/fr/integration-api/collects-management
+ * @see https://docs.fedapay.com/fr/payment-methods — Togo: moov_tg / togocel
+ */
+function toFedapayChargePhone(
+  phone?: string,
+): { number: string; country: 'tg' } | undefined {
+  if (!phone) return undefined;
+  const digits = phone.replace(/\D/g, '');
+  const national = digits.startsWith('228') ? digits.slice(3) : digits;
+  if (national.length < 8 || national.length > 10) return undefined;
+  return { number: national, country: 'tg' };
 }
 
 function fallbackStudentEmail(phone?: string): string {
