@@ -21,15 +21,17 @@ export class FedapayService {
   private readonly environment: FedapayEnv;
 
   /**
-   * Mapping opérateur Kabakaba → mode FedaPay (Togo).
-   * Docs FedaPay :
-   * - Moov Togo / Flooz → `moov_tg`
-   * - TogoCel T-Money / Mixx by Yas → `togocel`
-   * ⚠️ `mtn_open` = MTN Bénin (pas Yas Togo) — ne pas l’utiliser ici.
+   * Mapping opérateur Kabakaba → mode FedaPay.
+   * - FLOOZ (Moov Togo) → `moov_tg`
+   * - MIXX (Mixx by Yas) → `mtn_open`
+   *
+   * Note : la doc publique cite parfois `togocel`, mais sur le compte live
+   * Kabakaba `POST /v1/togocel` renvoie 400 « Opération non autorisée ».
+   * `POST /v1/mtn_open` répond 200 (vérifié 2026-10-18). Aligné Adèle Delices.
    */
   private static readonly OPERATOR_TO_MODE: Record<string, string> = {
     FLOOZ: 'moov_tg',
-    MIXX: 'togocel',
+    MIXX: 'mtn_open',
   };
 
   /** Expose le mode FedaPay pour un opérateur Kabakaba. */
@@ -415,11 +417,8 @@ function toFedapayCustomerPhone(
 }
 
 /**
- * Push Mobile Money sans redirection (docs FedaPay) :
- * `{ number: "70341309", country: "tg" }` — **national uniquement**, pas de +228.
- * Mixx (`togocel`) refuse souvent le format E.164 ; Moov peut être plus tolérant.
- * @see https://docs.fedapay.com/fr/integration-api/collects-management
- * @see https://docs.fedapay.com/fr/payment-methods — Togo: moov_tg / togocel
+ * Push Mobile Money : national Togo `70341309` + country `tg`.
+ * (mtn_open accepte aussi +228… ; on normalise en national pour homogénéité.)
  */
 function toFedapayChargePhone(
   phone?: string,
@@ -455,6 +454,9 @@ function friendlyFedapayMessage(detail: string, fallback: string): string {
   const lower = detail.toLowerCase();
   if (/401|unauthorized|invalid.?api.?key|authentication/i.test(lower)) {
     return 'Configuration FedaPay invalide (clé / environnement). Contacte le support.';
+  }
+  if (/op[eé]ration non autoris|not.?authorized|forbidden/i.test(lower)) {
+    return 'Cet opérateur n’est pas activé sur FedaPay. Contacte le support Kabakaba.';
   }
   if (/404|mode.?not.?found|unknown.?mode/i.test(lower)) {
     return 'Opérateur Mobile Money indisponible pour le moment.';
