@@ -18,8 +18,10 @@ const NAMES: Record<MobileApp, { access: string; refresh: string; csrf: string }
   },
 };
 
-const ACCESS_FALLBACK_SECONDS = 15 * 60;
-const REFRESH_FALLBACK_SECONDS = 7 * 24 * 60 * 60;
+const ACCESS_FALLBACK_SECONDS = 60 * 60; // 1h (étudiants)
+const REFRESH_FALLBACK_SECONDS = 30 * 24 * 60 * 60; // 30j
+const VENDOR_ACCESS_FALLBACK_SECONDS = 12 * 60 * 60; // 12h
+const VENDOR_REFRESH_FALLBACK_SECONDS = 90 * 24 * 60 * 60; // 90j
 
 function parseCookies(header?: string): Record<string, string> {
   if (!header) return {};
@@ -91,8 +93,14 @@ export function issueMobileSessionCookies(
   accessToken: string,
   refreshToken: string,
 ) {
-  const accessMaxAge = ttlSeconds('JWT_ACCESS_EXPIRES', ACCESS_FALLBACK_SECONDS);
-  const refreshMaxAge = ttlSeconds('JWT_REFRESH_EXPIRES', REFRESH_FALLBACK_SECONDS);
+  const accessMaxAge =
+    app === 'vendor'
+      ? ttlSeconds('JWT_VENDOR_ACCESS_EXPIRES', VENDOR_ACCESS_FALLBACK_SECONDS)
+      : ttlSeconds('JWT_ACCESS_EXPIRES', ACCESS_FALLBACK_SECONDS);
+  const refreshMaxAge =
+    app === 'vendor'
+      ? ttlSeconds('JWT_VENDOR_REFRESH_EXPIRES', VENDOR_REFRESH_FALLBACK_SECONDS)
+      : ttlSeconds('JWT_REFRESH_EXPIRES', REFRESH_FALLBACK_SECONDS);
   const csrf = crypto.randomBytes(32).toString('base64url');
   const names = NAMES[app];
   res.setHeader('Set-Cookie', [

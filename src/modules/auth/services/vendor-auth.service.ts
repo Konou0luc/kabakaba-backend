@@ -223,14 +223,24 @@ export class VendorAuthService {
     password?: string | null;
   }) {
     const tokens = await this.authService.issueTokens(user.id, user.role);
-    await this.authService.persistRefreshToken(user.id, tokens.refreshToken);
+    await this.authService.persistRefreshToken(
+      user.id,
+      tokens.refreshToken,
+      undefined,
+      tokens.refreshExpiresIn,
+    );
 
     const vendor = await this.prisma.vendor.findFirst({
       where: { userId: user.id, deletedAt: null },
       select: { id: true, canteenName: true, isActive: true, capacityStatus: true },
     });
 
-    return { user: sanitize(user), vendor, ...tokens };
+    return {
+      user: sanitize(user),
+      vendor,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
   }
 
   private assertAccountUsable(user: {

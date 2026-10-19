@@ -377,9 +377,13 @@ export class AuthService {
         user.id,
         tokens.refreshToken,
         matched.familyId,
+        tokens.refreshExpiresIn,
       );
 
-      return tokens;
+      return {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      };
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
       throw new UnauthorizedException('Token de renouvellement invalide');
@@ -411,8 +415,16 @@ export class AuthService {
       );
     }
 
-    const accessExpiresIn = this.tokenTtl('JWT_ACCESS_EXPIRES', '15m');
-    const refreshExpiresIn = this.tokenTtl('JWT_REFRESH_EXPIRES', '7d');
+    // Vendeurs : sessions longues (cantine ouverte toute la journée / tablette partagée).
+    // Étudiants : access un peu plus long qu'avant, refresh 30 jours.
+    const accessExpiresIn =
+      role === UserRole.VENDOR
+        ? this.tokenTtl('JWT_VENDOR_ACCESS_EXPIRES', '12h')
+        : this.tokenTtl('JWT_ACCESS_EXPIRES', '1h');
+    const refreshExpiresIn =
+      role === UserRole.VENDOR
+        ? this.tokenTtl('JWT_VENDOR_REFRESH_EXPIRES', '90d')
+        : this.tokenTtl('JWT_REFRESH_EXPIRES', '30d');
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(
@@ -434,6 +446,7 @@ export class AuthService {
     return {
       accessToken,
       refreshToken,
+      refreshExpiresIn,
     };
   }
 
@@ -441,10 +454,12 @@ export class AuthService {
     userId: string,
     refreshToken: string,
     familyId?: string,
+    refreshTtl?: string,
   ) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
-    const refreshTtl = this.tokenTtl('JWT_REFRESH_EXPIRES', '7d');
-    const expiresAt = new Date(Date.now() + this.ttlToMs(refreshTtl));
+    const ttl =
+      refreshTtl ?? this.tokenTtl('JWT_REFRESH_EXPIRES', '30d');
+    const expiresAt = new Date(Date.now() + this.ttlToMs(ttl));
 
     // Hygiène : purge les tokens déjà expirés de cet utilisateur à chaque
     // nouvelle émission, pour éviter que la table ne grossisse sans limite

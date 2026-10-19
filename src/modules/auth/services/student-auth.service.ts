@@ -133,8 +133,17 @@ export class StudentAuthService {
 
   private async openSession(user: { id: string; role: UserRole }) {
     const tokens = await this.authService.issueTokens(user.id, user.role);
-    await this.authService.persistRefreshToken(user.id, tokens.refreshToken);
-    return { user: sanitize(user), ...tokens };
+    await this.authService.persistRefreshToken(
+      user.id,
+      tokens.refreshToken,
+      undefined,
+      tokens.refreshExpiresIn,
+    );
+    return {
+      user: sanitize(user),
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+    };
   }
 
   private assertAccountUsable(user: {
