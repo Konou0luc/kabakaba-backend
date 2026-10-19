@@ -3,7 +3,6 @@ import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { UpdateNotificationDto } from '../dto/update-notification.dto';
 import { FcmService } from './fcm.service';
-// FcmService type used for send result typing below.
 
 interface Actor {
   id: string;
