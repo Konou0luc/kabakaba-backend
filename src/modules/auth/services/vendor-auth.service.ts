@@ -6,11 +6,12 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { UserRole } from '@prisma/client';
+import { NotificationType, UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { sanitize, UsersService } from '../../users/services/users.service';
+import { NotificationsService } from '../../notifications/services/notifications.service';
 import { AuthService } from './auth.service';
 import { VendorActivateStartDto } from '../dto/vendor-activate-start.dto';
 import { VendorActivateVerifyOtpDto } from '../dto/vendor-activate-verify-otp.dto';
@@ -51,6 +52,7 @@ export class VendorAuthService {
     private readonly authService: AuthService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   async activateStart(dto: VendorActivateStartDto) {
@@ -235,12 +237,32 @@ export class VendorAuthService {
       select: { id: true, canteenName: true, isActive: true, capacityStatus: true },
     });
 
+    await this.notifyWelcome(user.id, vendor?.canteenName);
+
     return {
       user: sanitize(user),
       vendor,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     };
+  }
+
+  /** Bienvenue à chaque ouverture de session (PIN / set-pin). Ne bloque jamais le login. */
+  private async notifyWelcome(userId: string, canteenName?: string | null) {
+    try {
+      const place = canteenName?.trim();
+      await this.notifications.notifyUser(
+        userId,
+        'Bienvenue sur kabakaba',
+        place
+          ? `Bonjour ${place} — les alertes de commandes sont actives.`
+          : 'Bonjour — les alertes de commandes sont actives.',
+        NotificationType.INFO,
+        { kind: 'WELCOME', channelId: 'kabakaba_orders', sound: 'default' },
+      );
+    } catch {
+      /* ignore — la session est déjà ouverte */
+    }
   }
 
   private assertAccountUsable(user: {

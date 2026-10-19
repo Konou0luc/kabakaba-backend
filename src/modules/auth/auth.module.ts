@@ -10,6 +10,7 @@ import { VendorAuthService } from './services/vendor-auth.service';
 import { StudentAuthService } from './services/student-auth.service';
 import { UsersModule } from '../users/users.module';
 import { SmsModule } from '../sms/sms.module';
+import { NotificationsModule } from '../notifications/notifications.module';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
@@ -24,6 +25,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     }),
     UsersModule,
     SmsModule,
+    NotificationsModule,
   ],
   controllers: [AuthController, VendorAuthController, StudentAuthController],
   providers: [AuthService, VendorAuthService, StudentAuthService, JwtStrategy],

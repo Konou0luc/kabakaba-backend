@@ -705,6 +705,7 @@ export class OrdersService {
         'Remboursement',
         `${tickets} ticket${tickets > 1 ? 's' : ''} ont été recrédités sur ton portefeuille.`,
         NotificationType.SUCCESS,
+        { kind: 'ORDER_REFUND', channelId: 'kabakaba_orders' },
       );
     } catch (error) {
       this.logger.error(
@@ -755,24 +756,34 @@ export class OrdersService {
         type: NotificationType.SUCCESS,
         kind: 'ORDER_READY',
         channelId: 'kabakaba_orders',
-        sound: 'default',
+        sound: 'order_ring',
       },
       [OrderStatus.RECEIVED]: {
         title: 'Commande récupérée',
         message: `Ta commande chez ${place} a bien été remise.`,
         type: NotificationType.SUCCESS,
         kind: 'ORDER_RECEIVED',
+        channelId: 'kabakaba_orders',
       },
       [OrderStatus.CANCELLED]: {
         title: 'Commande annulée',
         message: `Ta commande chez ${place} a été annulée.`,
         type: NotificationType.WARNING,
         kind: 'ORDER_CANCELLED',
+        channelId: 'kabakaba_orders',
       },
     };
     const payload = copy[status];
     if (!payload) return;
     try {
+      // Respecte la préférence étudiant (défaut true) — sauf annulation (toujours poussée).
+      if (status !== OrderStatus.CANCELLED) {
+        const prefs = await this.prisma.user.findUnique({
+          where: { id: studentId },
+          select: { notifyOrders: true },
+        });
+        if (prefs && prefs.notifyOrders === false) return;
+      }
       await this.notifications.notifyUser(
         studentId,
         payload.title,
@@ -780,7 +791,7 @@ export class OrdersService {
         payload.type,
         {
           kind: payload.kind,
-          channelId: payload.channelId,
+          channelId: payload.channelId ?? 'kabakaba_orders',
           sound: payload.sound,
           data: { status },
         },
