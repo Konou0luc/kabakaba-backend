@@ -3,6 +3,7 @@ import { NotificationType } from '@prisma/client';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { UpdateNotificationDto } from '../dto/update-notification.dto';
 import { FcmService } from './fcm.service';
+// FcmService type used for send result typing below.
 
 interface Actor {
   id: string;
@@ -37,7 +38,7 @@ export class NotificationsService {
       data: { userId, title, message, type },
     });
 
-    let fcmResult = null;
+    let fcmResult: Awaited<ReturnType<FcmService['sendToUser']>> | undefined;
     try {
       fcmResult = await this.fcm.sendToUser(userId, title, message, {
         kind: push?.kind,
@@ -60,7 +61,7 @@ export class NotificationsService {
       );
     }
 
-    return Object.assign(notification, { fcm: fcmResult });
+    return Object.assign(notification, { fcm: fcmResult ?? null });
   }
 
   async findAll(page: number = 1, limit: number = 10, userId?: string) {
