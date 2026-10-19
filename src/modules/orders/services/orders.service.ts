@@ -11,6 +11,7 @@ import { LowStockAlert, hasCrossedLowStockThreshold } from '../../notifications/
 import { ORDER_NUMBERS, pickOrderNumber } from '../order-number';
 import { assertConsumptionShape, assertItemsShape } from '../order-form';
 import { findOrderTakeawayOption, loadOrderArticles, resolveOrderComponent, resolveOrderMenu } from '../order-articles';
+import { assertComposedPlateHasBase } from '../plate-rules';
 import { menuPriceTickets, menuUnavailableComponents } from '../../menus/menu-pricing';
 
 interface Actor {
@@ -239,6 +240,12 @@ export class OrdersService {
         });
       }
     }
+
+    await assertComposedPlateHasBase(
+      tx,
+      vendorId,
+      items.flatMap((item) => (item.componentId ? [item.componentId] : [])),
+    );
 
     // Mode de consommation. Sur place : aucune option admise. À emporter :
     // l'option doit appartenir à la cantine de la commande, être active et
