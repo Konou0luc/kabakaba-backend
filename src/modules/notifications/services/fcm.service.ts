@@ -4,6 +4,13 @@ import { cert, getApps, initializeApp, type ServiceAccount } from 'firebase-admi
 import { getMessaging } from 'firebase-admin/messaging';
 import { PrismaService } from '../../../database/services/prisma.service';
 
+export type FcmSendResult = {
+  successCount: number;
+  failureCount: number;
+  deviceCount: number;
+  errors: string[];
+};
+
 @Injectable()
 export class FcmService {
   private readonly logger = new Logger(FcmService.name);
@@ -84,26 +91,56 @@ export class FcmService {
       kind?: string;
       channelId?: string;
       sound?: string;
+      link?: string;
       data?: Record<string, string>;
     } = {},
-  ) {
+  ): Promise<FcmSendResult> {
+    const empty: FcmSendResult = {
+      successCount: 0,
+      failureCount: 0,
+      deviceCount: 0,
+      errors: [],
+    };
+
     const devices = await this.prisma.device.findMany({
       where: { userId, deletedAt: null },
-      select: { id: true, deviceToken: true },
+      select: { id: true, deviceToken: true, platform: true },
     });
     if (devices.length === 0) {
       this.logger.warn(`FCM: aucun appareil enregistré user=${userId}`);
-      return;
+      return { ...empty, errors: ['no_devices'] };
     }
     if (!this.ready) {
       this.logger.warn(`FCM inactif, ${devices.length} appareil(s) non notifié(s) user=${userId}`);
-      return;
+      return {
+        ...empty,
+        deviceCount: devices.length,
+        errors: [this.bootError || 'fcm_not_ready'],
+      };
     }
 
     const channelId = options.channelId ?? 'kabakaba_default';
     const sound = options.sound ?? 'default';
     const kind = options.kind ?? 'INFO';
     const tokens = devices.map((d) => d.deviceToken);
+    // FCM data payload = strings only.
+    const data: Record<string, string> = {
+      title,
+      body,
+      kind,
+      channelId,
+    };
+    for (const [k, v] of Object.entries(options.data ?? {})) {
+      if (v === undefined || v === null) continue;
+      data[k] = String(v);
+    }
+
+    const link =
+      options.link ||
+      this.config.get<string>('PWA_VENDOR_URL') ||
+      this.config.get<string>('PWA_STUDENT_URL') ||
+      undefined;
+
     const response = await getMessaging().sendEachForMulticast({
       tokens,
       notification: { title, body },
@@ -124,30 +161,49 @@ export class FcmService {
           },
         },
       },
-      data: {
-        title,
-        body,
-        kind,
-        channelId,
-        ...(options.data ?? {}),
+      // Requis pour les tokens WEB (PWA) — sinon souvent in-app OK / push silencieux.
+      webpush: {
+        headers: {
+          Urgency: 'high',
+          TTL: '86400',
+        },
+        notification: {
+          title,
+          body,
+          icon: '/pwa-192.png',
+          badge: '/pwa-192.png',
+          tag: kind,
+          renotify: true,
+        },
+        ...(link
+          ? {
+              fcmOptions: { link },
+            }
+          : {}),
       },
+      data,
     });
+
     this.logger.log(
       `FCM ${response.successCount}/${tokens.length} envoyé(s) user=${userId} kind=${kind}`,
     );
 
+    const errors: string[] = [];
     const stale: string[] = [];
     response.responses.forEach((item, index) => {
       if (item.success) return;
-      const code = item.error?.code ?? '';
+      const code = item.error?.code ?? 'unknown';
+      const message = item.error?.message ?? '';
+      errors.push(`${tokens[index].slice(0, 8)}…:${code}`);
+      this.logger.warn(
+        `FCM échec token=${tokens[index].slice(0, 8)}… ${code} ${message}`,
+      );
       if (
         code.includes('registration-token-not-registered') ||
         code.includes('invalid-registration-token') ||
         code.includes('invalid-argument')
       ) {
         stale.push(tokens[index]);
-      } else {
-        this.logger.warn(`FCM échec token=${tokens[index].slice(0, 8)}… ${code}`);
       }
     });
 
@@ -157,6 +213,13 @@ export class FcmService {
         data: { deletedAt: new Date() },
       });
     }
+
+    return {
+      successCount: response.successCount,
+      failureCount: response.failureCount,
+      deviceCount: tokens.length,
+      errors,
+    };
   }
 }
 

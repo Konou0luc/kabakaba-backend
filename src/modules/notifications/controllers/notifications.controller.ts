@@ -74,14 +74,18 @@ export class NotificationsController {
           role === UserRole.VENDOR ? 'kabakaba_orders' : 'kabakaba_default',
       },
     );
+    const fcm = (notification as { fcm?: unknown }).fcm;
     return {
       ok: true,
       notificationId: notification.id,
       devicesRegistered: devices,
+      fcm,
       hint:
         devices === 0
           ? 'Aucun device enregistré — active les notifications push dans Profil.'
-          : 'Bienvenue envoyée.',
+          : (fcm as { successCount?: number })?.successCount
+            ? 'Bienvenue push envoyée — regarde la bannière système / tiroir notifs.'
+            : 'In-app créée mais FCM n’a pas abouti — vérifie la permission navigateur et le SW.',
     };
   }
 
@@ -111,17 +115,20 @@ export class NotificationsController {
         sound: 'order_ring',
       },
     );
+    const delivery = (notification as { fcm?: unknown }).fcm;
     return {
       ok: true,
       notificationId: notification.id,
       devicesRegistered: devices,
-      fcm,
+      fcm: { ...fcm, delivery },
       hint:
         devices === 0
           ? 'Aucun deviceToken en base pour ce compte — ouvre l’app, accepte les notifs, puis rappelle GET /devices.'
           : !fcm.ready
             ? 'FCM inactif côté serveur — vérifie FIREBASE_SERVICE_ACCOUNT_JSON sur Vercel.'
-            : 'Push envoyé. Vérifie la notif sur l’appareil.',
+            : (delivery as { successCount?: number })?.successCount
+              ? 'Push FCM envoyé. Vérifie la bannière système (pas seulement la cloche in-app).'
+              : 'In-app OK mais FCM 0 succès — token web invalide ou permission refusée.',
     };
   }
 

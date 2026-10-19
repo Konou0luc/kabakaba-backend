@@ -793,7 +793,7 @@ export class OrdersService {
           kind: payload.kind,
           channelId: payload.channelId ?? 'kabakaba_orders',
           sound: payload.sound,
-          data: { status },
+          data: { status: String(status) },
         },
       );
     } catch (error) {

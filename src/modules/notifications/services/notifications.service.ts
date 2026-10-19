@@ -37,8 +37,9 @@ export class NotificationsService {
       data: { userId, title, message, type },
     });
 
+    let fcmResult = null;
     try {
-      await this.fcm.sendToUser(userId, title, message, {
+      fcmResult = await this.fcm.sendToUser(userId, title, message, {
         kind: push?.kind,
         channelId: push?.channelId,
         sound: push?.sound,
@@ -47,6 +48,11 @@ export class NotificationsService {
           ...(push?.data ?? {}),
         },
       });
+      if (fcmResult.failureCount > 0 || fcmResult.successCount === 0) {
+        this.logger.warn(
+          `Push FCM partiel/absent user=${userId} ok=${fcmResult.successCount} fail=${fcmResult.failureCount} devices=${fcmResult.deviceCount} errors=${fcmResult.errors.join(',')}`,
+        );
+      }
     } catch (error) {
       this.logger.error(
         `Push FCM impossible user=${userId}`,
@@ -54,7 +60,7 @@ export class NotificationsService {
       );
     }
 
-    return notification;
+    return Object.assign(notification, { fcm: fcmResult });
   }
 
   async findAll(page: number = 1, limit: number = 10, userId?: string) {
