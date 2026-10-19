@@ -4,6 +4,7 @@ import {
   Body,
   Patch,
   Param,
+  Post,
   Query,
   UseGuards,
   Request,
@@ -16,19 +17,65 @@ import {
   ApiQuery,
 } from '@nestjs/swagger';
 import { NotificationsService } from '../services/notifications.service';
+import { FcmService } from '../services/fcm.service';
 import { UpdateNotificationDto } from '../dto/update-notification.dto';
 import { NotificationEntity } from '../entities/notification.entity';
 import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
-import { UserRole, WebUserRole } from '@prisma/client';
+import { NotificationType, UserRole, WebUserRole } from '@prisma/client';
 import { CombinedJwtAuthGuard } from '../../../common/guards/combined-jwt-auth.guard';
 import { CombinedRolesGuard } from '../../../common/guards/combined-roles.guard';
+import { PrismaService } from '../../../database/services/prisma.service';
 
 @ApiTags('Notifications')
 @Controller('notifications')
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly fcm: FcmService,
+    private readonly prisma: PrismaService,
+  ) {}
+
+  @Post('test-push')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.STUDENT, UserRole.VENDOR)
+  @WebRoles()
+  @ApiOperation({
+    summary:
+      'Envoie une notification de test (in-app + FCM) au compte connecté',
+  })
+  async testPush(@Request() req: any) {
+    const userId = req.user.id as string;
+    const devices = await this.prisma.device.count({
+      where: { userId, deletedAt: null },
+    });
+    const fcm = this.fcm.status();
+    const notification = await this.notificationsService.notifyUser(
+      userId,
+      'Test kabakaba',
+      'Si tu vois ceci, le push est branché.',
+      NotificationType.INFO,
+      {
+        kind: 'PUSH_TEST',
+        channelId: 'kabakaba_orders',
+        sound: 'order_ring',
+      },
+    );
+    return {
+      ok: true,
+      notificationId: notification.id,
+      devicesRegistered: devices,
+      fcm,
+      hint:
+        devices === 0
+          ? 'Aucun deviceToken en base pour ce compte — ouvre l’app, accepte les notifs, puis rappelle GET /devices.'
+          : !fcm.ready
+            ? 'FCM inactif côté serveur — vérifie FIREBASE_SERVICE_ACCOUNT_JSON sur Vercel.'
+            : 'Push envoyé. Vérifie la notif sur l’appareil.',
+    };
+  }
 
   @Get()
   @ApiBearerAuth()

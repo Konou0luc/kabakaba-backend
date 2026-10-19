@@ -39,7 +39,7 @@ consulter `src/` pour les valeurs par défaut et le caractère obligatoire de ch
 | Documentation Swagger | `SWAGGER_USER`, `SWAGGER_PASSWORD` |
 | Paiements (FedaPay) | `FEDAPAY_SECRET_KEY`, `FEDAPAY_WEBHOOK_SECRET`, `FEDAPAY_BASE_URL` |
 | SMS (AfriqSMS) | `AFRIQSMS_API_KEY`, `AFRIQSMS_CLIENT_ID`, `AFRIQSMS_SENDER_ID`, `AFRIQSMS_BASE_URL` |
-| Notifications push (Firebase) | `FIREBASE_SERVICE_ACCOUNT_JSON` ou `FIREBASE_PROJECT_ID`, `FIREBASE_CLIENT_EMAIL`, `FIREBASE_PRIVATE_KEY` |
+| Notifications push (Firebase) | `FIREBASE_SERVICE_ACCOUNT_JSON` (JSON du compte de service Firebase, projet `kabakaba-43a55`) ou `FIREBASE_PROJECT_ID` + `FIREBASE_CLIENT_EMAIL` + `FIREBASE_PRIVATE_KEY`. Les tokens FCM sont stockés en table `Device.deviceToken` via `POST /api/v1/devices`. Diagnostic : `GET /api/v1/health` (`push.fcmReady`, `push.devicesActive`) et `POST /api/v1/notifications/test-push` (compte connecté). |
 
 ## Documentation de l'API
 

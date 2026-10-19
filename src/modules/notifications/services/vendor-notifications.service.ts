@@ -27,6 +27,12 @@ export class VendorNotificationsService {
         'Nouvelle commande',
         `Commande ${orderNumber} (${mode}).`,
         NotificationType.INFO,
+        {
+          kind: 'NEW_ORDER',
+          channelId: 'kabakaba_orders',
+          sound: 'order_ring',
+          data: { orderNumber },
+        },
       );
     } catch (error) {
       this.logger.error(

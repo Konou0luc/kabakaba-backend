@@ -26,13 +26,27 @@ export class NotificationsService {
     title: string,
     message: string,
     type: NotificationType = NotificationType.INFO,
+    push?: {
+      kind?: string;
+      channelId?: string;
+      sound?: string;
+      data?: Record<string, string>;
+    },
   ) {
     const notification = await this.prisma.notification.create({
       data: { userId, title, message, type },
     });
 
     try {
-      await this.fcm.sendToUser(userId, title, message);
+      await this.fcm.sendToUser(userId, title, message, {
+        kind: push?.kind,
+        channelId: push?.channelId,
+        sound: push?.sound,
+        data: {
+          notificationId: notification.id,
+          ...(push?.data ?? {}),
+        },
+      });
     } catch (error) {
       this.logger.error(
         `Push FCM impossible user=${userId}`,

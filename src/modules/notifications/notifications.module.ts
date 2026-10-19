@@ -8,6 +8,11 @@ import { SchedulingRemindersService } from './services/scheduling-reminders.serv
 @Module({
   controllers: [NotificationsController],
   providers: [NotificationsService, FcmService, VendorNotificationsService, SchedulingRemindersService],
-  exports: [NotificationsService, VendorNotificationsService, SchedulingRemindersService],
+  exports: [
+    NotificationsService,
+    FcmService,
+    VendorNotificationsService,
+    SchedulingRemindersService,
+  ],
 })
 export class NotificationsModule {}

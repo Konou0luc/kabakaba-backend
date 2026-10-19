@@ -8,12 +8,26 @@ import { PrismaService } from '../../../database/services/prisma.service';
 export class FcmService {
   private readonly logger = new Logger(FcmService.name);
   private ready = false;
+  private bootError: string | null = null;
+  private projectId: string | null = null;
 
   constructor(
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {
     this.boot();
+  }
+
+  isReady() {
+    return this.ready;
+  }
+
+  status() {
+    return {
+      ready: this.ready,
+      projectId: this.projectId,
+      error: this.bootError,
+    };
   }
 
   private boot() {
@@ -24,11 +38,13 @@ export class FcmService {
     try {
       const json = this.config.get<string>('FIREBASE_SERVICE_ACCOUNT_JSON');
       if (json?.trim()) {
+        const account = parseServiceAccount(json);
         initializeApp({
-          credential: cert(parseServiceAccount(json)),
+          credential: cert(account),
         });
         this.ready = true;
-        this.logger.log('FCM initialisé');
+        this.projectId = account.projectId ?? null;
+        this.logger.log(`FCM initialisé project=${this.projectId ?? '?'}`);
         return;
       }
       const projectId = this.config.get<string>('FIREBASE_PROJECT_ID');
@@ -44,12 +60,15 @@ export class FcmService {
           }),
         });
         this.ready = true;
+        this.projectId = projectId;
+        this.logger.log(`FCM initialisé project=${projectId}`);
         return;
       }
-      this.logger.warn(
-        'FCM inactif : ajoute FIREBASE_SERVICE_ACCOUNT_JSON (ou PROJECT_ID + CLIENT_EMAIL + PRIVATE_KEY)',
-      );
+      this.bootError =
+        'FIREBASE_SERVICE_ACCOUNT_JSON manquant (ou PROJECT_ID + CLIENT_EMAIL + PRIVATE_KEY)';
+      this.logger.warn(`FCM inactif : ${this.bootError}`);
     } catch (error) {
+      this.bootError = error instanceof Error ? error.message : String(error);
       this.logger.error(
         'Impossible d’initialiser Firebase Admin',
         error instanceof Error ? error.stack : error,
@@ -57,7 +76,17 @@ export class FcmService {
     }
   }
 
-  async sendToUser(userId: string, title: string, body: string) {
+  async sendToUser(
+    userId: string,
+    title: string,
+    body: string,
+    options: {
+      kind?: string;
+      channelId?: string;
+      sound?: string;
+      data?: Record<string, string>;
+    } = {},
+  ) {
     const devices = await this.prisma.device.findMany({
       where: { userId, deletedAt: null },
       select: { id: true, deviceToken: true },
@@ -71,19 +100,40 @@ export class FcmService {
       return;
     }
 
+    const channelId = options.channelId ?? 'kabakaba_default';
+    const sound = options.sound ?? 'default';
+    const kind = options.kind ?? 'INFO';
     const tokens = devices.map((d) => d.deviceToken);
     const response = await getMessaging().sendEachForMulticast({
       tokens,
       notification: { title, body },
       android: {
         priority: 'high',
-        notification: { channelId: 'kabakaba_default' },
+        notification: {
+          channelId,
+          sound: sound === 'default' ? 'default' : sound,
+          defaultSound: sound === 'default',
+          defaultVibrateTimings: true,
+        },
       },
-      apns: { payload: { aps: { sound: 'default' } } },
-      data: { title, body },
+      apns: {
+        payload: {
+          aps: {
+            sound: sound === 'default' ? 'default' : `${sound}.caf`,
+            contentAvailable: true,
+          },
+        },
+      },
+      data: {
+        title,
+        body,
+        kind,
+        channelId,
+        ...(options.data ?? {}),
+      },
     });
     this.logger.log(
-      `FCM ${response.successCount}/${tokens.length} envoyé(s) user=${userId}`,
+      `FCM ${response.successCount}/${tokens.length} envoyé(s) user=${userId} kind=${kind}`,
     );
 
     const stale: string[] = [];
@@ -112,9 +162,56 @@ export class FcmService {
 
 function parseServiceAccount(raw: string): ServiceAccount {
   const trimmed = raw.trim();
+  if (!trimmed) {
+    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON est vide');
+  }
+  // Vercel / dotenv : parfois le JSON est entouré de quotes ou les \n sont échappés.
+  const unquoted =
+    (trimmed.startsWith("'") && trimmed.endsWith("'")) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+      ? trimmed.slice(1, -1)
+      : trimmed;
+  const candidates = [unquoted, unquoted.replace(/\\n/g, '\n')];
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate) as ServiceAccount & {
+        project_id?: string;
+        client_email?: string;
+        private_key?: string;
+      };
+      // Accepte le format téléchargé depuis Firebase (snake_case).
+      return {
+        projectId: parsed.projectId ?? parsed.project_id,
+        clientEmail: parsed.clientEmail ?? parsed.client_email,
+        privateKey: (parsed.privateKey ?? parsed.private_key)?.replace(
+          /\\n/g,
+          '\n',
+        ),
+      } as ServiceAccount;
+    } catch {
+      /* try next / base64 */
+    }
+  }
   try {
-    return JSON.parse(trimmed) as ServiceAccount;
-  } catch {
-    return JSON.parse(Buffer.from(trimmed, 'base64').toString('utf8')) as ServiceAccount;
+    const decoded = Buffer.from(trimmed, 'base64').toString('utf8');
+    const parsed = JSON.parse(decoded) as ServiceAccount & {
+      project_id?: string;
+      client_email?: string;
+      private_key?: string;
+    };
+    return {
+      projectId: parsed.projectId ?? parsed.project_id,
+      clientEmail: parsed.clientEmail ?? parsed.client_email,
+      privateKey: (parsed.privateKey ?? parsed.private_key)?.replace(
+        /\\n/g,
+        '\n',
+      ),
+    } as ServiceAccount;
+  } catch (error) {
+    throw new Error(
+      `FIREBASE_SERVICE_ACCOUNT_JSON invalide: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
 }

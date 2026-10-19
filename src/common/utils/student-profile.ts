@@ -43,5 +43,13 @@ export function isStudentProfileAllowlisted(
     return true;
   }
 
+  // Push FCM : enregistrer / lister / retirer le token même avant profil complet.
+  if (
+    normalized === '/devices' ||
+    normalized.endsWith('/devices')
+  ) {
+    if (m === 'GET' || m === 'POST' || m === 'DELETE') return true;
+  }
+
   return false;
 }

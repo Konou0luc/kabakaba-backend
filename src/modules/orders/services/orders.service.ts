@@ -725,27 +725,49 @@ export class OrdersService {
     });
     const place = vendor?.canteenName?.trim() || 'ta cantine';
     const copy: Partial<
-      Record<OrderStatus, { title: string; message: string; type: NotificationType }>
+      Record<
+        OrderStatus,
+        {
+          title: string;
+          message: string;
+          type: NotificationType;
+          kind: string;
+          channelId?: string;
+          sound?: string;
+        }
+      >
     > = {
       [OrderStatus.CONFIRMED]: {
         title: 'Commande confirmée',
         message: `Ta commande chez ${place} est confirmée.`,
         type: NotificationType.SUCCESS,
+        kind: 'ORDER_CONFIRMED',
       },
       [OrderStatus.IN_PREPARATION]: {
         title: 'Commande en préparation',
         message: `${place} prépare ta commande.`,
         type: NotificationType.INFO,
+        kind: 'ORDER_PREPARING',
       },
       [OrderStatus.READY]: {
         title: 'Commande prête',
         message: `Ta commande chez ${place} est prête. Va la récupérer.`,
         type: NotificationType.SUCCESS,
+        kind: 'ORDER_READY',
+        channelId: 'kabakaba_orders',
+        sound: 'default',
+      },
+      [OrderStatus.RECEIVED]: {
+        title: 'Commande récupérée',
+        message: `Ta commande chez ${place} a bien été remise.`,
+        type: NotificationType.SUCCESS,
+        kind: 'ORDER_RECEIVED',
       },
       [OrderStatus.CANCELLED]: {
         title: 'Commande annulée',
         message: `Ta commande chez ${place} a été annulée.`,
         type: NotificationType.WARNING,
+        kind: 'ORDER_CANCELLED',
       },
     };
     const payload = copy[status];
@@ -756,6 +778,12 @@ export class OrdersService {
         payload.title,
         payload.message,
         payload.type,
+        {
+          kind: payload.kind,
+          channelId: payload.channelId,
+          sound: payload.sound,
+          data: { status },
+        },
       );
     } catch (error) {
       this.logger.error(

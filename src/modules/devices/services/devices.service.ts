@@ -48,9 +48,13 @@ export class DevicesService {
       orderBy: { lastUsedAt: 'desc' },
     });
 
-    return devices.map(({ deviceToken, ...device }) => ({
-      ...device,
-      deviceToken: `${deviceToken.slice(0, 6)}…${deviceToken.slice(-4)}`,
-    }));
+    return {
+      count: devices.length,
+      devices: devices.map(({ deviceToken, ...device }) => ({
+        ...device,
+        deviceToken: `${deviceToken.slice(0, 6)}…${deviceToken.slice(-4)}`,
+        tokenLength: deviceToken.length,
+      })),
+    };
   }
 }
