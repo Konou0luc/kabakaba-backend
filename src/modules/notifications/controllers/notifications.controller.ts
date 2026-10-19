@@ -37,6 +37,54 @@ export class NotificationsController {
     private readonly prisma: PrismaService,
   ) {}
 
+  @Post('welcome')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.STUDENT, UserRole.VENDOR)
+  @WebRoles()
+  @ApiOperation({
+    summary:
+      'Bienvenue push (à appeler après enregistrement du device, juste après login)',
+  })
+  async welcome(@Request() req: any) {
+    const userId = req.user.id as string;
+    const role = req.user.role as UserRole;
+    const devices = await this.prisma.device.count({
+      where: { userId, deletedAt: null },
+    });
+    let body = 'Content de te revoir. Bon appétit sur le campus !';
+    if (role === UserRole.VENDOR) {
+      const vendor = await this.prisma.vendor.findFirst({
+        where: { userId, deletedAt: null },
+        select: { canteenName: true },
+      });
+      const place = vendor?.canteenName?.trim();
+      body = place
+        ? `Bonjour ${place} — les alertes de commandes sont actives.`
+        : 'Bonjour — les alertes de commandes sont actives.';
+    }
+    const notification = await this.notificationsService.notifyUser(
+      userId,
+      'Bienvenue sur kabakaba',
+      body,
+      NotificationType.INFO,
+      {
+        kind: 'WELCOME',
+        channelId:
+          role === UserRole.VENDOR ? 'kabakaba_orders' : 'kabakaba_default',
+      },
+    );
+    return {
+      ok: true,
+      notificationId: notification.id,
+      devicesRegistered: devices,
+      hint:
+        devices === 0
+          ? 'Aucun device enregistré — active les notifications push dans Profil.'
+          : 'Bienvenue envoyée.',
+    };
+  }
+
   @Post('test-push')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)

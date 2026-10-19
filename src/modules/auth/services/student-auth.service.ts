@@ -8,12 +8,11 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
-import { NotificationType, UserRole } from '@prisma/client';
+import { UserRole } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { sanitize } from '../../users/services/users.service';
-import { NotificationsService } from '../../notifications/services/notifications.service';
 import { AuthService } from './auth.service';
 import { StudentSetPinDto } from '../dto/student-set-pin.dto';
 import { StudentLoginPinDto } from '../dto/student-login-pin.dto';
@@ -40,7 +39,6 @@ export class StudentAuthService {
     private readonly authService: AuthService,
     private readonly jwtService: JwtService,
     private readonly configService: ConfigService,
-    private readonly notifications: NotificationsService,
   ) {}
 
   /** Appelé par AuthService.verifyOtp après validation OTP d’un étudiant. */
@@ -141,27 +139,13 @@ export class StudentAuthService {
       undefined,
       tokens.refreshExpiresIn,
     );
-    await this.notifyWelcome(user.id);
+    // La bienvenue push est déclenchée par le client APRÈS POST /devices
+    // (voir POST /notifications/welcome) — sinon FCM part sans token.
     return {
       user: sanitize(user),
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
     };
-  }
-
-  /** Bienvenue à chaque ouverture de session (PIN / set-pin). Ne bloque jamais le login. */
-  private async notifyWelcome(userId: string) {
-    try {
-      await this.notifications.notifyUser(
-        userId,
-        'Bienvenue sur kabakaba',
-        'Content de te revoir. Bon appétit sur le campus !',
-        NotificationType.INFO,
-        { kind: 'WELCOME', channelId: 'kabakaba_default' },
-      );
-    } catch {
-      /* ignore — la session est déjà ouverte */
-    }
   }
 
   private assertAccountUsable(user: {
