@@ -12,6 +12,60 @@ function dateFilter(from?: string, to?: string) {
   return { ...(from ? { gte: new Date(from) } : {}), lte: until };
 }
 
+function startOfYesterday() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  start.setDate(start.getDate() - 1);
+  return start;
+}
+
+const UUID_RE =
+  /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+
+function publicLabel(tx: {
+  type: TransactionType;
+  relatedOrder?: { orderNumber?: string | null } | null;
+}) {
+  const code = tx.relatedOrder?.orderNumber?.trim();
+  if (code) return code.toUpperCase();
+  switch (tx.type) {
+    case TransactionType.DEPOSIT:
+      return 'Recharge';
+    case TransactionType.REFUND:
+      return 'Remboursement';
+    case TransactionType.WITHDRAWAL:
+      return 'Retrait';
+    case TransactionType.SALE:
+      return 'Vente';
+    case TransactionType.PAYMENT:
+      return 'Commande';
+    case TransactionType.REFERRAL_BONUS:
+      return 'Bonus';
+    default:
+      return 'Mouvement';
+  }
+}
+
+function presentForOwner<T extends {
+  type: TransactionType;
+  reference: string;
+  description: string | null;
+  relatedOrder?: { orderNumber?: string | null } | null;
+}>(tx: T) {
+  const orderNumber = tx.relatedOrder?.orderNumber?.trim() || null;
+  const label = publicLabel(tx);
+  const description = (tx.description || '')
+    .replace(UUID_RE, orderNumber || '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  return {
+    ...tx,
+    orderNumber,
+    reference: label,
+    description: description || label,
+  };
+}
+
 @Injectable()
 export class TransactionsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -79,8 +133,13 @@ export class TransactionsService {
     from?: string,
     to?: string,
   ) {
-    const skip = (page - 1) * limit;
-    const createdAt = dateFilter(from, to);
+    // Compte perso : seulement aujourd'hui et hier, 20 max par jour (40 sur la fenêtre).
+    const ownerWindow = Boolean(userId) && !from && !to;
+    const cappedLimit = ownerWindow ? Math.min(limit, 40) : limit;
+    const skip = (page - 1) * cappedLimit;
+    const createdAt = ownerWindow
+      ? { gte: startOfYesterday() }
+      : dateFilter(from, to);
     const where = {
       ...(userId ? { userId } : {}),
       ...(type ? { type } : {}),
@@ -96,19 +155,21 @@ export class TransactionsService {
       this.prisma.transaction.findMany({
         where,
         skip,
-        take: limit,
+        take: cappedLimit,
         orderBy: { createdAt: 'desc' },
         include: this.displayInclude,
       }),
     ]);
 
+    const rows = userId ? data.map((tx) => presentForOwner(tx)) : data;
+
     return {
-      data,
+      data: rows,
       meta: {
         page,
-        limit,
+        limit: cappedLimit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / cappedLimit),
       },
     };
   }
@@ -129,6 +190,7 @@ export class TransactionsService {
       if (!isOwner) {
         throw new ForbiddenException("Vous n'avez pas accès à cette transaction");
       }
+      return presentForOwner(transaction);
     }
 
     return transaction;

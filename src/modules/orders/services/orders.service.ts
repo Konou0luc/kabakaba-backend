@@ -34,6 +34,23 @@ const ORDER_ITEMS_INCLUDE = {
 // Même logique que resolveRange() dans analytics.service.ts : bornes
 // incluses, `to` étendu à la fin de journée pour couvrir toute la
 // journée choisie dans le sélecteur de plage du frontend.
+const HISTORY_STATUSES = new Set<OrderStatus>([
+  OrderStatus.RECEIVED,
+  OrderStatus.CANCELLED,
+]);
+
+function startOfToday() {
+  const start = new Date();
+  start.setHours(0, 0, 0, 0);
+  return start;
+}
+
+/** Historique du jour seulement (hier disparaît), plafonné à 20. */
+function isHistoryOnly(status?: OrderStatus, statuses?: OrderStatus[]) {
+  const asked = statuses?.length ? statuses : status ? [status] : [];
+  return asked.length > 0 && asked.every((s) => HISTORY_STATUSES.has(s));
+}
+
 function dateFilter(from?: string, to?: string) {
   if (!from && !to) return undefined;
   const until = to ? new Date(to) : new Date();
@@ -368,7 +385,7 @@ export class OrdersService {
         status: 'COMPLETED',
         amount: totalTickets,
         reference: crypto.randomUUID(),
-        description: `Paiement de la commande ${order.id}`,
+        description: `Paiement de la commande ${order.orderNumber}`,
         relatedOrderId: order.id,
       },
     });
@@ -401,8 +418,13 @@ export class OrdersService {
       resolvedVendorId = vendor ? vendor.id : '__no_vendor_profile__';
     }
 
-    const skip = (page - 1) * limit;
-    const createdAt = dateFilter(from, to);
+    const historyOnly = isHistoryOnly(status, statuses);
+    const cappedLimit = historyOnly ? Math.min(limit, 20) : limit;
+    const skip = (page - 1) * cappedLimit;
+    const todayStart = startOfToday();
+    const createdAt = historyOnly
+      ? { ...(dateFilter(from, to) ?? {}), gte: todayStart }
+      : dateFilter(from, to);
     const where = {
       deletedAt: null,
       ...(studentId ? { studentId } : {}),
@@ -417,7 +439,7 @@ export class OrdersService {
       this.prisma.order.findMany({
         where,
         skip,
-        take: limit,
+        take: cappedLimit,
         orderBy: { createdAt: 'desc' },
         include: {
           items: { include: ORDER_ITEMS_INCLUDE },
@@ -432,9 +454,9 @@ export class OrdersService {
       data,
       meta: {
         page,
-        limit,
+        limit: cappedLimit,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / cappedLimit),
       },
     };
   }
@@ -546,7 +568,7 @@ export class OrdersService {
             status: 'COMPLETED',
             amount: order.totalTickets,
             reference: crypto.randomUUID(),
-            description: `Vente : commande ${order.id} prête`,
+            description: `Vente : commande ${order.orderNumber} prête`,
             relatedOrderId: order.id,
           },
         });

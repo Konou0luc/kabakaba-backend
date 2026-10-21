@@ -64,17 +64,21 @@ export class NotificationsService {
   }
 
   async findAll(page: number = 1, limit: number = 10, userId?: string) {
-    const skip = (page - 1) * limit;
+    // Compte connecté : 20 notifications du jour. Celles d’hier ne sont plus listées.
+    const capped = userId ? Math.min(limit, 20) : limit;
+    const skip = (page - 1) * capped;
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
     const where = {
       deletedAt: null,
-      ...(userId ? { userId } : {}),
+      ...(userId ? { userId, createdAt: { gte: start } } : {}),
     };
     const [total, data] = await this.prisma.$transaction([
       this.prisma.notification.count({ where }),
       this.prisma.notification.findMany({
         where,
         skip,
-        take: limit,
+        take: capped,
         orderBy: { createdAt: 'desc' },
       }),
     ]);
@@ -83,9 +87,9 @@ export class NotificationsService {
       data,
       meta: {
         page,
-        limit,
+        limit: capped,
         total,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil(total / capped),
       },
     };
   }
