@@ -18,10 +18,11 @@ const NAMES: Record<MobileApp, { access: string; refresh: string; csrf: string }
   },
 };
 
-const ACCESS_FALLBACK_SECONDS = 60 * 60; // 1h (étudiants)
-const REFRESH_FALLBACK_SECONDS = 30 * 24 * 60 * 60; // 30j
-const VENDOR_ACCESS_FALLBACK_SECONDS = 12 * 60 * 60; // 12h
-const VENDOR_REFRESH_FALLBACK_SECONDS = 90 * 24 * 60 * 60; // 90j
+const PIN_SESSION_SECONDS = 7 * 24 * 60 * 60; // 7j après le dernier PIN
+const ACCESS_FALLBACK_SECONDS = PIN_SESSION_SECONDS;
+const REFRESH_FALLBACK_SECONDS = PIN_SESSION_SECONDS;
+const VENDOR_ACCESS_FALLBACK_SECONDS = PIN_SESSION_SECONDS;
+const VENDOR_REFRESH_FALLBACK_SECONDS = PIN_SESSION_SECONDS;
 
 function parseCookies(header?: string): Record<string, string> {
   if (!header) return {};

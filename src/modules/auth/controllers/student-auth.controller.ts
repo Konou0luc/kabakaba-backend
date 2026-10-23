@@ -30,8 +30,7 @@ export class StudentAuthController {
   async setPin(@Body() dto: StudentSetPinDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.studentAuthService.setPin(dto);
     const csrfToken = issueMobileSessionCookies(res, 'student', result.accessToken, result.refreshToken);
-    const { accessToken: _access, refreshToken: _refresh, ...safe } = result;
-    return { ...safe, csrfToken };
+    return { ...result, csrfToken };
   }
 
   @Public()
@@ -50,7 +49,6 @@ export class StudentAuthController {
   async loginPin(@Body() dto: StudentLoginPinDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.studentAuthService.loginPin(dto);
     const csrfToken = issueMobileSessionCookies(res, 'student', result.accessToken, result.refreshToken);
-    const { accessToken: _access, refreshToken: _refresh, ...safe } = result;
-    return { ...safe, csrfToken };
+    return { ...result, csrfToken };
   }
 }

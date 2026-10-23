@@ -335,10 +335,9 @@ export class AuthService {
       if (!matched) throw new UnauthorizedException();
 
       if (matched.revoked) {
-        // Un refresh concurrent (l'app mobile envoie souvent 2 appels
-        // presque ensemble) revoit le token déjà consommé. Révoquer toute
-        // la famille ici déconnecte l'utilisateur légitime. On ne le fait
-        // que si la réutilisation est ancienne — signal d'un vol de token.
+        // Jeton déjà révoqué (logout, reset PIN). On ne déconnecte la
+        // famille que si la réutilisation est ancienne — un réveil d'app
+        // ne doit pas brûler une session encore valide.
         const reusedAfterMs = Date.now() - matched.updatedAt.getTime();
         if (reusedAfterMs > 2 * 60 * 1000) {
           await this.prisma.refreshToken.updateMany({
@@ -355,34 +354,14 @@ export class AuthService {
         );
       }
 
-      // SÉCURITÉ : claim ATOMIQUE — deux requêtes de refresh concurrentes
-      // avec le même RT ne doivent produire qu'UN SEUL nouveau token. Le
-      // `where: revoked: false` fait que seule la première requête à
-      // atteindre la DB obtient count === 1 ; l'autre voit count === 0 et
-      // doit se réauthentifier au lieu de recevoir un second token valide
-      // issu du même RT consommé.
-      const claim = await this.prisma.refreshToken.updateMany({
-        where: { id: matched.id, revoked: false },
-        data: { revoked: true },
-      });
-
-      if (claim.count === 0) {
-        throw new UnauthorizedException(
-          'Token de renouvellement déjà utilisé, veuillez vous reconnecter',
-        );
-      }
-
+      // Pas de rotation : le refresh reste le même jusqu'à son échéance
+      // (7 jours après le dernier PIN). Tourner le jeton à chaque /refresh
+      // déconnectait l'app dès qu'on la quittait — le serveur avait déjà
+      // consommé l'ancien jeton, le client n'avait pas encore sauvé le nouveau.
       const tokens = await this.issueTokens(user.id, user.role);
-      await this.persistRefreshToken(
-        user.id,
-        tokens.refreshToken,
-        matched.familyId,
-        tokens.refreshExpiresIn,
-      );
-
       return {
         accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken,
+        refreshToken,
       };
     } catch (error) {
       if (error instanceof UnauthorizedException) throw error;
@@ -415,16 +394,16 @@ export class AuthService {
       );
     }
 
-    // Vendeurs : sessions longues (cantine ouverte toute la journée / tablette partagée).
-    // Étudiants : access un peu plus long qu'avant, refresh 30 jours.
+    // Session = 7 jours après le dernier PIN. L'app ne redemande le code
+    // que lorsque ces jetons expirent — pas à chaque réouverture.
     const accessExpiresIn =
       role === UserRole.VENDOR
-        ? this.tokenTtl('JWT_VENDOR_ACCESS_EXPIRES', '12h')
-        : this.tokenTtl('JWT_ACCESS_EXPIRES', '1h');
+        ? this.tokenTtl('JWT_VENDOR_ACCESS_EXPIRES', '7d')
+        : this.tokenTtl('JWT_ACCESS_EXPIRES', '7d');
     const refreshExpiresIn =
       role === UserRole.VENDOR
-        ? this.tokenTtl('JWT_VENDOR_REFRESH_EXPIRES', '90d')
-        : this.tokenTtl('JWT_REFRESH_EXPIRES', '30d');
+        ? this.tokenTtl('JWT_VENDOR_REFRESH_EXPIRES', '7d')
+        : this.tokenTtl('JWT_REFRESH_EXPIRES', '7d');
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(
@@ -458,7 +437,7 @@ export class AuthService {
   ) {
     const hashedRefreshToken = await bcrypt.hash(refreshToken, 10);
     const ttl =
-      refreshTtl ?? this.tokenTtl('JWT_REFRESH_EXPIRES', '30d');
+      refreshTtl ?? this.tokenTtl('JWT_REFRESH_EXPIRES', '7d');
     const expiresAt = new Date(Date.now() + this.ttlToMs(ttl));
 
     // Hygiène : purge les tokens déjà expirés de cet utilisateur à chaque

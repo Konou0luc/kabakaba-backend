@@ -123,14 +123,17 @@ export class VendorsService {
     }
   }
 
-  async findAll(page: number = 1, limit: number = 10) {
+  async findAll(page: number = 1, limit: number = 10, campusId?: string) {
     const skip = (page - 1) * limit;
+    const where = {
+      deletedAt: null,
+      isActive: true,
+      ...(campusId ? { campuses: { some: { campusId } } } : {}),
+    };
     const [total, data] = await this.prisma.$transaction([
-      this.prisma.vendor.count({
-        where: { deletedAt: null },
-      }),
+      this.prisma.vendor.count({ where }),
       this.prisma.vendor.findMany({
-        where: { deletedAt: null },
+        where,
         skip,
         take: limit,
         select: PUBLIC_VENDOR_SELECT,

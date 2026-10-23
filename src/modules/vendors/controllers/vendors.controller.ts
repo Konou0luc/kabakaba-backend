@@ -61,12 +61,20 @@ export class VendorsController {
   @Public()
   @ApiOperation({ summary: 'Get all active vendors' })
   @ApiQuery({ type: PaginationDto })
+  @ApiQuery({ name: 'campusId', required: false })
   @ApiResponse({
     status: 200,
     description: 'Return all active vendors with pagination.',
   })
-  findAll(@Query() paginationDto: PaginationDto) {
-    return this.vendorsService.findAll(paginationDto.page, paginationDto.limit);
+  findAll(
+    @Query() paginationDto: PaginationDto,
+    @Query('campusId') campusId?: string,
+  ) {
+    return this.vendorsService.findAll(
+      paginationDto.page,
+      paginationDto.limit,
+      campusId,
+    );
   }
 
   @Get('admin/list')

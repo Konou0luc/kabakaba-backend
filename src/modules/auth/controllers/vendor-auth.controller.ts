@@ -72,8 +72,7 @@ export class VendorAuthController {
   async activateSetPin(@Body() dto: VendorSetPinDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.vendorAuthService.setPin(dto);
     const csrfToken = issueMobileSessionCookies(res, 'vendor', result.accessToken, result.refreshToken);
-    const { accessToken: _access, refreshToken: _refresh, ...safe } = result;
-    return { ...safe, csrfToken };
+    return { ...result, csrfToken };
   }
 
   @Public()
@@ -93,7 +92,6 @@ export class VendorAuthController {
   async loginPin(@Body() dto: VendorLoginPinDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.vendorAuthService.loginPin(dto);
     const csrfToken = issueMobileSessionCookies(res, 'vendor', result.accessToken, result.refreshToken);
-    const { accessToken: _access, refreshToken: _refresh, ...safe } = result;
-    return { ...safe, csrfToken };
+    return { ...result, csrfToken };
   }
 }

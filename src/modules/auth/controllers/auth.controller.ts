@@ -21,6 +21,7 @@ import { AuthService } from '../services/auth.service';
 import { SendOtpDto } from '../dto/send-otp.dto';
 import { VerifyOtpDto } from '../dto/verify-otp.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
+import { RefreshTokenDto } from '../dto/refresh-token.dto';
 import { Public } from '../../../common/decorators/public.decorator';
 import { JwtAuthGuard } from '../../../common/guards/jwt-auth.guard';
 import { GetCurrentUserId } from '../../../common/decorators/get-current-user.decorator';
@@ -69,20 +70,40 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @Throttle({ default: { limit: 20, ttl: 60000 } })
-  @ApiOperation({ summary: 'Renouveler la session à partir du cookie HttpOnly' })
-  @ApiResponse({ status: 200, description: 'Cookies de session renouvelés.' })
-  async refreshTokens(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    assertMobileCookieCsrf(req);
+  @ApiOperation({
+    summary:
+      'Renouveler la session (cookie PWA ou refreshToken Flutter dans le corps)',
+  })
+  @ApiResponse({ status: 200, description: 'Session renouvelée.' })
+  async refreshTokens(
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+    @Body() body?: RefreshTokenDto,
+  ) {
     const app = mobileAppFromRequest(req);
-    const refreshToken = app ? getMobileRefreshCookie(req, app) : null;
-    if (!app || !refreshToken) {
+    const cookieToken = app ? getMobileRefreshCookie(req, app) : null;
+    const refreshToken = cookieToken || body?.refreshToken?.trim() || null;
+    if (!refreshToken) {
       throw new UnauthorizedException('Session expirée');
     }
+    // CSRF uniquement quand la session vit dans les cookies (PWA).
+    // Flutter envoie le jeton dans le corps, sans cookie.
+    if (cookieToken) {
+      assertMobileCookieCsrf(req);
+    }
     const tokens = await this.authService.refreshTokens(refreshToken);
-    const csrfToken = issueMobileSessionCookies(res, app, tokens.accessToken, tokens.refreshToken);
-    return { success: true, csrfToken };
+    const csrfToken = app
+      ? issueMobileSessionCookies(res, app, tokens.accessToken, tokens.refreshToken)
+      : undefined;
+    return {
+      success: true,
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      ...(csrfToken ? { csrfToken } : {}),
+    };
   }
 
+  @Public()
   @Get('csrf')
   @ApiOperation({ summary: 'Relire le jeton CSRF déjà posé pour la PWA (réponse lisible uniquement par une origine autorisée)' })
   csrf(@Req() req: Request) {
