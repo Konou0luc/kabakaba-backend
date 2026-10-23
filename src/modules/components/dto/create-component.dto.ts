@@ -51,6 +51,17 @@ export class CreateComponentDto {
   @IsBoolean()
   isAvailable?: boolean;
 
+  @ApiProperty({
+    example: false,
+    default: false,
+    required: false,
+    description:
+      'true : se vend tout seul (riz, eau). false : seulement dans un plat composé (piment, sauce, poisson).',
+  })
+  @IsOptional()
+  @IsBoolean()
+  soldAlone?: boolean;
+
   @ApiProperty({ example: 5, required: false, description: "Seuil d'alerte de stock faible (entier ≥ 0)" })
   @IsOptional()
   @IsInt()

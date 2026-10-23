@@ -45,3 +45,27 @@ export async function assertComposedPlateHasBase(
     );
   }
 }
+
+/**
+ * Un accompagnement (soldAlone=false) ne peut pas être le seul article à la
+ * carte. Un menu, ou un second composant distinct, en fait un plat.
+ */
+export async function assertFreeComponentsNotSoldAlone(
+  tx: Prisma.TransactionClient,
+  items: { menuId?: string; componentId?: string }[],
+) {
+  if (items.some((item) => item.menuId)) return;
+
+  const ids = [...new Set(items.flatMap((item) => (item.componentId ? [item.componentId] : [])))];
+  if (ids.length !== 1) return;
+
+  const component = await tx.component.findFirst({
+    where: { id: ids[0], deletedAt: null },
+    select: { name: true, soldAlone: true },
+  });
+  if (!component || component.soldAlone) return;
+
+  throw new BadRequestException(
+    `${component.name} ne se vend pas tout seul. Ajoute-le à un plat.`,
+  );
+}

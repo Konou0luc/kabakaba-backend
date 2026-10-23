@@ -82,7 +82,16 @@ export class ComponentsService {
   async findPublicComponents(vendorId: string) {
     const rows = await this.prisma.component.findMany({
       where: { vendorId, deletedAt: null },
-      select: { id: true, name: true, categoryId: true, unit: true, priceTickets: true, isAvailable: true, quantity: true },
+      select: {
+        id: true,
+        name: true,
+        categoryId: true,
+        unit: true,
+        priceTickets: true,
+        isAvailable: true,
+        quantity: true,
+        soldAlone: true,
+      },
       orderBy: { createdAt: 'asc' },
     });
     return rows.map(({ isAvailable, quantity, ...rest }) => ({ ...rest, available: isAvailable && quantity > 0 }));
@@ -108,7 +117,7 @@ export class ComponentsService {
     const component = await this.assertComponentOwnership(id, actor);
 
     // Les champs obligatoires ne peuvent pas être mis à null (IsOptional laisse passer null).
-    for (const field of ['name', 'unit', 'priceTickets', 'isAvailable'] as const) {
+    for (const field of ['name', 'unit', 'priceTickets', 'isAvailable', 'soldAlone'] as const) {
       if (dto[field] === null) throw new BadRequestException(`${field} ne peut pas être null`);
     }
     if (dto.categoryId) await this.assertCategoryBelongsToVendor(dto.categoryId, component.vendorId);
@@ -119,6 +128,7 @@ export class ComponentsService {
       unit: dto.unit,
       priceTickets: dto.priceTickets,
       isAvailable: dto.isAvailable,
+      soldAlone: dto.soldAlone,
       lowStockThreshold: dto.lowStockThreshold,
     };
     return this.prisma.component.update({ where: { id }, data });

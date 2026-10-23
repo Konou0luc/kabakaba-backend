@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConsumptionMode, Prisma } from '@prisma/client';
-import { assertComposedPlateHasBase } from './plate-rules';
+import { assertComposedPlateHasBase, assertFreeComponentsNotSoldAlone } from './plate-rules';
 
 /**
  * Contrôles d'EXISTENCE et d'APPARTENANCE des articles d'une commande (menus, composants
@@ -95,6 +95,7 @@ export async function assertOrderArticles(
     order.vendorId,
     order.items.flatMap((item) => (item.componentId ? [item.componentId] : [])),
   );
+  await assertFreeComponentsNotSoldAlone(tx, order.items);
   if (order.consumptionMode === ConsumptionMode.TAKEAWAY) {
     await findOrderTakeawayOption(tx, order.takeawayOptionId!, order.vendorId);
   }

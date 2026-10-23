@@ -261,6 +261,8 @@ model Component {
   quantity          Int           @default(0)
   priceTickets      Int           @default(0)
   isAvailable       Boolean       @default(true)
+  /// true : commandable tout seul (riz, eau). false : seulement dans un plat.
+  soldAlone         Boolean       @default(false)
   lowStockThreshold Int?
   createdAt         DateTime      @default(now())
   updatedAt         DateTime      @updatedAt
