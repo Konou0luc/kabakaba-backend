@@ -3,38 +3,77 @@ import { BadRequestException } from '@nestjs/common';
 /**
  * Grille tarifaire des recharges Kabakaba.
  *
- * UX recommandée : l’étudiant choisit les **tickets souhaités**.
- * Le montant à payer = tickets + frais du palier.
+ * Les paliers sont définis sur le **nombre de tickets** reçus (1 ticket = 1 FCFA).
+ * Montant à payer = tickets + frais du palier.
  *
- * Sens inverse (legacy) : montant payé → tickets = montant − frais.
+ *   Tickets          Frais    Montant payé
+ *   500 – 999        100 F    600 – 1 099 F
+ *   1 000 – 2 999    200 F    1 200 – 3 199 F
+ *   3 000 – 4 999    250 F    3 250 – 5 249 F
+ *   5 000 – 9 999    300 F    5 300 – 10 299 F
+ *   10 000           500 F    10 500 F
+ *
+ * Minimum 500 tickets, maximum 10 000 tickets par recharge.
+ *
+ * UX recommandée : l’étudiant choisit les **tickets souhaités**.
+ * Sens inverse (legacy) : montant payé → tickets = montant − frais. Seuls les
+ * montants qui correspondent exactement à un palier sont acceptés (les montants
+ * situés entre deux paliers, par ex. 1 100 F, n’existent pas).
  *
  * ⚠️ SÉCURITÉ : tickets et frais sont toujours dérivés côté serveur.
  */
 
-export const MIN_RECHARGE_AMOUNT_FCFA = 500;
-export const MAX_RECHARGE_AMOUNT_FCFA = 10_000;
+export interface RechargeFeeTier {
+  /** Tickets minimum du palier (inclus). */
+  minTickets: number;
+  /** Tickets maximum du palier (inclus). */
+  maxTickets: number;
+  /** Frais de service en FCFA pour tout le palier. */
+  feeFcfa: number;
+}
 
-/** Tickets min/max (500 FCFA − 100 = 400 ; 10 000 − 500 = 9 500). */
-export const MIN_RECHARGE_TICKETS = 400;
-export const MAX_RECHARGE_TICKETS = 9_500;
-
-const FEE_BY_AMOUNT: Array<{ min: number; max: number; fee: number }> = [
-  { min: 500, max: 999, fee: 100 },
-  { min: 1_000, max: 4_999, fee: 200 },
-  { min: 5_000, max: 9_999, fee: 300 },
-  { min: 10_000, max: 10_000, fee: 500 },
+/** Source unique du barème. Les paliers sont triés par tickets croissants. */
+export const RECHARGE_FEE_TIERS: readonly RechargeFeeTier[] = [
+  { minTickets: 500, maxTickets: 999, feeFcfa: 100 },
+  { minTickets: 1_000, maxTickets: 2_999, feeFcfa: 200 },
+  { minTickets: 3_000, maxTickets: 4_999, feeFcfa: 250 },
+  { minTickets: 5_000, maxTickets: 9_999, feeFcfa: 300 },
+  { minTickets: 10_000, maxTickets: 10_000, feeFcfa: 500 },
 ];
 
-function feeForAmount(amount: number): number {
-  for (const b of FEE_BY_AMOUNT) {
-    if (amount >= b.min && amount <= b.max) return b.fee;
+const FIRST_TIER = RECHARGE_FEE_TIERS[0];
+const LAST_TIER = RECHARGE_FEE_TIERS[RECHARGE_FEE_TIERS.length - 1];
+
+/** Tickets min/max par recharge (500 → 10 000). */
+export const MIN_RECHARGE_TICKETS = FIRST_TIER.minTickets;
+export const MAX_RECHARGE_TICKETS = LAST_TIER.maxTickets;
+
+/** Montants min/max payés (600 F → 10 500 F). */
+export const MIN_RECHARGE_AMOUNT_FCFA = FIRST_TIER.minTickets + FIRST_TIER.feeFcfa;
+export const MAX_RECHARGE_AMOUNT_FCFA = LAST_TIER.maxTickets + LAST_TIER.feeFcfa;
+
+/** Plages de montants valides, ex. « 600–1099, 1200–3199, … 10500 ». */
+function validAmountRangesLabel(): string {
+  return RECHARGE_FEE_TIERS.map((t) => {
+    const lo = t.minTickets + t.feeFcfa;
+    const hi = t.maxTickets + t.feeFcfa;
+    return lo === hi ? `${lo}` : `${lo}–${hi}`;
+  }).join(', ');
+}
+
+function tierForTickets(tickets: number): RechargeFeeTier {
+  const tier = RECHARGE_FEE_TIERS.find(
+    (t) => tickets >= t.minTickets && tickets <= t.maxTickets,
+  );
+  if (!tier) {
+    throw new BadRequestException('Nombre de tickets hors barème');
   }
-  throw new BadRequestException('Montant hors barème de recharge');
+  return tier;
 }
 
 /**
  * Tickets désirés → montant à payer (tickets + frais du palier).
- * Les paliers suivent le montant payé (tickets + fee).
+ * Ex. 500 → 600 ; 1 000 → 1 200 ; 3 000 → 3 250 ; 5 000 → 5 300 ; 10 000 → 10 500.
  */
 export function computeRechargeAmountFcfa(tickets: number): number {
   if (!Number.isInteger(tickets)) {
@@ -50,11 +89,7 @@ export function computeRechargeAmountFcfa(tickets: number): number {
       `Maximum : ${MAX_RECHARGE_TICKETS} tickets en une fois`,
     );
   }
-  for (const b of FEE_BY_AMOUNT) {
-    const amount = tickets + b.fee;
-    if (amount >= b.min && amount <= b.max) return amount;
-  }
-  throw new BadRequestException('Nombre de tickets hors barème');
+  return tickets + tierForTickets(tickets).feeFcfa;
 }
 
 export interface RechargeQuote {
@@ -102,6 +137,7 @@ export function quoteRechargeFromTickets(ticketsDesired: number): RechargeQuote 
 
 /**
  * Sens legacy / amount-first : montant FCFA saisi → tickets reçus.
+ * Le montant doit correspondre exactement à un palier du barème.
  */
 export function quoteRechargeFromAmountFcfa(amountFcfa: number): RechargeQuote {
   const amount = Math.floor(Number(amountFcfa));
@@ -119,11 +155,19 @@ export function quoteRechargeFromAmountFcfa(amountFcfa: number): RechargeQuote {
     );
   }
 
-  const feeFcfa = feeForAmount(amount);
-  const ticketsReceived = amount - feeFcfa;
-  if (ticketsReceived < 1) {
-    throw new BadRequestException('Montant trop faible pour une recharge');
+  const tier = RECHARGE_FEE_TIERS.find((t) => {
+    const tickets = amount - t.feeFcfa;
+    return tickets >= t.minTickets && tickets <= t.maxTickets;
+  });
+  if (!tier) {
+    throw new BadRequestException(
+      `Montant hors barème. Montants valides (FCFA) : ${validAmountRangesLabel()}. ` +
+        'Indique plutôt le nombre de tickets souhaités.',
+    );
   }
+
+  const feeFcfa = tier.feeFcfa;
+  const ticketsReceived = amount - feeFcfa;
 
   return {
     amountFcfa: amount,
