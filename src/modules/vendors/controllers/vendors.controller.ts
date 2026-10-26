@@ -25,9 +25,9 @@ import { VendorsService } from '../services/vendors.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
 import { UpdateVendorDto } from '../dto/update-vendor.dto';
 import { FindVendorsForAdminQueryDto } from '../dto/find-vendors-for-admin-query.dto';
+import { FindVendorsQueryDto } from '../dto/find-vendors-query.dto';
 import { SalesQueryDto } from '../dto/sales-query.dto';
 import { VendorEntity } from '../entities/vendor.entity';
-import { PaginationDto } from '../../../common/dto/pagination.dto';
 import { Roles } from '../../../common/decorators/roles.decorator';
 import { WebRoles } from '../../../common/decorators/web-roles.decorator';
 import { UserRole, WebUserRole } from '@prisma/client';
@@ -60,21 +60,13 @@ export class VendorsController {
   @Get()
   @Public()
   @ApiOperation({ summary: 'Get all active vendors' })
-  @ApiQuery({ type: PaginationDto })
-  @ApiQuery({ name: 'campusId', required: false })
+  @ApiQuery({ type: FindVendorsQueryDto })
   @ApiResponse({
     status: 200,
     description: 'Return all active vendors with pagination.',
   })
-  findAll(
-    @Query() paginationDto: PaginationDto,
-    @Query('campusId') campusId?: string,
-  ) {
-    return this.vendorsService.findAll(
-      paginationDto.page,
-      paginationDto.limit,
-      campusId,
-    );
+  findAll(@Query() query: FindVendorsQueryDto) {
+    return this.vendorsService.findAll(query.page, query.limit, query.campusId);
   }
 
   @Get('admin/list')
