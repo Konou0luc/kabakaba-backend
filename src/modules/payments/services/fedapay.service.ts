@@ -21,12 +21,11 @@ export class FedapayService {
   private readonly environment: FedapayEnv;
 
   /**
-   * Modes FedaPay (doc https://docs.fedapay.com/fr/payment-methods) :
+   * Modes FedaPay sans redirection (https://docs.fedapay.com/fr/payment-methods) :
    * - FLOOZ = Moov Togo → `moov_tg`
    * - MIXX  = Mixx By Yas → `togocel`
    *
-   * Sur le compte live Kabakaba, `togocel` en push renvoie encore
-   * « Opération non autorisée » → fallback lien Checkout (`paymentUrl`).
+   * Les deux opérateurs partent en push Mobile Money. Pas de page Checkout.
    * Ne PAS utiliser `mtn_open` pour Mixx (MTN Bénin → ACCOUNT_NOT_FOUND au Togo).
    */
   private static readonly OPERATOR_TO_MODE: Record<string, string> = {
@@ -174,18 +173,16 @@ export class FedapayService {
   }
 
   /**
-   * Initie le débit Mobile Money.
-   * @returns `{ channel: 'push' | 'redirect', paymentUrl?, fedapay?, mode }`
+   * Débite le Mobile Money par push (Flooz et Mixx). Pas de page Checkout.
+   * @returns `{ channel: 'push', mode, fedapay? }`
    */
   async initiateMobileMoneyPayment(
     transactionId: string,
     phoneNumber: string,
     operator: string,
   ): Promise<{
-    channel: 'push' | 'redirect';
+    channel: 'push';
     mode: string;
-    paymentUrl?: string;
-    message?: string;
     fedapay?: unknown;
   }> {
     if (!transactionId) {
@@ -195,7 +192,6 @@ export class FedapayService {
     const mode = this.resolveMode(operator);
 
     let token: string | undefined;
-    let paymentUrl: string | undefined;
     try {
       const tokenUrl = `${this.baseUrl}/v1/transactions/${transactionId}/token`;
       const tokenResponse: AxiosResponse<any> = await firstValueFrom(
@@ -205,10 +201,6 @@ export class FedapayService {
         tokenResponse.data?.token ||
         tokenResponse.data?.payment_token?.token ||
         tokenResponse.data?.['v1/token']?.token;
-      paymentUrl =
-        tokenResponse.data?.url ||
-        tokenResponse.data?.payment_url ||
-        undefined;
     } catch (error) {
       const detail = fedapayErrorDetail(error);
       this.logger.error(`Erreur token FedaPay: ${detail}`);
@@ -223,7 +215,7 @@ export class FedapayService {
       );
     }
 
-    // Doc FedaPay push : { number, country }. On envoie national + tg.
+    // Même format pour Flooz et Mixx : numéro national + pays tg.
     const chargePhone = toFedapayChargePhone(phoneNumber);
     if (!chargePhone) {
       throw new BadRequestException('Numéro Mobile Money invalide');
@@ -262,29 +254,10 @@ export class FedapayService {
       this.logger.error(
         `Push MM FAIL txn=${transactionId} mode=${mode}: ${detail}`,
       );
-
-      // Compte sans collectes Mixx (togocel) activées → page Checkout FedaPay.
-      const unauthorized =
-        /op[eé]ration non autoris|not.?authorized|forbidden/i.test(detail);
-      if (unauthorized && paymentUrl) {
-        this.logger.warn(
-          `Mode ${mode} non autorisé en push — fallback redirect url pour txn=${transactionId}`,
-        );
-        return {
-          channel: 'redirect',
-          mode,
-          paymentUrl,
-          message:
-            'Mixx n’est pas activé en push sur FedaPay. Paie via la page sécurisée (choisis Mixx).',
-        };
-      }
-
       throw new BadRequestException(
         friendlyFedapayMessage(
           detail,
-          unauthorized
-            ? 'Mixx (togocel) n’est pas activé sur le compte FedaPay. Active-le dans le dashboard FedaPay ou contacte leur support.'
-            : "Impossible d'envoyer la demande Mobile Money. Vérifie le numéro et réessaie.",
+          "Impossible d'envoyer la demande Mobile Money. Vérifie le numéro et réessaie.",
         ),
       );
     }
