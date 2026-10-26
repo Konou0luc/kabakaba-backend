@@ -13,6 +13,9 @@ export class ComponentEntity extends BaseEntity {
   @ApiProperty({ example: 'Riz' })
   name: string;
 
+  @ApiProperty({ required: false, nullable: true, example: 'Nougbagba' })
+  localName: string | null;
+
   @ApiProperty({ enum: ComponentUnit })
   unit: ComponentUnit;
 
@@ -37,6 +40,9 @@ export class PublicComponentEntity {
   @ApiProperty({ example: 'Riz' })
   name: string;
 
+  @ApiProperty({ required: false, nullable: true, example: 'Nougbagba' })
+  localName: string | null;
+
   @ApiProperty({ required: false, nullable: true })
   categoryId: string | null;
 
@@ -48,6 +54,9 @@ export class PublicComponentEntity {
 
   @ApiProperty({ example: true, description: 'Vrai si le composant est disponible et que son stock est supérieur à 0' })
   available: boolean;
+
+  @ApiProperty({ example: false, description: 'Vrai si l’article peut être commandé sans plat' })
+  soldAlone: boolean;
 }
 
 export class StockAdjustmentEntity {

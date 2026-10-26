@@ -260,6 +260,8 @@ model Component {
   vendorId          String
   categoryId        String?
   name              String
+  /// Autre nom du même article, dans la langue locale. Exemple : Nougbagba pour Sauce tomate.
+  localName         String?
   unit              ComponentUnit
   quantity          Int           @default(0)
   priceTickets      Int           @default(0)

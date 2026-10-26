@@ -28,6 +28,23 @@ export class CreateComponentDto {
   @MaxLength(60)
   name: string;
 
+  @ApiProperty({
+    example: 'Nougbagba',
+    required: false,
+    nullable: true,
+    description: 'Autre nom du même article, dans la langue locale',
+  })
+  @Transform(({ value }) => {
+    if (value == null) return value;
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    return trimmed.length ? trimmed : null;
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  localName?: string | null;
+
   @ApiProperty({ enum: ComponentUnit, example: ComponentUnit.PORTION })
   @IsEnum(ComponentUnit)
   unit: ComponentUnit;

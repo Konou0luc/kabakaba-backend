@@ -85,6 +85,7 @@ export class ComponentsService {
       select: {
         id: true,
         name: true,
+        localName: true,
         categoryId: true,
         unit: true,
         priceTickets: true,
@@ -124,6 +125,7 @@ export class ComponentsService {
 
     const data: Prisma.ComponentUncheckedUpdateInput = {
       name: dto.name,
+      localName: dto.localName,
       categoryId: dto.categoryId,
       unit: dto.unit,
       priceTickets: dto.priceTickets,

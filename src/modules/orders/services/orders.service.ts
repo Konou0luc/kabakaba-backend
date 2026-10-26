@@ -250,7 +250,7 @@ export class OrdersService {
         totalTickets += component.priceTickets * requestedItem.quantity;
         orderItemsData.push({
           componentId: component.id,
-          name: component.name,
+          name: component.localName ? `${component.name} · ${component.localName}` : component.name,
           quantity: requestedItem.quantity,
           unitPrice: component.priceTickets,
           components: [{ componentId: component.id, quantity: requestedItem.quantity }],

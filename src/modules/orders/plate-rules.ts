@@ -7,15 +7,14 @@ export const PLATE_CATEGORY = {
   extra: 'En plus',
   choice: 'Au choix',
   always: 'Toujours mis',
+  drink: 'Jus & Boissons',
 } as const;
 
 /**
  * Un menu fixé peut être commandé seul.
- * Dès que la commande contient des articles libres et que la cantine a publié
- * un plat de base, ce plat est obligatoire — comme au comptoir, sans le riz
- * on ne prend pas seulement le poisson.
- * Si la cantine n'a pas encore de catégorie « Plat de base », l'ancienne
- * carte reste acceptée.
+ * Une boisson aussi : elle se vend seule.
+ * Un accompagnement (sauce, poisson) exige une nourriture de base dès que la
+ * cantine en a publié une.
  */
 export async function assertComposedPlateHasBase(
   tx: Prisma.TransactionClient,
@@ -24,6 +23,12 @@ export async function assertComposedPlateHasBase(
 ) {
   const ids = [...new Set(componentIds.filter(Boolean))];
   if (!ids.length) return;
+
+  const ordered = await tx.component.findMany({
+    where: { id: { in: ids }, deletedAt: null },
+    select: { categoryId: true, soldAlone: true },
+  });
+  if (!ordered.some((row) => !row.soldAlone)) return;
 
   const baseCategory = await tx.componentCategory.findFirst({
     where: { vendorId, deletedAt: null, name: PLATE_CATEGORY.base },
@@ -36,10 +41,7 @@ export async function assertComposedPlateHasBase(
   });
   if (!published) return;
 
-  const ordered = await tx.component.count({
-    where: { id: { in: ids }, deletedAt: null, categoryId: baseCategory.id },
-  });
-  if (!ordered) {
+  if (!ordered.some((row) => row.categoryId === baseCategory.id)) {
     throw new BadRequestException(
       'Choisis d’abord une nourriture de base (par exemple le riz). Sans elle, la commande n’est pas possible.',
     );
