@@ -147,6 +147,9 @@ model User {
   pinUpdatedAt       DateTime?
   notifyOrders       Boolean   @default(true)
   notifyPromotions   Boolean   @default(false)
+  // Null uniquement pour un compte créé après l'ajout du champ : l'étudiant
+  // doit accepter les CGU sur l'écran de bienvenue. Les comptes déjà là sont datés.
+  termsAcceptedAt    DateTime?
   // Dernier rappel « Programme ton repas » envoyé à l'étudiant (CDC 41), tous les 3 jours.
   lastSchedulingReminderAt DateTime?
   createdAt          DateTime  @default(now())

@@ -17,4 +17,13 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
   @IsOptional()
   @IsString()
   suspensionReason?: string;
+
+  @ApiProperty({
+    required: false,
+    description:
+      'Acceptation des conditions générales. true enregistre la date côté serveur. Jamais effaçable.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  acceptTerms?: boolean;
 }

@@ -208,6 +208,8 @@ export class UsersService {
       );
     }
 
+    const acceptTerms = isSelf && updateUserDto.acceptTerms === true;
+
     let payload: UpdateUserDto;
     if (isMobilePrivileged) {
       // Aucun rôle admin n'est émis pour l'application mobile.
@@ -257,6 +259,7 @@ export class UsersService {
     delete payload.isSuspended;
     delete payload.suspensionUntil;
     delete payload.suspensionReason;
+    delete payload.acceptTerms;
 
     if (payload.campusId !== undefined) {
       if (isSelf && current.role !== UserRole.STUDENT) {
@@ -271,7 +274,15 @@ export class UsersService {
       if (!campus) throw new NotFoundException('Campus invalide ou inexistant');
     }
 
-    const updated = await this.prisma.user.update({ where: { id }, data: payload });
+    const updated = await this.prisma.user.update({
+      where: { id },
+      data: {
+        ...payload,
+        ...(acceptTerms
+          ? { termsAcceptedAt: current.termsAcceptedAt ?? new Date() }
+          : {}),
+      },
+    });
     return sanitize(updated);
   }
 
