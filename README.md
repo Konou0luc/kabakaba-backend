@@ -31,7 +31,7 @@ consulter `src/` pour les valeurs par défaut et le caractère obligatoire de ch
 | Domaine | Variables |
 |---|---|
 | Base de données | `DATABASE_URL_PROD` |
-| Authentification | `JWT_ACCESS_SECRET`, `JWT_ACCESS_EXPIRES` (défaut `7d`), `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES` (défaut `7d`), `JWT_VENDOR_ACCESS_EXPIRES` (défaut `7d`), `JWT_VENDOR_REFRESH_EXPIRES` (défaut `7d`), `JWT_WEB_ACCESS_SECRET`, `TOTP_ENCRYPTION_KEY`, `WEB_AUTH_COOKIE_SECURE`, `WEB_AUTH_COOKIE_SAMESITE` |
+| Authentification | `JWT_ACCESS_SECRET`, `JWT_ACCESS_EXPIRES` (défaut `7d`, étudiant et vendeur), `JWT_REFRESH_SECRET`, `JWT_REFRESH_EXPIRES` (défaut `7d`, étudiant et vendeur), `JWT_WEB_ACCESS_SECRET`, `TOTP_ENCRYPTION_KEY`, `WEB_AUTH_COOKIE_SECURE`, `WEB_AUTH_COOKIE_SAMESITE` |
 | CORS et URL | `CORS_ALLOWED_ORIGINS`, `APP_URL` |
 | Crons internes | `CRON_SECRET` |
 | Commandes non récupérées | `UNCLAIMED_ORDER_DELAY_MINUTES` (facultative : entier positif, en minutes, défaut 60 ; toute autre valeur retombe sur 60) |

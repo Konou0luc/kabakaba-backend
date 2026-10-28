@@ -394,16 +394,11 @@ export class AuthService {
       );
     }
 
-    // Session = 7 jours après le dernier PIN. L'app ne redemande le code
-    // que lorsque ces jetons expirent — pas à chaque réouverture.
-    const accessExpiresIn =
-      role === UserRole.VENDOR
-        ? this.tokenTtl('JWT_VENDOR_ACCESS_EXPIRES', '7d')
-        : this.tokenTtl('JWT_ACCESS_EXPIRES', '7d');
-    const refreshExpiresIn =
-      role === UserRole.VENDOR
-        ? this.tokenTtl('JWT_VENDOR_REFRESH_EXPIRES', '7d')
-        : this.tokenTtl('JWT_REFRESH_EXPIRES', '7d');
+    // Étudiant et vendeur : 7 jours après le dernier PIN. Les variables
+    // JWT_VENDOR_* ne sont plus lues : elles raccourcissaient la session
+    // vendeur alors que l'étudiant restait connecté.
+    const accessExpiresIn = this.tokenTtl('JWT_ACCESS_EXPIRES', '7d');
+    const refreshExpiresIn = this.tokenTtl('JWT_REFRESH_EXPIRES', '7d');
 
     const [accessToken, refreshToken] = await Promise.all([
       this.jwtService.signAsync(

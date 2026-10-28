@@ -21,8 +21,6 @@ const NAMES: Record<MobileApp, { access: string; refresh: string; csrf: string }
 const PIN_SESSION_SECONDS = 7 * 24 * 60 * 60; // 7j après le dernier PIN
 const ACCESS_FALLBACK_SECONDS = PIN_SESSION_SECONDS;
 const REFRESH_FALLBACK_SECONDS = PIN_SESSION_SECONDS;
-const VENDOR_ACCESS_FALLBACK_SECONDS = PIN_SESSION_SECONDS;
-const VENDOR_REFRESH_FALLBACK_SECONDS = PIN_SESSION_SECONDS;
 
 function parseCookies(header?: string): Record<string, string> {
   if (!header) return {};
@@ -94,14 +92,8 @@ export function issueMobileSessionCookies(
   accessToken: string,
   refreshToken: string,
 ) {
-  const accessMaxAge =
-    app === 'vendor'
-      ? ttlSeconds('JWT_VENDOR_ACCESS_EXPIRES', VENDOR_ACCESS_FALLBACK_SECONDS)
-      : ttlSeconds('JWT_ACCESS_EXPIRES', ACCESS_FALLBACK_SECONDS);
-  const refreshMaxAge =
-    app === 'vendor'
-      ? ttlSeconds('JWT_VENDOR_REFRESH_EXPIRES', VENDOR_REFRESH_FALLBACK_SECONDS)
-      : ttlSeconds('JWT_REFRESH_EXPIRES', REFRESH_FALLBACK_SECONDS);
+  const accessMaxAge = ttlSeconds('JWT_ACCESS_EXPIRES', ACCESS_FALLBACK_SECONDS);
+  const refreshMaxAge = ttlSeconds('JWT_REFRESH_EXPIRES', REFRESH_FALLBACK_SECONDS);
   const csrf = crypto.randomBytes(32).toString('base64url');
   const names = NAMES[app];
   res.setHeader('Set-Cookie', [
