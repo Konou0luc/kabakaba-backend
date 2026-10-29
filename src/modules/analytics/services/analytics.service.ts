@@ -293,7 +293,7 @@ export class AnalyticsService {
     const perCampus = campuses.map((c) => {
       const agg = byCampus.get(c.id) ?? { surplus: 0, uncoveredFees: 0, rechargesGross: 0 };
       // uncoveredFees = frais de retrait que la plateforme absorbe à la place du
-      // vendeur (montant sous les seuils 10k/30k FCFA) : c'est un COÛT, donc on
+      // vendeur (montant sous les seuils 10k/19 900 FCFA) : c'est un COÛT, donc on
       // le soustrait du surplus (et non l'inverse, comme c'était fait par erreur avant).
       return { id: c.id, name: c.name, rechargesGross: agg.rechargesGross, surplus: agg.surplus, net: agg.surplus - agg.uncoveredFees };
     });
