@@ -435,25 +435,41 @@ export class PaymentsService {
     }
   }
 
-  /** Message lisible à partir du code d’erreur FedaPay. */
+  /**
+   * Phrase pour l’étudiant. Le code FedaPay reste dans les logs, jamais dans ce texte.
+   */
   explainFedapayError(code: string | null | undefined, operator?: string): string | null {
     if (!code) return null;
-    const c = String(code).toUpperCase();
-    if (c === 'ACCOUNT_NOT_FOUND') {
-      return operator === 'MIXX'
-        ? 'Ce numéro n’a pas de compte Mixx/Yas. Essaie Flooz (Moov) si c’est un numéro Moov.'
-        : 'Compte Mobile Money introuvable pour ce numéro / opérateur.';
+    const c = String(code)
+      .trim()
+      .toUpperCase()
+      .replace(/[\s-]+/g, '_');
+    if (!c || c === 'NO_ERROR' || c === 'NONE' || c === 'NULL') return null;
+
+    if (c.includes('PIN') || c.includes('SECRET')) {
+      return 'Code secret incorrect. Réessaie avec le bon code.';
     }
-    if (c === 'INSUFFICIENT_FUNDS' || c === 'BALANCE_INSUFFICIENT') {
+    if (c === 'ACCOUNT_NOT_FOUND' || c === 'CUSTOMER_NOT_FOUND') {
+      return operator === 'MIXX'
+        ? 'Ce numéro n’a pas de compte Mixx. Essaie Flooz si c’est un numéro Moov.'
+        : 'Ce numéro n’a pas de compte Flooz. Essaie Mixx si c’est un numéro Yas.';
+    }
+    if (c.includes('INSUFFICIENT') || c.includes('BALANCE')) {
       return 'Solde Mobile Money insuffisant.';
     }
-    if (c === 'USER_CANCELED' || c === 'CANCELLED_BY_CUSTOMER') {
+    if (c.includes('CANCEL')) {
       return 'Paiement annulé sur le téléphone.';
     }
-    if (c === 'TIMEOUT' || c === 'EXPIRED') {
-      return 'Délai dépassé — tu n’as pas validé le prompt à temps.';
+    if (c.includes('TIMEOUT') || c.includes('EXPIRED')) {
+      return 'Délai dépassé. Tu n’as pas validé la demande à temps.';
     }
-    return `Paiement refusé (${c}).`;
+    if (c.includes('LIMIT') || c.includes('MAX_AMOUNT') || c.includes('MIN_AMOUNT')) {
+      return 'Ce montant dépasse la limite de ton compte Mobile Money.';
+    }
+    if (c.includes('BLOCK') || c.includes('LOCK') || c.includes('SUSPEND')) {
+      return 'Ce compte Mobile Money est bloqué. Contacte ton opérateur.';
+    }
+    return 'Paiement refusé. Vérifie ton numéro et valide la demande sur ton téléphone.';
   }
 
   async findAll(page: number = 1, limit: number = 10, userId?: string) {
