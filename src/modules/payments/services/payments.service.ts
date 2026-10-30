@@ -52,12 +52,6 @@ export class PaymentsService {
     params: { amountFcfa?: number; ticketsReceived?: number; operator: string },
     userId: string,
   ) {
-    if (String(params.operator).toUpperCase() === 'MIXX') {
-      throw new BadRequestException(
-        'Le réseau Yas est en maintenance. Disponible bientôt',
-      );
-    }
-
     const user = await this.usersService.findOne(userId);
     if (!user) throw new NotFoundException('Utilisateur introuvable');
 
@@ -128,12 +122,6 @@ export class PaymentsService {
 
     if (payment.status !== PaymentStatus.PENDING) {
       throw new BadRequestException('Paiement déjà initié ou traité');
-    }
-
-    if (payment.operator === 'MIXX') {
-      throw new BadRequestException(
-        'Le réseau Yas est en maintenance. Disponible bientôt',
-      );
     }
 
     // Ne pas marquer FAILED ici : une erreur FedaPay (réseau, numéro, mode)
