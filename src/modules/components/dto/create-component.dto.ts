@@ -49,12 +49,11 @@ export class CreateComponentDto {
   @IsEnum(ComponentUnit)
   unit: ComponentUnit;
 
-  @ApiProperty({ example: 20, default: 0, required: false, description: 'Quantité initiale (entier ≥ 0)' })
-  @IsOptional()
+  @ApiProperty({ example: 20, description: 'Stock initial, saisi par la vendeuse (entier ≥ 0)' })
   @IsInt()
   @Min(0)
   @Max(COMPONENT_MAX_VALUE)
-  quantity?: number;
+  quantity: number;
 
   @ApiProperty({ example: 2, default: 0, required: false, description: 'Prix unitaire en tickets (entier ≥ 0)' })
   @IsOptional()

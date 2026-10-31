@@ -196,6 +196,20 @@ export class VendorsController {
     return this.vendorsService.findOne(id);
   }
 
+  @Post(':id/reset-access')
+  @ApiBearerAuth()
+  @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)
+  @Roles(UserRole.ADMIN)
+  @WebRoles(WebUserRole.ADMIN)
+  @ApiOperation({
+    summary:
+      'Nouveau mot de passe temporaire, PIN effacé, sessions révoquées. Le mot de passe n’est affiché qu’une fois.',
+  })
+  @ApiResponse({ status: 201, description: 'Mot de passe temporaire à communiquer à la vendeuse.' })
+  resetAccess(@Param('id') id: string) {
+    return this.vendorsService.resetAccess(id);
+  }
+
   @Patch(':id')
   @ApiBearerAuth()
   @UseGuards(CombinedJwtAuthGuard, CombinedRolesGuard)

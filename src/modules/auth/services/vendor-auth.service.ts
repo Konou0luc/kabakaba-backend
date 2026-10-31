@@ -83,6 +83,9 @@ export class VendorAuthService {
         "Aucune cantine n'est rattachée à ce compte. Contacte un administrateur kabakaba.",
       );
     }
+    if (!vendor.isActive) {
+      throw new ForbiddenException('Cette cantine est suspendue. Contacte Kabakaba.');
+    }
 
     // L'OTP n'est envoyé qu'après validation complète des identifiants, pour
     // ne pas transformer cette route en générateur de SMS gratuits.
@@ -222,6 +225,14 @@ export class VendorAuthService {
     role: UserRole;
     password?: string | null;
   }) {
+    const vendor = await this.prisma.vendor.findFirst({
+      where: { userId: user.id, deletedAt: null },
+      select: { id: true, canteenName: true, isActive: true, capacityStatus: true },
+    });
+    if (!vendor?.isActive) {
+      throw new ForbiddenException('Cette cantine est suspendue. Contacte Kabakaba.');
+    }
+
     const tokens = await this.authService.issueTokens(user.id, user.role);
     await this.authService.persistRefreshToken(
       user.id,
@@ -229,11 +240,6 @@ export class VendorAuthService {
       undefined,
       tokens.refreshExpiresIn,
     );
-
-    const vendor = await this.prisma.vendor.findFirst({
-      where: { userId: user.id, deletedAt: null },
-      select: { id: true, canteenName: true, isActive: true, capacityStatus: true },
-    });
 
     // La bienvenue push est déclenchée par le client APRÈS POST /devices
     // (voir POST /notifications/welcome) — sinon FCM part sans token.

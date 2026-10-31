@@ -99,6 +99,14 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       }
     }
 
+    if (user.role === UserRole.VENDOR) {
+      const vendor = await this.prisma.vendor.findFirst({
+        where: { userId: user.id, deletedAt: null },
+        select: { isActive: true },
+      });
+      if (!vendor?.isActive) return null;
+    }
+
     return { ...user, __authKind: 'mobile' as const };
   }
 }

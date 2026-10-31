@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { OrderStatus, UserRole, VendorCapacity } from '@prisma/client';
+import { randomInt } from 'crypto';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { CreateVendorDto } from '../dto/create-vendor.dto';
@@ -516,6 +517,44 @@ export class VendorsService {
       ...updated,
       balanceFcfa: Number(updated.balanceFcfa),
     };
+  }
+
+  /**
+   * Nouveau mot de passe temporaire, PIN effacé, sessions coupées.
+   * Le mot de passe n'est renvoyé qu'une fois : il n'est pas stocké en clair.
+   */
+  async resetAccess(id: string) {
+    const vendor = await this.prisma.vendor.findFirst({
+      where: { id, deletedAt: null },
+      select: { userId: true },
+    });
+    if (!vendor) throw new NotFoundException('Cantine introuvable');
+
+    const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+    const temporaryPassword = Array.from(
+      { length: 10 },
+      () => alphabet[randomInt(alphabet.length)],
+    ).join('');
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: vendor.userId },
+        data: {
+          password: await bcrypt.hash(temporaryPassword, SALT_ROUNDS),
+          mustChangePassword: true,
+          pinHash: null,
+          pinFailedAttempts: 0,
+          pinLockedUntil: null,
+          pinUpdatedAt: null,
+        },
+      }),
+      this.prisma.refreshToken.updateMany({
+        where: { userId: vendor.userId, revoked: false },
+        data: { revoked: true },
+      }),
+    ]);
+
+    return { temporaryPassword };
   }
 
   async uploadMeImage(
