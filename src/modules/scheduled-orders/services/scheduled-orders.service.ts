@@ -106,6 +106,7 @@ export class ScheduledOrdersService {
             ...(item.menuId ? { menuId: item.menuId } : {}),
             ...(item.componentId ? { componentId: item.componentId } : {}),
             quantity: item.quantity,
+            ...(item.plateKey ? { plateKey: item.plateKey } : {}),
           })),
         },
         include: SCHEDULED_ORDER_INCLUDE,
@@ -225,9 +226,14 @@ export class ScheduledOrdersService {
     if (!Array.isArray(scheduledOrder.items)) {
       throw new BadRequestException('Contenu de la commande programmée invalide');
     }
-    const items = (scheduledOrder.items as { menuId?: string; componentId?: string; quantity: number }[]).map(
-      (item) => ({ menuId: item.menuId, componentId: item.componentId, quantity: item.quantity }),
-    );
+    const items = (
+      scheduledOrder.items as { menuId?: string; componentId?: string; quantity: number; plateKey?: string }[]
+    ).map((item) => ({
+      menuId: item.menuId,
+      componentId: item.componentId,
+      quantity: item.quantity,
+      plateKey: item.plateKey,
+    }));
     assertItemsShape(items);
     return {
       vendorId: scheduledOrder.vendorId,

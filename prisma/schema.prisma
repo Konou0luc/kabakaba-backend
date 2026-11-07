@@ -342,7 +342,7 @@ model ScheduledOrder {
   scheduledFor     DateTime
   consumptionMode  ConsumptionMode
   takeawayOptionId String?
-  // Tableau de { menuId?, componentId?, quantity }, même forme que les lignes de POST /orders.
+  // Tableau de { menuId?, componentId?, quantity, plateKey? }, même forme que les lignes de POST /orders.
   items            Json
   status           ScheduledOrderStatus @default(PENDING)
   orderId          String?              @unique
@@ -434,6 +434,9 @@ model OrderItem {
   orderId     String
   menuId      String?
   componentId String?
+  /// Même valeur sur les lignes d’un plat composé (le pain et l’œuf qu’il contient).
+  /// Absent sur les commandes passées avant ce regroupement.
+  plateKey    String?
   name        String
   quantity    Int
   unitPrice   Int

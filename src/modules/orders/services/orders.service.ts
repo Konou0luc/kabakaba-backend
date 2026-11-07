@@ -28,6 +28,7 @@ interface Actor {
 // Lignes de commande renvoyées par create, findAll et findOne : nom, quantité et prix
 // unitaire figés, plus les composants (nom et unité) que la vendeuse doit préparer.
 const ORDER_ITEMS_INCLUDE = {
+  component: { select: { soldAlone: true, category: { select: { name: true } } } },
   components: { include: { component: { select: { name: true, unit: true } } } },
 } as const;
 
@@ -198,6 +199,7 @@ export class OrdersService {
     const orderItemsData: {
       menuId?: string;
       componentId?: string;
+      plateKey: string | null;
       name: string;
       quantity: number;
       unitPrice: number;
@@ -231,6 +233,7 @@ export class OrdersService {
         totalTickets += unitPrice * requestedItem.quantity;
         orderItemsData.push({
           menuId: menu.id,
+          plateKey: requestedItem.plateKey ?? null,
           name: menu.name,
           quantity: requestedItem.quantity,
           unitPrice,
@@ -250,6 +253,7 @@ export class OrdersService {
         totalTickets += component.priceTickets * requestedItem.quantity;
         orderItemsData.push({
           componentId: component.id,
+          plateKey: requestedItem.plateKey ?? null,
           name: component.localName ? `${component.name} · ${component.localName}` : component.name,
           quantity: requestedItem.quantity,
           unitPrice: component.priceTickets,
@@ -369,6 +373,7 @@ export class OrdersService {
           create: orderItemsData.map((item) => ({
             menuId: item.menuId,
             componentId: item.componentId,
+            plateKey: item.plateKey,
             name: item.name,
             quantity: item.quantity,
             unitPrice: item.unitPrice,

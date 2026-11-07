@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsNotEmpty, IsString, IsInt, Min, Max, IsOptional } from 'class-validator';
+import { IsNotEmpty, IsString, IsInt, Min, Max, IsOptional, MaxLength, Matches } from 'class-validator';
 
 /**
  * Le client choisit QUOI (un menu pré-composé OU un composant libre, et la
@@ -27,4 +27,15 @@ export class CreateOrderItemDto {
   @Min(1)
   @Max(50)
   quantity: number;
+
+  @ApiProperty({
+    required: false,
+    example: 'p_m1abc_k3',
+    description: 'Identifiant du plat composé. Les lignes qui partagent cette clé forment un seul plat.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  @Matches(/^[A-Za-z0-9_-]+$/)
+  plateKey?: string;
 }

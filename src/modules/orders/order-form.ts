@@ -7,19 +7,19 @@ import { ConsumptionMode } from '@prisma/client';
  * pour que les deux appliquent exactement les mêmes règles et les mêmes messages.
  */
 
-// Chaque ligne désigne exactement un menu OU un composant, et un même menu ou
-// composant n'apparaît qu'une fois (le client regroupe les quantités).
-export function assertItemsShape(items: { menuId?: string; componentId?: string }[]) {
+// Chaque ligne désigne exactement un menu OU un composant.
+// Un même article peut revenir dans un autre plat (deux pains composés
+// différemment). Dans un même plat, il n'apparaît qu'une fois.
+export function assertItemsShape(items: { menuId?: string; componentId?: string; plateKey?: string }[]) {
   if (items.some((item) => Boolean(item.menuId) === Boolean(item.componentId))) {
     throw new BadRequestException('Chaque ligne doit désigner un menu ou un composant, pas les deux ni aucun');
   }
-  const menuLineIds = items.flatMap((item) => (item.menuId ? [item.menuId] : []));
-  if (new Set(menuLineIds).size !== menuLineIds.length) {
-    throw new BadRequestException('Un menu ne peut apparaître que dans une seule ligne : regroupez les quantités');
+  if (items.some((item) => item.plateKey != null && !/^[A-Za-z0-9_-]{1,40}$/.test(item.plateKey))) {
+    throw new BadRequestException('Le regroupement du plat est invalide');
   }
-  const componentLineIds = items.flatMap((item) => (item.componentId ? [item.componentId] : []));
-  if (new Set(componentLineIds).size !== componentLineIds.length) {
-    throw new BadRequestException('Un composant ne peut apparaître que dans une seule ligne : regroupez les quantités');
+  const keys = items.map((item) => `${item.plateKey || ''}::${item.menuId || item.componentId}`);
+  if (new Set(keys).size !== keys.length) {
+    throw new BadRequestException('Un article ne peut apparaître qu’une fois dans le même plat : regroupez les quantités');
   }
 }
 
