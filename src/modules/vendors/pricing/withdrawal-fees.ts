@@ -1,36 +1,22 @@
 /**
- * Frais de retrait vendeur — barèmes réels (Togo).
+ * Retrait vendeur.
  *
- * Barèmes historiques conservés pour le calcul des frais produit.
- * Les retraits sont désormais exécutés manuellement par un administrateur :
- * aucun payout FedaPay n’est créé. Le barème FedaPay sous 10 000 FCFA reste
- * appliqué au vendeur, mais la somme est conservée dans la caisse Kabakaba.
- * Les barèmes cash Flooz/Mixx restent utilisés pour déterminer le montant
- * à envoyer lorsque le palier produit l’exige.
+ * Le solde n’est jamais débité de frais. À partir de 500 FCFA, la vendeuse
+ * retire le montant qu’elle demande.
  *
- * Paliers produit Kabakaba (qui paie quoi) :
- * - < 10 000  : vendeur paie les frais FedaPay (débités de son solde)
- * - 10 000 – 19 899 : plateforme paie FedaPay ; vendeur reçoit exactement le montant demandé
- * - ≥ 19 900  : on ajoute au montant envoyé les frais de retrait cash du réseau choisi
- *               (Yas ou Moov), selon le barème de ce réseau pour la somme demandée.
- *               Débit vendeur = montant demandé. Envoi = demandé + frais réseau.
+ * En dessous de 19 900 FCFA, on envoie exactement ce montant.
+ * À partir de 19 900 FCFA, l’argent arrive sur son mobile money, puis elle
+ * retire des espèces : l’opérateur (Mixx ou Moov) prend des frais. Kabakaba
+ * les ajoute au montant envoyé, pour qu’elle n’ait pas à les payer.
+ * Débit = montant demandé. Envoi = demandé + frais espèces du réseau.
  */
 
 export type MobileOperator = 'FLOOZ' | 'MIXX';
-export type WithdrawalTier = 'UNDER_10K' | 'FROM_10K_TO_30K' | 'FROM_30K';
+export type WithdrawalTier = 'NO_FEE' | 'NETWORK_HELP';
 
-const KABAKABA_TIER_LOW = 10_000;
-/** À partir de ce montant, les frais de retrait du réseau sont ajoutés à l’envoi. */
-const NETWORK_CASH_FROM = 19_900;
-
-/** Barème de frais conservé pour les retraits < 10 000 FCFA. */
-const FEDAPAY_PAYOUT_BRACKETS: Array<{ max: number; fee: number }> = [
-  { max: 10_000, fee: 150 },
-  { max: 50_000, fee: 300 },
-  { max: 150_000, fee: 800 },
-  { max: 500_000, fee: 2_000 },
-  { max: Infinity, fee: 2_500 },
-];
+export const MIN_WITHDRAWAL_FCFA = 500;
+/** À partir de ce montant, Kabakaba ajoute les frais de retrait espèces du réseau. */
+export const NETWORK_CASH_FROM = 19_900;
 
 /**
  * Retrait cash Flooz (Moov Africa Togo).
@@ -101,10 +87,6 @@ function feeFromBrackets(amount: number, brackets: Array<{ max: number; fee: num
   return brackets[brackets.length - 1].fee;
 }
 
-function fedapayPayoutFee(amountFcfa: number): number {
-  return feeFromBrackets(amountFcfa, FEDAPAY_PAYOUT_BRACKETS);
-}
-
 function feeInRange(
   amount: number,
   band: { min: number; max: number; feeMin: number; feeMax: number },
@@ -137,21 +119,21 @@ export interface WithdrawalFeeBreakdown {
   operator: MobileOperator;
   /** Montant demandé par le vendeur (ce qu’il veut « avoir »). */
   amountRequested: number;
-  /** Frais historiques appliqués au palier < 10k. En manuel, ils restent dans la caisse Kabakaba. */
+  /** Toujours 0 : aucun frais n’est retenu sur le solde de la vendeuse. */
   fedapayFee: number;
-  /** Frais retrait cash du réseau (0 sous 19 900 FCFA). */
+  /** Frais de retrait espèces du réseau, ajoutés par Kabakaba (0 sous 19 900 FCFA). */
   cashOutFee: number;
   /**
-   * Montant à envoyer sur le réseau (arrivé sur Moov/Yas).
+   * Montant à envoyer sur le mobile money.
    * - < 19 900 : = amountRequested
-   * - ≥ 19 900 : amountRequested + frais de retrait du réseau
+   * - ≥ 19 900 : amountRequested + frais de retrait espèces du réseau
    */
   payoutAmountToSend: number;
-  /** Débit sur balanceFcfa vendeur. */
+  /** Débit sur balanceFcfa vendeur : toujours le montant demandé. */
   debitedFromBalance: number;
-  /** Frais retenus dans la caisse Kabakaba sur ce retrait (palier < 10k). */
+  /** Toujours 0 : la vendeuse ne paie pas de frais. */
   vendorBorneFedapayFee: number;
-  /** Coût plateforme (FedaPay absorbé + cash ajouté). */
+  /** Argent ajouté par Kabakaba (frais espèces du réseau, à partir de 19 900). */
   platformCost: number;
   summaryLines: string[];
 }
@@ -166,75 +148,49 @@ export function computeWithdrawalFees(
   operator: MobileOperator = 'MIXX',
 ): WithdrawalFeeBreakdown {
   const amount = Math.floor(Number(amountRequested));
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throw new Error('Montant invalide');
+  if (!Number.isFinite(amount) || amount < MIN_WITHDRAWAL_FCFA) {
+    throw new Error(`Le retrait minimum est de ${MIN_WITHDRAWAL_FCFA} FCFA`);
   }
 
-  const fedapayFee = fedapayPayoutFee(amount);
-  const opCash = cashOutFee(amount, operator);
-
-  if (amount < KABAKABA_TIER_LOW) {
-    // Mode manuel : le vendeur supporte toujours le barème <10k.
-    // Aucun FedaPay n’est appelé : la différence reste dans la caisse Kabakaba.
-    // L’administrateur envoie manuellement le montant demandé.
-    return {
-      tier: 'UNDER_10K',
-      operator,
-      amountRequested: amount,
-      fedapayFee,
-      cashOutFee: 0,
-      payoutAmountToSend: amount,
-      debitedFromBalance: amount + fedapayFee,
-      vendorBorneFedapayFee: fedapayFee,
-      platformCost: 0,
-      summaryLines: [
-        `Montant demandé : ${amount} FCFA`,
-        `Frais FedaPay (à votre charge) : ${fedapayFee} FCFA`,
-        `Débit de votre solde : ${amount + fedapayFee} FCFA`,
-        `Vous recevrez sur ${operatorName(operator)} : ${amount} FCFA`,
-      ],
-    };
-  }
+  const network = operatorName(operator);
 
   if (amount < NETWORK_CASH_FROM) {
-    // 10 000 – 19 899 : aucun frais réseau n’est ajouté ; envoi du montant demandé.
     return {
-      tier: 'FROM_10K_TO_30K',
+      tier: 'NO_FEE',
       operator,
       amountRequested: amount,
-      fedapayFee,
+      fedapayFee: 0,
       cashOutFee: 0,
       payoutAmountToSend: amount,
       debitedFromBalance: amount,
       vendorBorneFedapayFee: 0,
-      platformCost: fedapayFee,
+      platformCost: 0,
       summaryLines: [
         `Montant demandé : ${amount} FCFA`,
-        `Frais FedaPay (pris en charge par Kabakaba) : ${fedapayFee} FCFA`,
-        `Débit de votre solde : ${amount} FCFA`,
-        `Vous recevrez sur ${operatorName(operator)} : ${amount} FCFA`,
+        `Aucun frais`,
+        `Débit du solde : ${amount} FCFA`,
+        `Envoi sur ${network} : ${amount} FCFA`,
       ],
     };
   }
 
-  // ≥ 19 900 : on ajoute les frais de retrait du réseau choisi au montant envoyé.
-  const network = operatorName(operator);
+  const opCash = cashOutFee(amount, operator);
   const payoutAmountToSend = amount + opCash;
   return {
-    tier: 'FROM_30K',
+    tier: 'NETWORK_HELP',
     operator,
     amountRequested: amount,
-    fedapayFee,
+    fedapayFee: 0,
     cashOutFee: opCash,
     payoutAmountToSend,
     debitedFromBalance: amount,
     vendorBorneFedapayFee: 0,
-    platformCost: fedapayFee + opCash,
+    platformCost: opCash,
     summaryLines: [
       `Montant demandé : ${amount} FCFA`,
-      `Frais de retrait ${network} : ${opCash} FCFA`,
-      `Débit de votre solde : ${amount} FCFA`,
-      `Montant envoyé sur ${network} : ${payoutAmountToSend} FCFA`,
+      `Kabakaba ajoute ${opCash} FCFA pour les frais de retrait espèces ${network}`,
+      `Débit du solde : ${amount} FCFA`,
+      `Envoi sur ${network} : ${payoutAmountToSend} FCFA`,
     ],
   };
 }

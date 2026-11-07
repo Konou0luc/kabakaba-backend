@@ -9,11 +9,12 @@ export enum WithdrawalOperatorDto {
 export class CreateWithdrawalDto {
   @ApiProperty({
     example: 15000,
-    description: 'Montant demandé en FCFA (ce que le vendeur veut recevoir sur son mobile money).',
+    description:
+      'Montant demandé en FCFA, minimum 500. Aucun frais en dessous de 19 900. À partir de 19 900, Kabakaba ajoute les frais de retrait espèces du réseau au montant envoyé.',
   })
   @IsNumber()
   @IsPositive()
-  @Min(1)
+  @Min(500, { message: 'Le retrait minimum est de 500 FCFA' })
   amount: number;
 
   @ApiProperty({

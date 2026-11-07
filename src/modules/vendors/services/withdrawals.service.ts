@@ -16,7 +16,7 @@ import * as crypto from 'crypto';
 import { PrismaService } from '../../../database/services/prisma.service';
 import { NotificationsService } from '../../notifications/services/notifications.service';
 import { CreateWithdrawalDto } from '../dto/create-withdrawal.dto';
-import { computeWithdrawalFees, MobileOperator } from '../pricing/withdrawal-fees';
+import { computeWithdrawalFees, MIN_WITHDRAWAL_FCFA, MobileOperator } from '../pricing/withdrawal-fees';
 
 interface UploadedProofFile {
   buffer: Buffer;
@@ -39,18 +39,14 @@ export class WithdrawalsService {
   ) {}
 
   preview(amount: number, operator: MobileOperator) {
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('Montant de retrait invalide');
-    }
+    this.assertAmount(amount);
     const fees = computeWithdrawalFees(amount, operator);
     return this.toRecap(fees);
   }
 
   async request(dto: CreateWithdrawalDto, actor: Actor) {
     const amount = Number(dto.amount);
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new BadRequestException('Montant de retrait invalide');
-    }
+    this.assertAmount(amount);
     const operator = (dto.operator || 'MIXX') as MobileOperator;
 
     const vendor = await this.prisma.vendor.findUnique({
@@ -97,8 +93,10 @@ export class WithdrawalsService {
           reference: withdrawal.id,
           description:
             `Demande de retrait ${amount} FCFA via ${operator}. ` +
-            `Net à envoyer : ${fees.payoutAmountToSend} FCFA. ` +
-            `Frais conservés par Kabakaba : ${fees.vendorBorneFedapayFee} FCFA.`,
+            `Net à envoyer : ${fees.payoutAmountToSend} FCFA.` +
+            (fees.cashOutFee > 0
+              ? ` Kabakaba ajoute ${fees.cashOutFee} FCFA pour les frais de retrait espèces.`
+              : ''),
         },
       });
 
@@ -407,6 +405,12 @@ export class WithdrawalsService {
     }
     await this.audit(actor.id, target === WithdrawalStatus.CANCELLED ? 'WITHDRAWAL_CANCELLED' : 'WITHDRAWAL_FAILED', id, { reason });
     return result;
+  }
+
+  private assertAmount(amount: number) {
+    if (!Number.isFinite(amount) || amount < MIN_WITHDRAWAL_FCFA) {
+      throw new BadRequestException(`Le retrait minimum est de ${MIN_WITHDRAWAL_FCFA} FCFA`);
+    }
   }
 
   private toRecap(fees: ReturnType<typeof computeWithdrawalFees>) {

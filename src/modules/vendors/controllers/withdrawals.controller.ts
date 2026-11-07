@@ -50,7 +50,7 @@ export class WithdrawalsController {
   @Roles(UserRole.VENDOR)
   @ApiOperation({
     summary: 'Demander un retrait (vendeur mobile)',
-    description: 'Le solde est débité immédiatement selon le barème. Le transfert est ensuite effectué manuellement par un administrateur Web.',
+    description: 'Le solde est débité du montant demandé, sans frais. À partir de 19 900 FCFA, Kabakaba ajoute les frais de retrait espèces du réseau au montant à envoyer. Le transfert est ensuite effectué manuellement par un administrateur Web.',
   })
   @ApiResponse({ status: 201, description: 'Retrait créé en attente de traitement manuel' })
   request(@Body() dto: CreateWithdrawalDto, @Request() req: any) {
